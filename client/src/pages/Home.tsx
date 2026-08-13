@@ -24,6 +24,8 @@ type AssetCheck = { width: number; height: number; transparent: boolean; status:
 
 const LINE_WIDTH = 370;
 const LINE_HEIGHT = 320;
+const LINE_PACK_SIZES = [8, 16, 24, 32, 40] as const;
+
 const LINE_OUTPUTS = [
   { key: "main", label: "主圖", size: "240 × 240", width: 240, height: 240, file: "main-image.png" },
   { key: "sticker", label: "貼圖圖片", size: "370 × 320", width: 370, height: 320, file: "sticker-01.png" },
@@ -106,6 +108,7 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [specReady, setSpecReady] = useState(false);
+  const [packSize, setPackSize] = useState<number>(8);
   const [generated, setGenerated] = useState(starterStickers);
   const [assetChecks, setAssetChecks] = useState<Record<string, AssetCheck>>({ [asset.dog]: { width: 1024, height: 1024, transparent: true, status: "needs" } });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -162,6 +165,10 @@ export default function Home() {
   }
 
   async function exportZip() {
+    if (generated.length !== packSize) {
+      toast.error("貼圖組數量尚未符合 LINE 規定", { description: generated.length < packSize ? `目前有 ${generated.length} 張，還需要 ${packSize - generated.length} 張。` : `目前有 ${generated.length} 張，請移除 ${generated.length - packSize} 張。` });
+      return;
+    }
     if (!generated.length) return;
     const zip = new JSZip();
     try {
@@ -194,7 +201,7 @@ export default function Home() {
     window.setTimeout(() => {
       setIsGenerating(false);
       const nextLabel = mode === "random" ? "兔子／突然起舞" : mode === "manual" ? `老鼠／${prompt || "好餓"}` : "狗狗／真棒";
-      setGenerated((current) => [{ src: mode === "manual" ? asset.mouse : mode === "random" ? asset.rabbit : asset.dog, label: nextLabel, color: mode === "random" ? "gold" : mode === "manual" ? "sage" : "red" }, ...current].slice(0, 4));
+      setGenerated((current) => [{ src: mode === "manual" ? asset.mouse : mode === "random" ? asset.rabbit : asset.dog, label: nextLabel, color: mode === "random" ? "gold" : mode === "manual" ? "sage" : "red" }, ...current].slice(0, packSize));
       toast.success("貼圖草稿完成", { description: "右側已經放上最新的一張。" });
     }, 900);
   }
@@ -250,7 +257,7 @@ export default function Home() {
             <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? "正在排版你的靈感…" : "生成這張貼圖"}</span><ChevronRight size={18} /></button>
           </section>
 
-          <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className="preview-count">{generated.length} / 8</span></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 最新在前</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color}`} key={`${sticker.label}-${index}`}><div className="sticker-art"><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></article>)}</div><div className="export-box"><div><b>一組貼圖，正在成形</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : "AI 去背後轉成透明 PNG，可打包下載。"}</p></div><button onClick={exportZip} disabled={!generated.length || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
+          <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className={`preview-count ${generated.length === packSize ? "valid" : "invalid"}`}>{generated.length} / {packSize}</span></div><div className="pack-size-panel"><div><b>選擇貼圖組數</b><small>LINE 靜態貼圖可選 8、16、24、32 或 40 張</small></div><div className="pack-size-options">{LINE_PACK_SIZES.map((size) => <button key={size} className={packSize === size ? "selected" : ""} onClick={() => setPackSize(size)}>{size}</button>)}</div><div className={`pack-status ${generated.length === packSize ? "ready" : "needs"}`}>{generated.length === packSize ? "✓ 數量符合，可匯出" : generated.length < packSize ? `還需要 ${packSize - generated.length} 張貼圖` : `請移除 ${generated.length - packSize} 張貼圖`}</div></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 最新在前</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color}`} key={`${sticker.label}-${index}`}><div className="sticker-art"><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></article>)}</div><div className="export-box"><div><b>{generated.length === packSize ? "貼圖組數量已就位" : "貼圖組還在成形"}</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : generated.length === packSize ? `共 ${packSize} 張，符合 LINE 規定。` : `完成 ${packSize} 張後才可下載 ZIP。`}</p></div><button onClick={exportZip} disabled={generated.length !== packSize || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
         </div>
       </main>
     </div>
