@@ -24,6 +24,12 @@ type AssetCheck = { width: number; height: number; transparent: boolean; status:
 
 const LINE_WIDTH = 370;
 const LINE_HEIGHT = 320;
+const LINE_OUTPUTS = [
+  { key: "main", label: "主圖", size: "240 × 240", width: 240, height: 240, file: "main-image.png" },
+  { key: "sticker", label: "貼圖圖片", size: "370 × 320", width: 370, height: 320, file: "sticker-01.png" },
+  { key: "chat", label: "聊天縮圖", size: "96 × 74", width: 96, height: 74, file: "chat-thumbnail.png" },
+  { key: "label", label: "標籤圖", size: "96 × 74", width: 96, height: 74, file: "sticker-label.png" },
+] as const;
 
 function inspectImage(src: string, onDone: (result: AssetCheck) => void) {
   const image = new Image();
@@ -61,21 +67,21 @@ async function aiForeground(src: string, onProgress?: (progress: number) => void
   });
 }
 
-async function toLinePng(src: string, useAiBackgroundRemoval = true, onProgress?: (progress: number) => void): Promise<Blob> {
+async function renderLineAsset(src: string, width = LINE_WIDTH, height = LINE_HEIGHT, useAiBackgroundRemoval = true, onProgress?: (progress: number) => void): Promise<Blob> {
   const foregroundBlob = useAiBackgroundRemoval ? await aiForeground(src, onProgress) : await (await fetch(src)).blob();
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = LINE_WIDTH;
-      canvas.height = LINE_HEIGHT;
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return reject(new Error("Canvas unavailable"));
-      ctx.clearRect(0, 0, LINE_WIDTH, LINE_HEIGHT);
-      const scale = Math.min((LINE_WIDTH - 36) / image.naturalWidth, (LINE_HEIGHT - 36) / image.naturalHeight);
+      ctx.clearRect(0, 0, width, height);
+      const scale = Math.min((width - 18) / image.naturalWidth, (height - 18) / image.naturalHeight);
       const drawWidth = image.naturalWidth * scale;
       const drawHeight = image.naturalHeight * scale;
-      ctx.drawImage(image, (LINE_WIDTH - drawWidth) / 2, (LINE_HEIGHT - drawHeight) / 2, drawWidth, drawHeight);
+      ctx.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
       canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG export failed")), "image/png");
       URL.revokeObjectURL(image.src);
     };
@@ -83,6 +89,8 @@ async function toLinePng(src: string, useAiBackgroundRemoval = true, onProgress?
     image.src = URL.createObjectURL(foregroundBlob);
   });
 }
+
+const toLinePng = (src: string, useAiBackgroundRemoval = true, onProgress?: (progress: number) => void) => renderLineAsset(src, LINE_WIDTH, LINE_HEIGHT, useAiBackgroundRemoval, onProgress);
 
 const starterStickers = [
   { src: asset.rabbit, label: "兔子／睡著了", color: "sage" },
@@ -97,6 +105,7 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [specReady, setSpecReady] = useState(false);
   const [generated, setGenerated] = useState(starterStickers);
   const [assetChecks, setAssetChecks] = useState<Record<string, AssetCheck>>({ [asset.dog]: { width: 1024, height: 1024, transparent: true, status: "needs" } });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -138,6 +147,20 @@ export default function Home() {
     } finally { window.setTimeout(() => { setIsProcessing(false); setProcessingProgress(0); }, 400); }
   }
 
+  async function prepareLineSet() {
+    if (!generated.length || isProcessing) return;
+    setIsProcessing(true);
+    setProcessingProgress(2);
+    try {
+      const source = generated[0].src;
+      await Promise.all(LINE_OUTPUTS.filter((item) => item.key !== "sticker").map((item, index) => renderLineAsset(source, item.width, item.height, true, (progress) => setProcessingProgress(Math.min(96, Math.round(((index + progress / 100) / 3) * 96))))));
+      setSpecReady(true);
+      setProcessingProgress(100);
+      toast.success("LINE 四類尺寸已整理", { description: "主圖、貼圖、聊天縮圖與標籤圖都已準備好。" });
+    } catch { toast.error("尺寸整理失敗", { description: "請確認貼圖素材仍可讀取。" }); }
+    finally { window.setTimeout(() => { setIsProcessing(false); setProcessingProgress(0); }, 400); }
+  }
+
   async function exportZip() {
     if (!generated.length) return;
     const zip = new JSZip();
@@ -145,10 +168,13 @@ export default function Home() {
       setIsProcessing(true);
       setProcessingProgress(3);
       await Promise.all(generated.map(async (sticker, index) => {
-        const blob = await toLinePng(sticker.src, true, (progress) => setProcessingProgress(Math.min(96, Math.round(((index + progress / 100) / generated.length) * 96))));
+        const blob = await renderLineAsset(sticker.src, LINE_WIDTH, LINE_HEIGHT, true, (progress) => setProcessingProgress(Math.min(88, Math.round(((index + progress / 100) / generated.length) * 88))));
         zip.file(`${String(index + 1).padStart(2, "0")}_sticker.png`, blob);
       }));
-      zip.file("README.txt", "隨心所遇貼圖製作\n已套用 LINE 貼圖建議畫布：370 × 320 px\n透明背景 PNG\n");
+      const source = generated[0].src;
+      const extras = await Promise.all(LINE_OUTPUTS.filter((item) => item.key !== "sticker").map((item) => renderLineAsset(source, item.width, item.height, true)));
+      extras.forEach((blob, index) => zip.file(LINE_OUTPUTS.filter((item) => item.key !== "sticker")[index].file, blob));
+      zip.file("README.txt", "隨心所遇貼圖製作\nLINE 靜態貼圖輸出規格\n主圖：240 × 240 px\n貼圖圖片：370 × 320 px\n聊天縮圖：96 × 74 px\n標籤圖：96 × 74 px\n全部為透明背景 PNG，ZIP 已自動縮放與置中。\n");
       const file = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(file);
       const anchor = document.createElement("a");
@@ -224,7 +250,7 @@ export default function Home() {
             <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? "正在排版你的靈感…" : "生成這張貼圖"}</span><ChevronRight size={18} /></button>
           </section>
 
-          <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className="preview-count">{generated.length} / 8</span></div><div className="shelf-rule"><span /> 最新在前</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color}`} key={`${sticker.label}-${index}`}><div className="sticker-art"><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></article>)}</div><div className="export-box"><div><b>一組貼圖，正在成形</b><p>{isProcessing ? `AI 去背與打包中 ${processingProgress}%` : "AI 去背後轉成透明 PNG，可打包下載。"}</p></div><button onClick={exportZip} disabled={!generated.length || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
+          <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className="preview-count">{generated.length} / 8</span></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 最新在前</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color}`} key={`${sticker.label}-${index}`}><div className="sticker-art"><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></article>)}</div><div className="export-box"><div><b>一組貼圖，正在成形</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : "AI 去背後轉成透明 PNG，可打包下載。"}</p></div><button onClick={exportZip} disabled={!generated.length || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
         </div>
       </main>
     </div>
