@@ -71,3 +71,50 @@ button:active { transform:scale(.98); }
 
 /* Per-card retry: replace only the unsatisfying result while keeping its source and action. */
 .sticker-actions { display:flex; align-items:center; gap:7px; }.retry-button { display:flex; align-items:center; gap:3px; border:0; padding:2px 0; background:transparent; color:var(--red); font-size:9px; }.retry-button:hover { color:var(--red-dark); }.retry-button:disabled { opacity:.55; cursor:wait; }.retry-button .spin { animation:spin .75s linear infinite; }
+
+/* Logo-inspired brand layer: warm cream paper, caramel ink, hand-drawn seals, and bakery tones. */
+:root { --paper:#FBF6ED; --paper-deep:#EFE1CC; --ink:#4A2B1B; --muted:#8C6C51; --line:#D8BB94; --red:#A8612D; --red-dark:#7A421C; --sage:#B7A47A; --gold:#D58A36; --white:#FFFDF8; --radius:18px; }
+body { background:var(--paper); color:var(--ink); }
+.app-shell { background:radial-gradient(circle at 75% 10%, rgba(232,194,145,.18), transparent 30%), var(--paper); }
+.sidebar { background:rgba(251,246,237,.88); border-right-color:rgba(173,125,76,.28); }
+.brand-lockup { gap:12px; }
+.brand-mark { width:48px; height:48px; border-radius:50%; object-fit:cover; object-position:center; border:2px solid #B88650; box-shadow:0 2px 0 rgba(122,66,28,.12); }
+.brand-name { color:#6B3D1F; letter-spacing:.08em; }
+.brand-sub { color:#A27752; }
+.side-rule,.topbar,.material-zone,.preview-panel,.shelf-rule,.line-spec-panel,.export-box { border-color:rgba(173,125,76,.28); }
+.nav-item { border-radius:999px; color:#987454; }
+.nav-item:hover,.nav-item.active { color:#63391F; background:#F0E2CE; }
+.nav-item.active { box-shadow:inset 0 0 0 1px rgba(168,97,45,.13); }
+.side-kicker,.section-index { color:#A27752; }
+.side-kicker span,.section-index { color:#A8612D; }
+.topbar { background:rgba(255,253,248,.2); }
+.hero-strip { position:relative; }
+.hero-copy h1 { color:#4A2B1B; }
+.hero-copy h1 em { color:#A8612D; }
+.hero-copy h1 em::after { background:#E4B56F; border-radius:999px; }
+.hero-image { border:2px solid #B88650; border-radius:50%; overflow:hidden; box-shadow:8px 10px 0 rgba(123,72,31,.12), inset 0 0 0 7px rgba(255,253,248,.58); transform:rotate(1deg); }
+.hero-image::after { content:""; position:absolute; inset:8px; border:1px solid rgba(168,97,45,.46); border-radius:50%; pointer-events:none; }
+.hero-image img { filter:saturate(.88) sepia(.08); }
+.hero-stamp { border-color:#B88650; background:#FBF1E0; color:#A8612D; }
+.paper-tag { border-color:#C89D70; color:#A8612D; background:#FBF1E0; border-radius:999px; }
+.mode-tab { border-color:rgba(173,125,76,.34); background:rgba(255,253,248,.66); border-radius:16px; }
+.mode-tab.selected { border-color:#A8612D; background:#FFFDF8; box-shadow:4px 5px 0 #E8D4B8; }
+.mode-no,.mode-tab svg,.material-count,.preview-count,.outline-button:hover,.transparent-button,.export-box button,.sticker-footer button { color:#A8612D; }
+.upload-icon,.thumb,.add-thumb,.prompt-input-wrap textarea,.line-spec-item,.quality-item { border-color:rgba(173,125,76,.36); background:#FFFDF8; }
+.upload-icon { border-radius:14px; }
+.outline-button { border-color:#C69B6B; border-radius:999px; background:#FFFDF8; }
+.prompt-input-wrap textarea { border-radius:14px; }
+.prompt-input-wrap textarea:focus { border-color:#A8612D; box-shadow:3px 3px 0 #E8C8A5; }
+.generate-button { background:#A8612D; border-radius:999px; box-shadow:0 5px 0 #7A421C; }
+.generate-button:hover { background:#8D4F25; box-shadow:5px 8px 0 #E4C39D; }
+.button-seal { background:#E9B66F; }
+.preview-panel { background:rgba(255,253,248,.16); }
+.sticker-card { border-color:rgba(173,125,76,.34); border-radius:16px; box-shadow:3px 5px 0 #E8D6BE; }
+.sticker-art { border-radius:11px; }
+.sticker-caption { border-radius:999px; color:#63391F; }
+.sticker-card.red .sticker-art { background:#F3D7BD; }.sticker-card.sage .sticker-art { background:#E6E1C9; }.sticker-card.gold .sticker-art { background:#F5E2BD; }
+.spec-badge.pending,.pack-status.needs { color:#8D5227; background:#F4DEC3; border-radius:999px; }
+.spec-badge.ready,.pack-status.ready { color:#5E6B3C; background:#E4E7CE; border-radius:999px; }
+.completion-track { background:#EBDCC7; }.completion-fill { background:#B9783A; }
+.chat-preview { border-color:#D8BB94; border-radius:22px; }
+@media (max-width:760px){ .brand-mark{width:42px;height:42px}.hero-image{border-width:2px}.hero-image::after{inset:6px}.generate-button{box-shadow:0 4px 0 #7A421C} }

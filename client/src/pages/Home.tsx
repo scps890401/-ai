@@ -12,7 +12,7 @@ import { pickRandomStickerConcept } from "@/lib/stickerLanguage";
 type Mode = "random" | "agent" | "manual";
 
 const asset = {
-  mark: "/manus-storage/sticker-muse-mark_7f6de730.png",
+  mark: "/manus-storage/logo_eb1eca16.jpg",
   hero: "/manus-storage/sticker-muse-hero_4aa9242d.jpg",
   rabbit: "/manus-storage/rabbit-sticker_b3475c07.png",
   dog: "/manus-storage/dog-sticker_6c3a87c4.png",
