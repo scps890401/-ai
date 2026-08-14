@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { addRandomSticker, randomGenerationError, replaceStickerAt } from "@/lib/randomStickerUi";
 import type { RandomStickerCard } from "@/lib/randomStickerUi";
 import { generateWithRetry, regenerateSingleSticker } from "@/lib/retryRandomSticker";
+import { pickRandomStickerConcept } from "@/lib/stickerLanguage";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -112,8 +113,6 @@ async function imageInputFromSource(src: string) {
   return { b64Json: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl, mimeType: blob.type || "image/png" };
 }
 
-const randomActions = ["突然起舞", "趴下睡覺", "探頭打招呼", "開心跳起來", "偷偷吃點心", "睜大眼睛驚訝"];
-
 const starterStickers: RandomStickerCard[] = [
   { src: asset.rabbit, label: "兔子／睡著了", color: "sage" },
   { src: asset.dog, label: "狗狗／真棒", color: "red" },
@@ -126,6 +125,7 @@ export default function Home() {
   const [uploaded, setUploaded] = useState<string[]>([asset.dog]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
+  const [recentConceptKeys, setRecentConceptKeys] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [specReady, setSpecReady] = useState(false);
@@ -275,12 +275,13 @@ export default function Home() {
       const sourceIndex = Math.floor(Math.random() * uploaded.length);
       const source = uploaded[sourceIndex];
       const sourceName = source === asset.rabbit ? "兔子" : source === asset.dog ? "狗狗" : source === asset.mouse ? "老鼠" : `素材 ${String(sourceIndex + 1).padStart(2, "0")}`;
-      const randomAction = randomActions[Math.floor(Math.random() * randomActions.length)];
+      const concept = pickRandomStickerConcept(recentConceptKeys);
+      setRecentConceptKeys((current) => [concept.scenarioKey, ...current].slice(0, 8));
       setIsGenerating(true);
       try {
-        const result = await generateRandomWithRetry(source, randomAction);
-        setGenerated((current) => addRandomSticker(current, { url: result.url, label: `${sourceName}／${randomAction}`, source, action: randomAction }, packSize));
-        toast.success("AI 已根據角色照片完成隨機貼圖", { description: `保留「${sourceName}」的外觀，並生成「${randomAction}」動作。` });
+        const result = await generateRandomWithRetry(source, concept.action);
+        setGenerated((current) => addRandomSticker(current, { url: result.url, label: `${sourceName}／${concept.text}`, source, action: concept.action }, packSize));
+        toast.success("AI 已根據角色照片完成隨機貼圖", { description: `保留「${sourceName}」的外觀，生成「${concept.scenario}」情境：${concept.text}。` });
       } catch (error) {
         console.error("Random sticker generation failed", error);
         const failure = randomGenerationError();
