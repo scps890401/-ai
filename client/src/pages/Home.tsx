@@ -11,6 +11,8 @@ import { generateWithRetry, regenerateSingleSticker } from "@/lib/retryRandomSti
 import { pickRandomStickerConcept } from "@/lib/stickerLanguage";
 import { collectBatchResults, createBatchStickerJobs, mergeBatchResults } from "@/lib/batchGeneration";
 import { buildLearningPayload, shouldSaveLearning } from "@/lib/learningUi";
+import { LOTTERY_CONCEPTS, pickLotteryConcept, type LotteryConcept } from "@/lib/lotteryConcepts";
+import { buildLotteryAgentState } from "@/lib/lotteryAgentUi";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -138,6 +140,10 @@ export default function Home() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
   const [recentConceptKeys, setRecentConceptKeys] = useState<string[]>([]);
+  const [recentLotteryIds, setRecentLotteryIds] = useState<string[]>([]);
+  const [lotteryConcept, setLotteryConcept] = useState<LotteryConcept | null>(null);
+  const [lotteryImageUrl, setLotteryImageUrl] = useState("");
+  const [lotteryBusy, setLotteryBusy] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [specReady, setSpecReady] = useState(false);
@@ -149,6 +155,7 @@ export default function Home() {
   const [chatTone, setChatTone] = useState<"light" | "soft" | "dark">("light");
   const [assetChecks, setAssetChecks] = useState<Record<string, AssetCheck>>({ [asset.dog]: { width: 1024, height: 1024, transparent: true, status: "needs" } });
   const randomGenerate = trpc.stickers.randomGenerate.useMutation();
+  const lotteryGenerate = trpc.stickers.lotteryGenerate.useMutation();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const activeMode = useMemo(() => modes.find((item) => item.id === mode)!, [mode]);
@@ -160,6 +167,39 @@ export default function Home() {
     if (next === "random") setPrompt("讓這幾個角色做一件出乎意料的事");
     if (next === "agent") setPrompt("這隻狗說：真棒");
     if (next === "manual") setPrompt("好餓");
+  }
+
+  function drawLottery() {
+    const concept = pickLotteryConcept(recentLotteryIds);
+    setLotteryConcept(concept);
+    setLotteryImageUrl("");
+    setRecentLotteryIds((current) => [concept.id, ...current].slice(0, 12));
+  }
+
+  async function generateLotterySticker() {
+    const concept = lotteryConcept ?? pickLotteryConcept(recentLotteryIds);
+    setLotteryConcept(concept);
+    setLotteryBusy(true);
+    try {
+      const result = await lotteryGenerate.mutateAsync({ text: concept.text, action: concept.action, character: concept.character, creative: concept.creative });
+      setLotteryImageUrl(result.url);
+      setGenerated((current) => mergeBatchResults(current, [{ src: result.url, label: `${concept.character}／${concept.text}`, color: "gold" }], packSize));
+      toast.success("抽獎貼圖完成", { description: "喜歡這個靈感嗎？可以帶入代理生成繼續修改。" });
+    } catch (error) {
+      toast.error("抽獎生成失敗", { description: error instanceof Error ? error.message : "請稍後再試" });
+    } finally {
+      setLotteryBusy(false);
+    }
+  }
+
+  function useLotteryInAgent() {
+    if (!lotteryConcept) return;
+    const state = buildLotteryAgentState(lotteryConcept, lotteryImageUrl);
+    setMode("agent");
+    setPrompt(state.prompt);
+    setImagePrompts(state.imagePrompts);
+    if (state.uploaded.length) setUploaded(state.uploaded);
+    toast.success("已帶入代理生成", { description: `文字與動作已帶入：${lotteryConcept.action}` });
   }
 
   function inspectAsset(src: string) {
@@ -378,6 +418,7 @@ export default function Home() {
           <section className="editor-panel">
             <div className="section-heading"><div><div className="section-index">01 / CHOOSE YOUR METHOD</div><h2>你想怎麼做？</h2></div><span className="paper-tag">WORKFLOW</span></div>
             <div className="mode-tabs">{modes.map(({ id, no, title, caption, icon: Icon }) => <button key={id} onClick={() => switchMode(id)} className={`mode-tab ${mode === id ? "selected" : ""}`}><span className="mode-no">{no}</span><Icon size={17} strokeWidth={1.8} /><span className="mode-title">{title}</span><small>{caption}</small>{mode === id && <Check className="mode-check" size={15} />}</button>)}</div>
+            <div className="lottery-card"><div className="lottery-card-head"><div><span className="section-index">BONUS / STICKER LOTTERY</span><h3>不放照片，也能抽一張貼圖</h3><p>從 {LOTTERY_CONCEPTS.length} 組原創情境抽靈感，像抽獎一樣隨機生成。</p></div><span className="lottery-count">{LOTTERY_CONCEPTS.length} 組</span></div><div className="lottery-actions"><button className="lottery-draw" onClick={drawLottery} disabled={lotteryBusy}>抽一組靈感</button><button className="lottery-generate" onClick={generateLotterySticker} disabled={lotteryBusy}>{lotteryBusy ? "AI 生成中…" : "生成這張貼圖"}</button></div>{lotteryConcept && <div className="lottery-result"><div><b>{lotteryConcept.text}</b><small>{lotteryConcept.character} · {lotteryConcept.action}</small><em>{lotteryConcept.creative}</em></div><div className="lottery-result-actions">{lotteryImageUrl && <button onClick={useLotteryInAgent}>帶入代理修改</button>}<button onClick={drawLottery}>再抽一組</button></div></div>}</div>
 
             <div className="section-heading compact"><div><div className="section-index">02 / ADD YOUR MATERIAL</div><h2>{activeMode.title}</h2><small className="material-mode-note">{mode === "random" ? "每張照片都會各自生成一張隨機貼圖" : mode === "agent" ? "每張角色照片都會各自套用你的指定句子" : "每張角色照片都會各自建立對話框"}</small></div><span className="material-count">{uploaded.length} 張素材</span></div>
             <div className="material-zone">

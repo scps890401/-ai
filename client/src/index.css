@@ -137,3 +137,23 @@ body { background:var(--paper); color:var(--ink); }
 .learning-toggle.active { background:#A8612D; color:#FFF9F0; border-color:#A8612D; }
 .learning-clear { color:#9D6756; }
 @media (max-width:760px){ .learning-panel { align-items:flex-start; flex-direction:column; gap:9px; }.learning-actions { width:100%; justify-content:flex-end; } }
+
+.lottery-card { margin:18px 0 24px; padding:16px; border:1px solid rgba(173,125,76,.42); border-radius:18px; background:linear-gradient(135deg,rgba(255,253,247,.92),rgba(250,239,218,.72)); box-shadow:0 8px 20px rgba(112,70,35,.08); }
+.lottery-card-head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+.lottery-card h3 { margin:4px 0 3px; color:#623C24; font-size:18px; }
+.lottery-card p { margin:0; color:#9A7658; font-size:11px; line-height:1.6; }
+.lottery-count { flex:none; color:#A8612D; border:1px solid rgba(168,97,45,.35); border-radius:999px; padding:5px 8px; font-size:10px; background:#FFF9EE; }
+.lottery-actions { display:flex; gap:8px; margin-top:14px; }
+.lottery-draw, .lottery-generate { flex:1; min-height:38px; border-radius:999px; cursor:pointer; font-size:11px; transition:transform .16s ease, background .16s ease; }
+.lottery-draw { border:1px solid rgba(168,97,45,.5); color:#8A5A32; background:#FFFDF8; }
+.lottery-generate { border:1px solid #A8612D; color:#FFF9F0; background:#A8612D; }
+.lottery-draw:hover, .lottery-generate:hover { transform:translateY(-1px); }
+.lottery-result { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:13px; padding:11px 12px; border-radius:12px; background:rgba(255,255,255,.62); border:1px dashed rgba(168,97,45,.35); }
+.lottery-result b, .lottery-result small, .lottery-result em { display:block; }
+.lottery-result b { color:#633F26; font-size:13px; }
+.lottery-result small { margin-top:3px; color:#8D6C51; font-size:10px; }
+.lottery-result em { margin-top:4px; color:#B1825F; font-size:10px; font-style:normal; }
+.lottery-result-actions { display:flex; flex-direction:column; gap:5px; flex:none; }
+.lottery-result-actions button { border:0; background:transparent; color:#A8612D; cursor:pointer; font-size:10px; white-space:nowrap; }
+.lottery-result-actions button:first-child { font-weight:700; }
+@media (max-width:760px){ .lottery-card-head { flex-direction:column; }.lottery-count { align-self:flex-start; }.lottery-result { align-items:flex-start; flex-direction:column; }.lottery-result-actions { width:100%; flex-direction:row; justify-content:flex-end; }.lottery-result-actions button { padding:3px 0 0 9px; } }

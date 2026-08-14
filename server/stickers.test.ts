@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { buildRandomStickerPrompt, generateRandomSticker, randomStickerInput } from "./stickers";
+import { buildLotteryStickerPrompt, buildRandomStickerPrompt, generateLotterySticker, generateRandomSticker, lotteryStickerInput, randomStickerInput } from "./stickers";
 
 describe("random sticker generation", () => {
+  it("builds a no-reference lottery prompt from an original concept", () => {
+    const prompt = buildLotteryStickerPrompt({ text: "早安，今天也要亮晶晶", action: "從棉被探出頭伸懶腰", character: "圓滾滾的小兔子", creative: "晨光、吐司與小星星" });
+    expect(prompt).toContain("with no reference photo");
+    expect(prompt).toContain("早安，今天也要亮晶晶");
+    expect(prompt).toContain("圓滾滾的小兔子");
+  });
+
+  it("generates a lottery sticker without sending original images", async () => {
+    const calls: Array<{ prompt: string; originalImages?: unknown }> = [];
+    const result = await generateLotterySticker({ text: "先笑再說", action: "戴著派對眼鏡噴出彩帶", character: "小企鵝", creative: "彩帶形成笑臉" }, async (input) => { calls.push(input); return { url: "https://generated.test/lottery.png" }; });
+    expect(result.url).toBe("https://generated.test/lottery.png");
+    expect(calls[0]?.originalImages).toBeUndefined();
+  });
   it("builds an image-edit prompt that preserves the supplied character", () => {
     const prompt = buildRandomStickerPrompt("趴下睡覺");
 
@@ -31,6 +44,11 @@ describe("random sticker generation", () => {
     expect(received[0]?.prompt).toContain("趴下睡覺");
     expect(received[1]?.prompt).toContain("開心跳起來");
     expect(received[2]?.prompt).toContain("探頭打招呼");
+  });
+
+  it("validates lottery concept fields", () => {
+    expect(() => lotteryStickerInput.parse({ text: "", action: "動作", character: "角色", creative: "創意" })).toThrow();
+    expect(lotteryStickerInput.parse({ text: "早安", action: "揮手", character: "小兔子", creative: "暖色手繪" })).toEqual({ text: "早安", action: "揮手", character: "小兔子", creative: "暖色手繪" });
   });
 
   it("surfaces generator failures and rejects empty or underspecified inputs", async () => {
