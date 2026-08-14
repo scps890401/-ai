@@ -8,6 +8,7 @@ import { addRandomSticker, randomGenerationError, replaceStickerAt } from "@/lib
 import type { RandomStickerCard } from "@/lib/randomStickerUi";
 import { generateWithRetry, regenerateSingleSticker } from "@/lib/retryRandomSticker";
 import { pickRandomStickerConcept } from "@/lib/stickerLanguage";
+import { collectBatchResults, createBatchStickerJobs, mergeBatchResults } from "@/lib/batchGeneration";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -124,6 +125,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState("這隻狗說：真棒");
   const [uploaded, setUploaded] = useState<string[]>([asset.dog]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
   const [recentConceptKeys, setRecentConceptKeys] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -266,40 +268,62 @@ export default function Home() {
   }
 
   async function createSticker() {
-    if (mode === "random" && !uploaded.length) {
-      toast.error("請先放入角色照片", { description: "隨機生成會以你提供的照片作為角色來源。" });
+    if (!uploaded.length) {
+      toast.error("請先放入角色照片", { description: "每張上傳照片都會對應產出一張貼圖。" });
       return;
     }
 
-    if (mode === "random") {
-      const sourceIndex = Math.floor(Math.random() * uploaded.length);
-      const source = uploaded[sourceIndex];
-      const sourceName = source === asset.rabbit ? "兔子" : source === asset.dog ? "狗狗" : source === asset.mouse ? "老鼠" : `素材 ${String(sourceIndex + 1).padStart(2, "0")}`;
-      const concept = pickRandomStickerConcept(recentConceptKeys);
-      setRecentConceptKeys((current) => [concept.scenarioKey, ...current].slice(0, 8));
-      setIsGenerating(true);
-      try {
-        const result = await generateRandomWithRetry(source, concept.action);
-        setGenerated((current) => addRandomSticker(current, { url: result.url, label: `${sourceName}／${concept.text}`, source, action: concept.action }, packSize));
-        toast.success("AI 已根據角色照片完成隨機貼圖", { description: `保留「${sourceName}」的外觀，生成「${concept.scenario}」情境：${concept.text}。` });
-      } catch (error) {
-        console.error("Random sticker generation failed", error);
-        const failure = randomGenerationError();
-        toast.error(failure.title, { description: "已自動重試 3 次仍未完成，請稍後再按一次生成。" });
-      } finally {
-        setIsGenerating(false);
-      }
-      return;
-    }
-
+    const sourceName = (source: string, index: number) => source === asset.rabbit ? "兔子" : source === asset.dog ? "狗狗" : source === asset.mouse ? "老鼠" : `素材 ${String(index + 1).padStart(2, "0")}`;
+    const colors = ["sage", "red", "gold"] as const;
+    const sources = uploaded.slice(0, 4);
     setIsGenerating(true);
-    window.setTimeout(() => {
-      setIsGenerating(false);
-      const source = mode === "manual" ? asset.mouse : asset.dog;
-      const nextLabel = mode === "manual" ? `老鼠／${prompt || "好餓"}` : "狗狗／真棒";
-      setGenerated((current) => [{ src: source, label: nextLabel, color: mode === "manual" ? "sage" : "red" }, ...current].slice(0, packSize));
-      toast.success("貼圖草稿完成", { description: "右側已經放上最新的一張。" });
-    }, 900);
+    setGenerationProgress(4);
+
+    if (mode === "manual") {
+      const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${prompt || "好餓"}`, color: colors[index % colors.length] }));
+      setGenerated((current) => mergeBatchResults(current, cards, packSize));
+      setGenerationProgress(100);
+      toast.success(`已完成 ${cards.length} 張手動貼圖`, { description: "每張角色照片都已建立對應的貼圖草稿。" });
+      window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
+      return;
+    }
+
+    const jobs = createBatchStickerJobs(sources, mode, prompt, pickRandomStickerConcept, recentConceptKeys);
+    if (mode === "random") {
+      setRecentConceptKeys((current) => [...jobs.map((job) => job.scenarioKey).filter((key): key is string => Boolean(key)), ...current].slice(0, 8));
+    }
+
+    const results = await Promise.all(jobs.map(async (job) => {
+      try {
+        const result = await generateRandomWithRetry(job.source, job.action);
+        setGenerationProgress((current) => Math.min(96, current + Math.round(92 / jobs.length)));
+        return { job, result };
+      } catch (error) {
+        console.error("Batch sticker generation failed", error);
+        return { job, result: null };
+      }
+    }));
+
+    const collected = collectBatchResults(results);
+    const cards = collected.successful.map(({ job, result }) => ({
+      src: result.url,
+      label: `${sourceName(job.source, job.sourceIndex)}／${job.text}`,
+      color: colors[job.sourceIndex % colors.length],
+      source: job.source,
+      action: job.action,
+    }));
+    const failedCount = collected.failedCount;
+    if (cards.length) setGenerated((current) => mergeBatchResults(current, cards, packSize));
+    setGenerationProgress(100);
+    if (cards.length && failedCount === 0) {
+      toast.success(`AI 已完成 ${cards.length} 張貼圖`, { description: mode === "random" ? "每張角色照片都已各自生成不同情境。" : "每張角色照片都已各自套用你的指定句子。" });
+    } else if (cards.length) {
+      toast.warning(`已完成 ${cards.length} 張，${failedCount} 張生成失敗`, { description: "成功的貼圖已保留，你可以重新上傳或稍後重試失敗素材。" });
+    } else {
+      const failure = randomGenerationError();
+      toast.error(failure.title, { description: "4 張素材都已自動重試 3 次仍未完成，請稍後再試。" });
+    }
+    window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
   }
 
   function downloadSticker(label: string) {
@@ -338,10 +362,10 @@ export default function Home() {
             <div className="section-heading"><div><div className="section-index">01 / CHOOSE YOUR METHOD</div><h2>你想怎麼做？</h2></div><span className="paper-tag">WORKFLOW</span></div>
             <div className="mode-tabs">{modes.map(({ id, no, title, caption, icon: Icon }) => <button key={id} onClick={() => switchMode(id)} className={`mode-tab ${mode === id ? "selected" : ""}`}><span className="mode-no">{no}</span><Icon size={17} strokeWidth={1.8} /><span className="mode-title">{title}</span><small>{caption}</small>{mode === id && <Check className="mode-check" size={15} />}</button>)}</div>
 
-            <div className="section-heading compact"><div><div className="section-index">02 / ADD YOUR MATERIAL</div><h2>{activeMode.title}</h2><small className="material-mode-note">{mode === "random" ? "每張照片都會成為隨機生成的角色來源" : mode === "agent" ? "上傳角色照片，再用一句話交代需求" : "上傳角色照片，手動安排對話框"}</small></div><span className="material-count">{uploaded.length} 張素材</span></div>
+            <div className="section-heading compact"><div><div className="section-index">02 / ADD YOUR MATERIAL</div><h2>{activeMode.title}</h2><small className="material-mode-note">{mode === "random" ? "每張照片都會各自生成一張隨機貼圖" : mode === "agent" ? "每張角色照片都會各自套用你的指定句子" : "每張角色照片都會各自建立對話框"}</small></div><span className="material-count">{uploaded.length} 張素材</span></div>
             <div className="material-zone">
               <div className="upload-row">
-                <div className="upload-copy"><div className="upload-icon"><ImagePlus size={19} /></div><div><b>把角色放進來</b><p>支援 JPG、PNG，可一次放入 4 張</p></div></div>
+                <div className="upload-copy"><div className="upload-icon"><ImagePlus size={19} /></div><div><b>把角色放進來</b><p>支援 JPG、PNG，一次放入 4 張就會產出 4 張貼圖</p></div></div>
                 <input ref={fileRef} className="visually-hidden" type="file" accept="image/png,image/jpeg" multiple onChange={(event) => onFiles(event.target.files)} />
                 <button className="outline-button" onClick={() => fileRef.current?.click()}>選擇圖片 <ChevronRight size={14} /></button>
               </div>
@@ -350,7 +374,7 @@ export default function Home() {
             </div>
 
             <div className="prompt-block"><label htmlFor="prompt"><span className="section-index">03 / MAKE YOUR STICKER</span><span>{mode === "manual" ? "對話框文字" : "你想讓角色做什麼？"}</span></label><div className="prompt-input-wrap"><textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={2} placeholder="輸入一句話，或描述一個動作…" /><span className="char-count">{prompt.length} / 80</span></div><div className="prompt-hint"><Info size={13} /> {mode === "random" ? "系統會逐張讀取你提供的照片，保留角色外觀，再隨機安排動作或情緒。" : mode === "manual" ? "文字會直接放入貼圖對話框，生成後仍可修改。" : "越像平常說話的句子，角色就越有個性。"}</div></div>
-            <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? mode === "random" ? "AI 正在讀取角色照片…" : "正在排版你的靈感…" : "生成這張貼圖"}</span><ChevronRight size={18} /></button>
+            <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? mode === "manual" ? `正在建立 ${uploaded.length} 張貼圖…` : `AI 正在製作 ${uploaded.length} 張貼圖 ${generationProgress}%` : `生成 ${uploaded.length || 1} 張貼圖`}</span><ChevronRight size={18} /></button>
           </section>
 
           <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className={`preview-count ${generated.length === packSize ? "valid" : "invalid"}`}>{generated.length} / {packSize}</span><button className="chat-preview-button" onClick={() => setChatPreviewOpen((current) => !current)}>{chatPreviewOpen ? "關閉聊天室" : "聊天室預覽"}<ChevronRight size={13} /></button></div><div className="pack-size-panel"><div><b>選擇貼圖組數</b><small>LINE 靜態貼圖可選 8、16、24、32 或 40 張</small></div><div className="pack-size-options">{LINE_PACK_SIZES.map((size) => <button key={size} className={packSize === size ? "selected" : ""} onClick={() => setPackSize(size)}>{size}</button>)}</div><div className={`pack-status ${generated.length === packSize ? "ready" : "needs"}`}>{generated.length === packSize ? "✓ 數量符合，可匯出" : generated.length < packSize ? `還需要 ${remainingStickers} 張貼圖` : `請移除 ${generated.length - packSize} 張貼圖`}</div><div className="completion-meter" role="progressbar" aria-label="貼圖組完成度" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}><div className="completion-meter-top"><span>貼圖組完成度</span><strong>{completionPercent}%</strong></div><div className="completion-track"><div className={`completion-fill ${completionPercent === 100 ? "complete" : ""}`} style={{ width: `${completionPercent}%` }} /></div><div className="completion-caption"><span>已完成 {generated.length} / {packSize} 張</span><span>{remainingStickers ? `還差 ${remainingStickers} 張` : "可以開始匯出"}</span></div></div></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 拖曳卡片調整順序</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color} ${draggedIndex === index ? "dragging" : ""}`} key={`${sticker.label}-${index}`} draggable onDragStart={() => handleDragStart(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(index)} onDragEnd={() => setDraggedIndex(null)} aria-label={`第 ${index + 1} 張貼圖：${sticker.label}`}><div className="sticker-art"><span className="sticker-order">{String(index + 1).padStart(2, "0")}</span><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><div className="sticker-actions">{sticker.source && sticker.action && <button className="retry-button" onClick={(event) => { event.stopPropagation(); void retrySticker(index); }} disabled={retryingIndex === index || isGenerating} aria-label={`重新生成第 ${index + 1} 張貼圖`}>{retryingIndex === index ? <RotateCcw className="spin" size={12} /> : <RotateCcw size={12} />}<span>{retryingIndex === index ? "重試中" : "重來"}</span></button>}<button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></div></article>)}</div><div className="export-box"><div><b>{generated.length === packSize ? "貼圖組數量已就位" : "貼圖組還在成形"}</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : generated.length === packSize ? `共 ${packSize} 張，符合 LINE 規定。` : `完成 ${packSize} 張後才可下載 ZIP。`}</p></div><button onClick={exportZip} disabled={generated.length !== packSize || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
