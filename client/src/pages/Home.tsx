@@ -4,7 +4,9 @@ import JSZip from "jszip";
 import { Download, ImagePlus, Layers3, MousePointer2, Play, RotateCcw, Sparkles, Wand2, X, Check, ChevronRight, Info } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { addRandomSticker, randomGenerationError } from "@/lib/randomStickerUi";
+import { addRandomSticker, randomGenerationError, replaceStickerAt } from "@/lib/randomStickerUi";
+import type { RandomStickerCard } from "@/lib/randomStickerUi";
+import { generateWithRetry, regenerateSingleSticker } from "@/lib/retryRandomSticker";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -112,7 +114,7 @@ async function imageInputFromSource(src: string) {
 
 const randomActions = ["突然起舞", "趴下睡覺", "探頭打招呼", "開心跳起來", "偷偷吃點心", "睜大眼睛驚訝"];
 
-const starterStickers = [
+const starterStickers: RandomStickerCard[] = [
   { src: asset.rabbit, label: "兔子／睡著了", color: "sage" },
   { src: asset.dog, label: "狗狗／真棒", color: "red" },
   { src: asset.mouse, label: "老鼠／好餓", color: "gold" },
@@ -123,11 +125,12 @@ export default function Home() {
   const [prompt, setPrompt] = useState("這隻狗說：真棒");
   const [uploaded, setUploaded] = useState<string[]>([asset.dog]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [specReady, setSpecReady] = useState(false);
   const [packSize, setPackSize] = useState<number>(8);
-  const [generated, setGenerated] = useState(starterStickers);
+  const [generated, setGenerated] = useState<RandomStickerCard[]>(starterStickers);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [chatPreviewOpen, setChatPreviewOpen] = useState(false);
   const [chatStickerIndex, setChatStickerIndex] = useState(0);
@@ -237,6 +240,31 @@ export default function Home() {
     toast.success("貼圖順序已更新", { description: "ZIP 匯出會依照目前編號排列。" });
   }
 
+  async function generateRandomWithRetry(source: string, action: string) {
+    const originalImage = await imageInputFromSource(source);
+    return generateWithRetry((input) => randomGenerate.mutateAsync(input), { prompt: action, originalImage }, 3, (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)));
+  }
+
+  async function retrySticker(index: number) {
+    const sticker = generated[index];
+    if (!sticker?.source || !sticker.action) {
+      toast.info("這張貼圖沒有可重試的隨機來源", { description: "請重新使用隨機生成建立一張可重試貼圖。" });
+      return;
+    }
+    setRetryingIndex(index);
+    try {
+      const refreshed = await regenerateSingleSticker(sticker, imageInputFromSource, (input) => randomGenerate.mutateAsync(input), (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)));
+      setGenerated((current) => replaceStickerAt(current, index, { url: refreshed.src }));
+      toast.success(`第 ${String(index + 1).padStart(2, "0")} 張已重新生成`, { description: "原本的角色照片與動作需求已保留。" });
+    } catch (error) {
+      console.error("Single sticker retry failed", error);
+      const failure = randomGenerationError();
+      toast.error(failure.title, { description: "這張貼圖重試三次仍未完成，原本結果已保留。" });
+    } finally {
+      setRetryingIndex(null);
+    }
+  }
+
   async function createSticker() {
     if (mode === "random" && !uploaded.length) {
       toast.error("請先放入角色照片", { description: "隨機生成會以你提供的照片作為角色來源。" });
@@ -250,14 +278,13 @@ export default function Home() {
       const randomAction = randomActions[Math.floor(Math.random() * randomActions.length)];
       setIsGenerating(true);
       try {
-        const originalImage = await imageInputFromSource(source);
-        const result = await randomGenerate.mutateAsync({ prompt: randomAction, originalImage });
-        setGenerated((current) => addRandomSticker(current, { url: result.url, label: `${sourceName}／${randomAction}` }, packSize));
+        const result = await generateRandomWithRetry(source, randomAction);
+        setGenerated((current) => addRandomSticker(current, { url: result.url, label: `${sourceName}／${randomAction}`, source, action: randomAction }, packSize));
         toast.success("AI 已根據角色照片完成隨機貼圖", { description: `保留「${sourceName}」的外觀，並生成「${randomAction}」動作。` });
       } catch (error) {
         console.error("Random sticker generation failed", error);
         const failure = randomGenerationError();
-        toast.error(failure.title, { description: failure.description });
+        toast.error(failure.title, { description: "已自動重試 3 次仍未完成，請稍後再按一次生成。" });
       } finally {
         setIsGenerating(false);
       }
@@ -325,7 +352,7 @@ export default function Home() {
             <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? mode === "random" ? "AI 正在讀取角色照片…" : "正在排版你的靈感…" : "生成這張貼圖"}</span><ChevronRight size={18} /></button>
           </section>
 
-          <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className={`preview-count ${generated.length === packSize ? "valid" : "invalid"}`}>{generated.length} / {packSize}</span><button className="chat-preview-button" onClick={() => setChatPreviewOpen((current) => !current)}>{chatPreviewOpen ? "關閉聊天室" : "聊天室預覽"}<ChevronRight size={13} /></button></div><div className="pack-size-panel"><div><b>選擇貼圖組數</b><small>LINE 靜態貼圖可選 8、16、24、32 或 40 張</small></div><div className="pack-size-options">{LINE_PACK_SIZES.map((size) => <button key={size} className={packSize === size ? "selected" : ""} onClick={() => setPackSize(size)}>{size}</button>)}</div><div className={`pack-status ${generated.length === packSize ? "ready" : "needs"}`}>{generated.length === packSize ? "✓ 數量符合，可匯出" : generated.length < packSize ? `還需要 ${remainingStickers} 張貼圖` : `請移除 ${generated.length - packSize} 張貼圖`}</div><div className="completion-meter" role="progressbar" aria-label="貼圖組完成度" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}><div className="completion-meter-top"><span>貼圖組完成度</span><strong>{completionPercent}%</strong></div><div className="completion-track"><div className={`completion-fill ${completionPercent === 100 ? "complete" : ""}`} style={{ width: `${completionPercent}%` }} /></div><div className="completion-caption"><span>已完成 {generated.length} / {packSize} 張</span><span>{remainingStickers ? `還差 ${remainingStickers} 張` : "可以開始匯出"}</span></div></div></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 拖曳卡片調整順序</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color} ${draggedIndex === index ? "dragging" : ""}`} key={`${sticker.label}-${index}`} draggable onDragStart={() => handleDragStart(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(index)} onDragEnd={() => setDraggedIndex(null)} aria-label={`第 ${index + 1} 張貼圖：${sticker.label}`}><div className="sticker-art"><span className="sticker-order">{String(index + 1).padStart(2, "0")}</span><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></article>)}</div><div className="export-box"><div><b>{generated.length === packSize ? "貼圖組數量已就位" : "貼圖組還在成形"}</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : generated.length === packSize ? `共 ${packSize} 張，符合 LINE 規定。` : `完成 ${packSize} 張後才可下載 ZIP。`}</p></div><button onClick={exportZip} disabled={generated.length !== packSize || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
+          <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className={`preview-count ${generated.length === packSize ? "valid" : "invalid"}`}>{generated.length} / {packSize}</span><button className="chat-preview-button" onClick={() => setChatPreviewOpen((current) => !current)}>{chatPreviewOpen ? "關閉聊天室" : "聊天室預覽"}<ChevronRight size={13} /></button></div><div className="pack-size-panel"><div><b>選擇貼圖組數</b><small>LINE 靜態貼圖可選 8、16、24、32 或 40 張</small></div><div className="pack-size-options">{LINE_PACK_SIZES.map((size) => <button key={size} className={packSize === size ? "selected" : ""} onClick={() => setPackSize(size)}>{size}</button>)}</div><div className={`pack-status ${generated.length === packSize ? "ready" : "needs"}`}>{generated.length === packSize ? "✓ 數量符合，可匯出" : generated.length < packSize ? `還需要 ${remainingStickers} 張貼圖` : `請移除 ${generated.length - packSize} 張貼圖`}</div><div className="completion-meter" role="progressbar" aria-label="貼圖組完成度" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}><div className="completion-meter-top"><span>貼圖組完成度</span><strong>{completionPercent}%</strong></div><div className="completion-track"><div className={`completion-fill ${completionPercent === 100 ? "complete" : ""}`} style={{ width: `${completionPercent}%` }} /></div><div className="completion-caption"><span>已完成 {generated.length} / {packSize} 張</span><span>{remainingStickers ? `還差 ${remainingStickers} 張` : "可以開始匯出"}</span></div></div></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 拖曳卡片調整順序</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color} ${draggedIndex === index ? "dragging" : ""}`} key={`${sticker.label}-${index}`} draggable onDragStart={() => handleDragStart(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(index)} onDragEnd={() => setDraggedIndex(null)} aria-label={`第 ${index + 1} 張貼圖：${sticker.label}`}><div className="sticker-art"><span className="sticker-order">{String(index + 1).padStart(2, "0")}</span><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><div className="sticker-actions">{sticker.source && sticker.action && <button className="retry-button" onClick={(event) => { event.stopPropagation(); void retrySticker(index); }} disabled={retryingIndex === index || isGenerating} aria-label={`重新生成第 ${index + 1} 張貼圖`}>{retryingIndex === index ? <RotateCcw className="spin" size={12} /> : <RotateCcw size={12} />}<span>{retryingIndex === index ? "重試中" : "重來"}</span></button>}<button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></div></article>)}</div><div className="export-box"><div><b>{generated.length === packSize ? "貼圖組數量已就位" : "貼圖組還在成形"}</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : generated.length === packSize ? `共 ${packSize} 張，符合 LINE 規定。` : `完成 ${packSize} 張後才可下載 ZIP。`}</p></div><button onClick={exportZip} disabled={generated.length !== packSize || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
         </div>
         {chatPreviewOpen && <section className={`chat-preview ${chatTone}`} aria-label="LINE 聊天室貼圖預覽"><div className="chat-preview-heading"><div><div className="section-index">05 / CHATROOM PREVIEW</div><h2>放進對話裡看看</h2><p>切換貼圖，確認在實際聊天室中的大小與背景對比。</p></div><button className="close-chat-preview" onClick={() => setChatPreviewOpen(false)}>關閉 <X size={14} /></button></div><div className="chat-preview-layout"><div className="chat-window"><div className="chat-window-top"><span className="chat-back">‹</span><div className="contact-avatar">M</div><div><b>毛毛的日常</b><small>線上 · 今天有靈感</small></div><span className="chat-more">···</span></div><div className="chat-date">今天 10:24</div><div className="chat-messages"><div className="chat-bubble other">早安！今天想做什麼？</div><div className="chat-bubble mine">先讓角色開口看看。</div><div className="chat-sticker-message"><img src={generated[chatStickerIndex]?.src || asset.dog} alt="聊天室中的貼圖" /><span>已送出 · 10:25</span></div></div><div className="chat-composer"><span>＋</span><div>輸入訊息…</div><span>☺</span></div></div><div className="chat-controls"><div className="chat-control-title"><b>預覽控制</b><span>目前第 {String(Math.min(chatStickerIndex + 1, generated.length)).padStart(2, "0")} 張</span></div><div className="chat-sticker-picker">{generated.map((sticker, index) => <button key={`${sticker.label}-chat-${index}`} className={chatStickerIndex === index ? "selected" : ""} onClick={() => setChatStickerIndex(index)}><img src={sticker.src} alt={`選擇第 ${index + 1} 張貼圖`} /><small>{String(index + 1).padStart(2, "0")}</small></button>)}</div><div className="chat-tone-label">聊天室背景對比</div><div className="chat-tone-options">{(["light", "soft", "dark"] as const).map((tone) => <button key={tone} className={chatTone === tone ? "selected" : ""} onClick={() => setChatTone(tone)}>{tone === "light" ? "淺色" : tone === "soft" ? "柔和" : "深色"}</button>)}</div><div className="chat-preview-note"><Info size={13} /> 貼圖會以聊天中的自然大小顯示，方便檢查淺色角色的可讀性。</div></div></div></section>}
       </main>

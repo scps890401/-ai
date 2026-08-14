@@ -68,3 +68,6 @@ button:active { transform:scale(.98); }
 
 /* Random generation note: make the source-photo dependency visible before creation. */
 .material-mode-note { display:block; margin-top:5px; color:var(--red); font-size:9px; line-height:1.5; }.mode-tab.selected .mode-title { color:var(--red-dark); }
+
+/* Per-card retry: replace only the unsatisfying result while keeping its source and action. */
+.sticker-actions { display:flex; align-items:center; gap:7px; }.retry-button { display:flex; align-items:center; gap:3px; border:0; padding:2px 0; background:transparent; color:var(--red); font-size:9px; }.retry-button:hover { color:var(--red-dark); }.retry-button:disabled { opacity:.55; cursor:wait; }.retry-button .spin { animation:spin .75s linear infinite; }
