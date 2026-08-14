@@ -118,3 +118,11 @@ body { background:var(--paper); color:var(--ink); }
 .completion-track { background:#EBDCC7; }.completion-fill { background:#B9783A; }
 .chat-preview { border-color:#D8BB94; border-radius:22px; }
 @media (max-width:760px){ .brand-mark{width:42px;height:42px}.hero-image{border-width:2px}.hero-image::after{inset:6px}.generate-button{box-shadow:0 4px 0 #7A421C} }
+
+/* Per-material prompt cards for batch creation. */
+.thumb-row { align-items:flex-start; flex-wrap:wrap; }
+.material-item { width:54px; display:flex; flex-direction:column; gap:6px; }
+.image-prompt-input { width:116px; min-height:32px; border:1px solid rgba(173,125,76,.36); border-radius:10px; background:#FFFDF8; color:var(--ink); padding:7px 8px; font-size:9px; line-height:1.35; outline:none; }
+.image-prompt-input:focus { border-color:#A8612D; box-shadow:2px 2px 0 #E8C8A5; }
+.image-prompt-input::placeholder { color:#A88B70; }
+@media (max-width:760px){ .thumb-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; overflow:visible; }.material-item { width:100%; display:grid; grid-template-columns:54px minmax(0,1fr); align-items:center; gap:8px; }.material-item .image-prompt-input { width:100%; min-height:42px; font-size:10px; }.add-thumb { width:54px; } }

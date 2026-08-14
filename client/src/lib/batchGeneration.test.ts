@@ -16,6 +16,7 @@ describe("batch sticker generation", () => {
       Array.from({ length: count }, (_, index) => `source-${index}`),
       "random",
       "",
+      Array.from({ length: count }, () => ""),
       () => concepts[cursor++ % concepts.length]!,
       [],
     );
@@ -25,13 +26,13 @@ describe("batch sticker generation", () => {
   });
 
   it("keeps agent prompt on every source", () => {
-    const jobs = createBatchStickerJobs(["a", "b", "c", "d"], "agent", "真棒", () => concepts[0]!, []);
+    const jobs = createBatchStickerJobs(["a", "b", "c", "d"], "agent", "真棒", ["第一張", "第二張", "第三張", "第四張"], () => concepts[0]!, []);
     expect(jobs).toHaveLength(4);
-    expect(jobs.every((job) => job.action.includes("真棒"))).toBe(true);
+    expect(jobs.map((job) => job.text)).toEqual(["第一張", "第二張", "第三張", "第四張"]);
   });
 
   it("keeps successful cards and counts partial failures", () => {
-    const jobs = createBatchStickerJobs(["rabbit", "dog", "mouse", "cat"], "agent", "真棒", () => concepts[0]!, []);
+    const jobs = createBatchStickerJobs(["rabbit", "dog", "mouse", "cat"], "agent", "真棒", ["兔子早安", "狗狗真棒", "老鼠好餓", "貓咪收到"], () => concepts[0]!, []);
     const collected = collectBatchResults([
       { job: jobs[0]!, result: { url: "rabbit-result", source: jobs[0]!.source, action: jobs[0]!.action } },
       { job: jobs[1]!, result: null },
@@ -41,7 +42,7 @@ describe("batch sticker generation", () => {
     expect(collected.failedCount).toBe(2);
     expect(collected.successful.map(({ result }) => result.url)).toEqual(["rabbit-result", "mouse-result"]);
     expect(collected.successful.map(({ job }) => job.source)).toEqual(["rabbit", "mouse"]);
-    expect(collected.successful.every(({ job }) => job.action.includes("真棒"))).toBe(true);
+    expect(collected.successful.map(({ job }) => job.text)).toEqual(["兔子早安", "老鼠好餓"]);
   });
 
   it("prepends successful batch results and respects pack size", () => {

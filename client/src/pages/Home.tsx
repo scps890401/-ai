@@ -124,6 +124,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("agent");
   const [prompt, setPrompt] = useState("這隻狗說：真棒");
   const [uploaded, setUploaded] = useState<string[]>([asset.dog]);
+  const [imagePrompts, setImagePrompts] = useState<string[]>(["這隻狗說：真棒"]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
@@ -161,6 +162,7 @@ export default function Home() {
     if (!files?.length) return;
     const next = Array.from(files).slice(0, 4).map((file) => URL.createObjectURL(file));
     setUploaded(next);
+    setImagePrompts(next.map((_, index) => imagePrompts[index] ?? (mode === "agent" ? prompt : "")));
     next.forEach(inspectAsset);
     toast.success(`已放入 ${next.length} 張素材`, { description: "現在可以開始製作屬於你的貼圖了。" });
   }
@@ -288,7 +290,7 @@ export default function Home() {
       return;
     }
 
-    const jobs = createBatchStickerJobs(sources, mode, prompt, pickRandomStickerConcept, recentConceptKeys);
+    const jobs = createBatchStickerJobs(sources, mode, prompt, imagePrompts, pickRandomStickerConcept, recentConceptKeys);
     if (mode === "random") {
       setRecentConceptKeys((current) => [...jobs.map((job) => job.scenarioKey).filter((key): key is string => Boolean(key)), ...current].slice(0, 8));
     }
@@ -369,7 +371,7 @@ export default function Home() {
                 <input ref={fileRef} className="visually-hidden" type="file" accept="image/png,image/jpeg" multiple onChange={(event) => onFiles(event.target.files)} />
                 <button className="outline-button" onClick={() => fileRef.current?.click()}>選擇圖片 <ChevronRight size={14} /></button>
               </div>
-              <div className="thumb-row">{uploaded.map((src, index) => <div className="thumb" key={`${src}-${index}`}><img src={src} alt={`已上傳素材 ${index + 1}`} /><button aria-label="移除素材" onClick={() => setUploaded((current) => current.filter((_, item) => item !== index))}><X size={12} /></button></div>)}<button className="add-thumb" onClick={() => fileRef.current?.click()}><span>＋</span><small>再放一張</small></button></div>
+              <div className="thumb-row">{uploaded.map((src, index) => <div className="material-item" key={`${src}-${index}`}><div className="thumb"><img src={src} alt={`已上傳素材 ${index + 1}`} /><button aria-label={`移除素材 ${index + 1}`} onClick={() => { setUploaded((current) => current.filter((_, item) => item !== index)); setImagePrompts((current) => current.filter((_, item) => item !== index)); }}><X size={12} /></button></div><input className="image-prompt-input" value={imagePrompts[index] ?? ""} onChange={(event) => setImagePrompts((current) => current.map((value, item) => item === index ? event.target.value : value))} placeholder={mode === "random" ? "可選：這張想做什麼？" : "這張要說什麼？"} maxLength={80} aria-label={`第 ${index + 1} 張素材專屬提示`} /></div>)}<button className="add-thumb" onClick={() => fileRef.current?.click()}><span>＋</span><small>再放一張</small></button></div>
               <div className="asset-quality"><div className="quality-title"><b>LINE 規格檢查</b><span>主圖建議 370 × 320 px · 首次 AI 處理會下載模型</span></div><div className="quality-items">{uploaded.slice(0, 3).map((src, index) => { const result = assetChecks[src]; return <div className="quality-item" key={src}><span className={`quality-icon ${result?.status === "ready" ? "ok" : result?.status === "needs" ? "warn" : "pending"}`}>{result?.status === "ready" ? "✓" : result?.status === "needs" ? "!" : "·"}</span><span>素材 {index + 1}</span><small>{result?.status === "check" ? "檢查中" : result?.width ? `${result.width} × ${result.height} · ${result.transparent ? "透明" : "需去背"}` : "等待檢查"}</small></div> })}</div><button className="transparent-button" onClick={processTransparency} disabled={isProcessing || !uploaded.length}>{isProcessing ? `AI 語意去背中 ${processingProgress}%` : "AI 語意去背／透明 PNG"}<ChevronRight size={14} /></button></div>
             </div>
 

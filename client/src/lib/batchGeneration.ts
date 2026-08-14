@@ -25,6 +25,7 @@ export function createBatchStickerJobs(
   sources: string[],
   mode: "random" | "agent",
   prompt: string,
+  prompts: string[],
   pickConcept: (recentKeys: string[]) => StickerConcept,
   recentKeys: string[],
 ): BatchStickerJob[] {
@@ -33,9 +34,11 @@ export function createBatchStickerJobs(
     if (mode === "random") {
       const concept = pickConcept(coolingKeys);
       coolingKeys.unshift(concept.scenarioKey);
-      return { source, sourceIndex, action: concept.action, text: concept.text, scenario: concept.scenario, scenarioKey: concept.scenarioKey };
+      const customPrompt = prompts[sourceIndex]?.trim();
+      const action = customPrompt ? `${concept.action}；同時遵照使用者提示：${customPrompt}` : concept.action;
+      return { source, sourceIndex, action, text: customPrompt || concept.text, scenario: concept.scenario, scenarioKey: concept.scenarioKey };
     }
-    const text = prompt.trim() || "真棒";
+    const text = prompts[sourceIndex]?.trim() || prompt.trim() || "真棒";
     return { source, sourceIndex, action: `角色說「${text}」並做出自然、符合角色個性的反應`, text, scenario: "代理指定" };
   });
 }
