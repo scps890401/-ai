@@ -1,5 +1,6 @@
 /* Design philosophy: editorial workbench meets Japanese stationery. Warm paper, ink-black hierarchy, vermilion proof marks, asymmetric creator-first layout. */
 import { useMemo, useRef, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
 import JSZip from "jszip";
 import { Download, ImagePlus, Layers3, MousePointer2, Play, RotateCcw, Sparkles, Wand2, X, Check, ChevronRight, Info } from "lucide-react";
 import { toast } from "sonner";
@@ -9,6 +10,7 @@ import type { RandomStickerCard } from "@/lib/randomStickerUi";
 import { generateWithRetry, regenerateSingleSticker } from "@/lib/retryRandomSticker";
 import { pickRandomStickerConcept } from "@/lib/stickerLanguage";
 import { collectBatchResults, createBatchStickerJobs, mergeBatchResults } from "@/lib/batchGeneration";
+import { buildLearningPayload, shouldSaveLearning } from "@/lib/learningUi";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -121,6 +123,13 @@ const starterStickers: RandomStickerCard[] = [
 ];
 
 export default function Home() {
+  const { user } = useAuth();
+  const learnedIdeasQuery = trpc.learning.list.useQuery(undefined, { enabled: Boolean(user) });
+  const saveLearnedIdea = trpc.learning.save.useMutation({ onSuccess: () => { void learnedIdeasQuery.refetch(); } });
+  const clearLearnedIdeas = trpc.learning.clear.useMutation({ onSuccess: () => { void learnedIdeasQuery.refetch(); toast.success("已清除學習語料"); } });
+  const [learningEnabled, setLearningEnabled] = useState(true);
+  const learnedConcepts = useMemo(() => learningEnabled ? (learnedIdeasQuery.data ?? []).map((idea) => ({ key: `learned:${idea.id}`, scenarioKey: `learned:${idea.id}`, scenario: "你的創作", text: idea.text, action: idea.action })) : [], [learnedIdeasQuery.data, learningEnabled]);
+
   const [mode, setMode] = useState<Mode>("agent");
   const [prompt, setPrompt] = useState("這隻狗說：真棒");
   const [uploaded, setUploaded] = useState<string[]>([asset.dog]);
@@ -282,15 +291,18 @@ export default function Home() {
     setGenerationProgress(4);
 
     if (mode === "manual") {
-      const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${prompt || "好餓"}`, color: colors[index % colors.length] }));
+      const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${imagePrompts[index]?.trim() || prompt || "好餓"}`, color: colors[index % colors.length] }));
       setGenerated((current) => mergeBatchResults(current, cards, packSize));
+      if (shouldSaveLearning(learningEnabled, Boolean(user))) {
+        cards.forEach((card, index) => { const text = imagePrompts[index]?.trim() || prompt || "好餓"; const payload = buildLearningPayload("manual", text, `角色呈現「${text}」並搭配手動對話框`, card.label); if (payload) saveLearnedIdea.mutate(payload); });
+      }
       setGenerationProgress(100);
       toast.success(`已完成 ${cards.length} 張手動貼圖`, { description: "每張角色照片都已建立對應的貼圖草稿。" });
       window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
       return;
     }
 
-    const jobs = createBatchStickerJobs(sources, mode, prompt, imagePrompts, pickRandomStickerConcept, recentConceptKeys);
+    const jobs = createBatchStickerJobs(sources, mode, prompt, imagePrompts, (keys) => pickRandomStickerConcept(keys, Math.random, learnedConcepts), recentConceptKeys);
     if (mode === "random") {
       setRecentConceptKeys((current) => [...jobs.map((job) => job.scenarioKey).filter((key): key is string => Boolean(key)), ...current].slice(0, 8));
     }
@@ -316,6 +328,9 @@ export default function Home() {
     }));
     const failedCount = collected.failedCount;
     if (cards.length) setGenerated((current) => mergeBatchResults(current, cards, packSize));
+    if (mode === "agent" && shouldSaveLearning(learningEnabled, Boolean(user))) {
+      collected.successful.forEach(({ job }) => { const payload = buildLearningPayload("agent", job.text, job.action, job.scenario); if (payload) saveLearnedIdea.mutate(payload); });
+    }
     setGenerationProgress(100);
     if (cards.length && failedCount === 0) {
       toast.success(`AI 已完成 ${cards.length} 張貼圖`, { description: mode === "random" ? "每張角色照片都已各自生成不同情境。" : "每張角色照片都已各自套用你的指定句子。" });
@@ -376,6 +391,7 @@ export default function Home() {
             </div>
 
             <div className="prompt-block"><label htmlFor="prompt"><span className="section-index">03 / MAKE YOUR STICKER</span><span>{mode === "manual" ? "對話框文字" : "你想讓角色做什麼？"}</span></label><div className="prompt-input-wrap"><textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={2} placeholder="輸入一句話，或描述一個動作…" /><span className="char-count">{prompt.length} / 80</span></div><div className="prompt-hint"><Info size={13} /> {mode === "random" ? "系統會逐張讀取你提供的照片，保留角色外觀，再隨機安排動作或情緒。" : mode === "manual" ? "文字會直接放入貼圖對話框，生成後仍可修改。" : "越像平常說話的句子，角色就越有個性。"}</div></div>
+            <div className="learning-panel"><div><b>創作學習</b><small>{user ? `已學習 ${learnedIdeasQuery.data?.length ?? 0} 組文字與動作` : "登入後可保存你的創作風格"}</small></div><div className="learning-actions"><button className={`learning-toggle ${learningEnabled ? "active" : ""}`} onClick={() => setLearningEnabled((current) => !current)}>{learningEnabled ? "學習中" : "已暫停"}</button>{user && (learnedIdeasQuery.data?.length ?? 0) > 0 && <button className="learning-clear" onClick={() => clearLearnedIdeas.mutate()}>清除</button>}</div></div>
             <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? mode === "manual" ? `正在建立 ${uploaded.length} 張貼圖…` : `AI 正在製作 ${uploaded.length} 張貼圖 ${generationProgress}%` : `生成 ${uploaded.length || 1} 張貼圖`}</span><ChevronRight size={18} /></button>
           </section>
 

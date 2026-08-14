@@ -25,6 +25,14 @@ describe("sticker language variety", () => {
     expect(second.key).not.toBe(first.key);
   });
 
+  it("can sample a learned creator concept and cool it down", () => {
+    const learned = { key: "learned:1", scenarioKey: "learned:1", scenario: "你的創作", text: "狗狗加油", action: "舉起加油牌" };
+    const selected = pickRandomStickerConcept([], () => 0, [learned]);
+    expect(selected).toEqual(learned);
+    const fallback = pickRandomStickerConcept([learned.scenarioKey], () => 0, [learned]);
+    expect(fallback.scenarioKey).not.toBe(learned.scenarioKey);
+  });
+
   it("allows deterministic selection for reliable tests and diverse UI previews", () => {
     const first = pickRandomStickerConcept([], () => 0);
     const second = pickRandomStickerConcept([], () => 0.8);

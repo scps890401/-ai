@@ -26,10 +26,18 @@ export const STICKER_SCENARIOS: StickerScenario[] = [
   { key: "rest", label: "疲憊自嘲", phrases: ["好累", "心好累", "不想面對", "我就爛", "耍廢中", "懷疑人生"], actions: ["癱在地上放空", "抱著枕頭把臉埋起來", "慢慢爬進紙箱躲起來", "攤手看著遠方發呆"] },
 ];
 
-export function pickRandomStickerConcept(recentKeys: string[] = [], random = Math.random): StickerConcept {
+export function pickRandomStickerConcept(
+  recentKeys: string[] = [],
+  random = Math.random,
+  learnedConcepts: StickerConcept[] = [],
+): StickerConcept {
   const freshScenarios = STICKER_SCENARIOS.filter((scenario) => !recentKeys.includes(scenario.key));
-  const pool = freshScenarios.length ? freshScenarios : STICKER_SCENARIOS;
-  const scenario = pool[Math.floor(random() * pool.length)] ?? STICKER_SCENARIOS[0];
+  const builtInPool = freshScenarios.length ? freshScenarios : STICKER_SCENARIOS;
+  const freshLearned = learnedConcepts.filter((concept) => !recentKeys.includes(concept.scenarioKey));
+  if (freshLearned.length && random() < 0.4) {
+    return freshLearned[Math.floor(random() * freshLearned.length)] ?? freshLearned[0]!;
+  }
+  const scenario = builtInPool[Math.floor(random() * builtInPool.length)] ?? STICKER_SCENARIOS[0];
   const text = scenario.phrases[Math.floor(random() * scenario.phrases.length)] ?? scenario.phrases[0];
   const action = scenario.actions[Math.floor(random() * scenario.actions.length)] ?? scenario.actions[0];
   return { key: `${scenario.key}:${text}:${action}`, scenarioKey: scenario.key, scenario: scenario.label, text, action };

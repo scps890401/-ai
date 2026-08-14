@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -24,5 +24,21 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+export const learnedStickerIdeas = mysqlTable("learned_sticker_ideas", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  sourceMode: mysqlEnum("sourceMode", ["agent", "manual"]).notNull(),
+  text: varchar("text", { length: 255 }).notNull(),
+  action: varchar("action", { length: 255 }).notNull(),
+  creative: text("creative"),
+  normalizedKey: varchar("normalizedKey", { length: 255 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdeaUnique: uniqueIndex("learned_sticker_ideas_user_idea_unique").on(table.userId, table.normalizedKey),
+}));
+
+export type LearnedStickerIdea = typeof learnedStickerIdeas.$inferSelect;
+export type InsertLearnedStickerIdea = typeof learnedStickerIdeas.$inferInsert;
 
 // TODO: Add your tables here
