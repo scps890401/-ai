@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -49,6 +49,7 @@ export const feedback = mysqlTable("feedback", {
   contact: varchar("contact", { length: 320 }),
   page: varchar("page", { length: 255 }),
   status: mysqlEnum("status", ["new", "reviewing", "resolved"]).default("new").notNull(),
+  isPublic: boolean("isPublic").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

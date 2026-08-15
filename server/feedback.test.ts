@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consumeFeedbackRateLimit, normalizeFeedbackMessage } from "./feedback";
+import { consumeFeedbackRateLimit, isPublicFeedbackSafe, normalizeFeedbackMessage, sanitizePublicFeedbackMessage, selectPublicFeedback } from "./feedback";
 import { buildFeedbackNotificationContent, buildFeedbackSubmissionResult, feedbackStatusInput, feedbackSubmitInput } from "./feedbackRouter";
 import { appRouter } from "./routers";
 
@@ -10,6 +10,20 @@ describe("feedback helpers", () => {
 
   it("preserves normal line breaks and meaningful content", () => {
     expect(normalizeFeedbackMessage("代理生成很好\n但希望能重試")).toBe("代理生成很好\n但希望能重試");
+  });
+
+  it("sanitizes unsafe public markup and control characters", () => {
+    expect(sanitizePublicFeedbackMessage("  很好<script>alert(1)</script>\u0007javascript:bad  ")).toBe("很好alert(1)bad");
+    expect(isPublicFeedbackSafe("正常建議")).toBe(true);
+    expect(isPublicFeedbackSafe("<iframe src=bad>" )).toBe(false);
+  });
+
+  it("returns only public feedback rows and omits private fields", () => {
+    const rows = [
+      { id: 1, category: "suggestion" as const, message: "公開", createdAt: new Date(1), isPublic: true },
+      { id: 2, category: "bug" as const, message: "隱藏", createdAt: new Date(2), isPublic: false },
+    ];
+    expect(selectPublicFeedback(rows)).toEqual([{ id: 1, category: "suggestion", message: "公開", createdAt: new Date(1) }]);
   });
 
   it("allows five submissions then blocks the sixth within the window", () => {

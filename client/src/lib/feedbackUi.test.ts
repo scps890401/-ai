@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { shouldOpenFeedbackFromHash, validateFeedbackMessage } from "./feedbackUi";
+import { getPublicFeedbackViewState, shouldOpenFeedbackFromHash, validateFeedbackMessage } from "./feedbackUi";
 
 describe("feedback UI helpers", () => {
   it("opens the feedback modal from the shareable hash", () => {
     expect(shouldOpenFeedbackFromHash("#feedback")).toBe(true);
     expect(shouldOpenFeedbackFromHash("")).toBe(false);
     expect(shouldOpenFeedbackFromHash("#other")).toBe(false);
+  });
+
+  it("covers public wall loading, error, empty, and ready states", () => {
+    expect(getPublicFeedbackViewState({ isLoading: true, isError: false, count: 0 })).toBe("loading");
+    expect(getPublicFeedbackViewState({ isLoading: false, isError: true, count: 0 })).toBe("error");
+    expect(getPublicFeedbackViewState({ isLoading: false, isError: false, count: 0 })).toBe("empty");
+    expect(getPublicFeedbackViewState({ isLoading: false, isError: false, count: 1 })).toBe("ready");
   });
 
   it("validates the message length before submit", () => {

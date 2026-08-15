@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { notifyOwner } from "./_core/notification";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
-import { consumeFeedbackRateLimit, createFeedback, listFeedback, updateFeedbackStatus } from "./feedback";
+import { consumeFeedbackRateLimit, createFeedback, listFeedback, listPublicFeedback, updateFeedbackStatus, updateFeedbackVisibility } from "./feedback";
 
 export const feedbackCategorySchema = z.enum(["suggestion", "bug", "feature", "other"]);
 export const feedbackStatusSchema = z.enum(["new", "reviewing", "resolved"]);
@@ -13,6 +13,7 @@ export const feedbackSubmitInput = z.object({
   page: z.string().trim().max(255).optional(),
 });
 export const feedbackStatusInput = z.object({ id: z.number().int().positive(), status: feedbackStatusSchema });
+export const feedbackVisibilityInput = z.object({ id: z.number().int().positive(), isPublic: z.boolean() });
 
 const categorySchema = feedbackCategorySchema;
 const statusSchema = feedbackStatusSchema;
@@ -49,8 +50,12 @@ export const feedbackRouter = router({
       });
       return buildFeedbackSubmissionResult(item, notified);
     }),
+  publicList: publicProcedure.query(() => listPublicFeedback()),
   list: adminProcedure.query(() => listFeedback()),
   updateStatus: adminProcedure
     .input(feedbackStatusInput)
     .mutation(({ input }) => updateFeedbackStatus(input.id, input.status)),
+  updateVisibility: adminProcedure
+    .input(feedbackVisibilityInput)
+    .mutation(({ input }) => updateFeedbackVisibility(input.id, input.isPublic)),
 });
