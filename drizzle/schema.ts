@@ -41,4 +41,17 @@ export const learnedStickerIdeas = mysqlTable("learned_sticker_ideas", {
 export type LearnedStickerIdea = typeof learnedStickerIdeas.$inferSelect;
 export type InsertLearnedStickerIdea = typeof learnedStickerIdeas.$inferInsert;
 
-// TODO: Add your tables here
+export const feedback = mysqlTable("feedback", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  category: mysqlEnum("category", ["suggestion", "bug", "feature", "other"]).notNull(),
+  message: text("message").notNull(),
+  contact: varchar("contact", { length: 320 }),
+  page: varchar("page", { length: 255 }),
+  status: mysqlEnum("status", ["new", "reviewing", "resolved"]).default("new").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Feedback = typeof feedback.$inferSelect;
+export type InsertFeedback = typeof feedback.$inferInsert;
