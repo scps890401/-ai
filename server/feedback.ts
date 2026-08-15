@@ -1,9 +1,11 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { feedbackVotes } from "../drizzle/schema";
 import { feedback, type InsertFeedback } from "../drizzle/schema";
 import { getDb } from "./db";
 
 export type FeedbackCategory = "suggestion" | "bug" | "feature" | "other";
 export type FeedbackStatus = "new" | "reviewing" | "resolved";
+export type FeedbackSort = "latest" | "popular";
 
 const feedbackRate = new Map<string, { count: number; resetAt: number }>();
 const FEEDBACK_RATE_LIMIT = 5;
@@ -68,18 +70,38 @@ export async function listFeedback() {
 
 export type PublicFeedbackRow = { id: number; category: FeedbackCategory; message: string; createdAt: Date; isPublic: boolean };
 
-export function selectPublicFeedback(rows: PublicFeedbackRow[]) {
-  return rows.filter((row) => row.isPublic).map(({ id, category, message, createdAt }) => ({ id, category, message, createdAt }));
+export function selectPublicFeedback(rows: (PublicFeedbackRow & { upvotes?: number; status?: FeedbackStatus })[]) {
+  return rows.filter((row) => row.isPublic).map(({ id, category, message, createdAt, upvotes = 0, status = "new" }) => ({ id, category, message, createdAt, upvotes, status }));
 }
 
-export async function listPublicFeedback() {
+export function sortPublicFeedback<T extends { createdAt: Date; upvotes: number }>(rows: T[], sort: FeedbackSort) {
+  return [...rows].sort((a, b) => sort === "popular" ? b.upvotes - a.upvotes || b.createdAt.getTime() - a.createdAt.getTime() : b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+export function recordFeedbackVote(votedKeys: Set<string>, voterKey: string, currentUpvotes: number) {
+  if (votedKeys.has(voterKey)) return { added: false, upvotes: currentUpvotes };
+  votedKeys.add(voterKey);
+  return { added: true, upvotes: currentUpvotes + 1 };
+}
+
+export async function addFeedbackVote(feedbackId: number, voterKey: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const existing = await db.select({ id: feedbackVotes.id }).from(feedbackVotes).where(and(eq(feedbackVotes.feedbackId, feedbackId), eq(feedbackVotes.voterKey, voterKey))).limit(1);
+  if (existing.length) return { added: false };
+  await db.insert(feedbackVotes).values({ feedbackId, voterKey });
+  await db.update(feedback).set({ upvotes: sql`${feedback.upvotes} + 1` }).where(eq(feedback.id, feedbackId));
+  return { added: true };
+}
+
+export async function listPublicFeedback(sort: FeedbackSort = "latest") {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select({ id: feedback.id, category: feedback.category, message: feedback.message, createdAt: feedback.createdAt, isPublic: feedback.isPublic })
+  const rows = await db.select({ id: feedback.id, category: feedback.category, message: feedback.message, createdAt: feedback.createdAt, isPublic: feedback.isPublic, upvotes: feedback.upvotes, status: feedback.status })
     .from(feedback)
     .where(eq(feedback.isPublic, true))
-    .orderBy(desc(feedback.createdAt));
-  return selectPublicFeedback(rows);
+    .orderBy(sort === "popular" ? desc(feedback.upvotes) : desc(feedback.createdAt), desc(feedback.createdAt));
+  return sortPublicFeedback(selectPublicFeedback(rows), sort);
 }
 
 export async function updateFeedbackVisibility(id: number, isPublic: boolean) {

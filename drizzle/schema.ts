@@ -50,9 +50,22 @@ export const feedback = mysqlTable("feedback", {
   page: varchar("page", { length: 255 }),
   status: mysqlEnum("status", ["new", "reviewing", "resolved"]).default("new").notNull(),
   isPublic: boolean("isPublic").default(true).notNull(),
+  upvotes: int("upvotes").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Feedback = typeof feedback.$inferSelect;
 export type InsertFeedback = typeof feedback.$inferInsert;
+
+export const feedbackVotes = mysqlTable("feedback_votes", {
+  id: int("id").autoincrement().primaryKey(),
+  feedbackId: int("feedbackId").notNull(),
+  voterKey: varchar("voterKey", { length: 128 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  feedbackVoterUnique: uniqueIndex("feedback_votes_feedback_voter_unique").on(table.feedbackId, table.voterKey),
+}));
+
+export type FeedbackVote = typeof feedbackVotes.$inferSelect;
+export type InsertFeedbackVote = typeof feedbackVotes.$inferInsert;

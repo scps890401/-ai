@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consumeFeedbackRateLimit, isPublicFeedbackSafe, normalizeFeedbackMessage, sanitizePublicFeedbackMessage, selectPublicFeedback } from "./feedback";
+import { consumeFeedbackRateLimit, isPublicFeedbackSafe, normalizeFeedbackMessage, recordFeedbackVote, sanitizePublicFeedbackMessage, selectPublicFeedback, sortPublicFeedback } from "./feedback";
 import { buildFeedbackNotificationContent, buildFeedbackSubmissionResult, feedbackStatusInput, feedbackSubmitInput } from "./feedbackRouter";
 import { appRouter } from "./routers";
 
@@ -23,7 +23,24 @@ describe("feedback helpers", () => {
       { id: 1, category: "suggestion" as const, message: "公開", createdAt: new Date(1), isPublic: true },
       { id: 2, category: "bug" as const, message: "隱藏", createdAt: new Date(2), isPublic: false },
     ];
-    expect(selectPublicFeedback(rows)).toEqual([{ id: 1, category: "suggestion", message: "公開", createdAt: new Date(1) }]);
+    expect(selectPublicFeedback(rows)).toEqual([{ id: 1, category: "suggestion", message: "公開", createdAt: new Date(1), upvotes: 0, status: "new" }]);
+  });
+
+  it("only increments a feedback vote once for the same voter", () => {
+    const voted = new Set<string>();
+    expect(recordFeedbackVote(voted, "voter-a", 0)).toEqual({ added: true, upvotes: 1 });
+    expect(recordFeedbackVote(voted, "voter-a", 1)).toEqual({ added: false, upvotes: 1 });
+    expect(voted.size).toBe(1);
+  });
+
+  it("orders public feedback by latest or popularity", () => {
+    const rows = [
+      { id: 1, upvotes: 2, createdAt: new Date(100) },
+      { id: 2, upvotes: 8, createdAt: new Date(50) },
+      { id: 3, upvotes: 8, createdAt: new Date(200) },
+    ];
+    expect(sortPublicFeedback(rows, "latest").map((row) => row.id)).toEqual([3, 1, 2]);
+    expect(sortPublicFeedback(rows, "popular").map((row) => row.id)).toEqual([3, 2, 1]);
   });
 
   it("allows five submissions then blocks the sixth within the window", () => {

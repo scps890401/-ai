@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { notifyOwner } from "./_core/notification";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
-import { consumeFeedbackRateLimit, createFeedback, listFeedback, listPublicFeedback, updateFeedbackStatus, updateFeedbackVisibility } from "./feedback";
+import { consumeFeedbackRateLimit, createFeedback, listFeedback, listPublicFeedback, addFeedbackVote, updateFeedbackStatus, updateFeedbackVisibility } from "./feedback";
+import { ENV } from "./_core/env";
 
 export const feedbackCategorySchema = z.enum(["suggestion", "bug", "feature", "other"]);
 export const feedbackStatusSchema = z.enum(["new", "reviewing", "resolved"]);
@@ -14,6 +16,8 @@ export const feedbackSubmitInput = z.object({
 });
 export const feedbackStatusInput = z.object({ id: z.number().int().positive(), status: feedbackStatusSchema });
 export const feedbackVisibilityInput = z.object({ id: z.number().int().positive(), isPublic: z.boolean() });
+export const feedbackSortInput = z.enum(["latest", "popular"]);
+export const feedbackVoteInput = z.object({ id: z.number().int().positive(), voterToken: z.string().trim().min(16).max(128).optional() });
 
 const categorySchema = feedbackCategorySchema;
 const statusSchema = feedbackStatusSchema;
@@ -33,6 +37,14 @@ export function buildFeedbackSubmissionResult<T>(item: T, notified: boolean) {
   return { item, notified };
 }
 
+function buildVoterKey(ctx: { req: { headers: Record<string, string | string[] | undefined>; ip?: string }; user: { id: number } | null }, voterToken?: string) {
+  if (ctx.user) return `user:${ctx.user.id}`;
+  if (voterToken) return `token:${createHash("sha256").update(`${ENV.cookieSecret}:${voterToken}`).digest("hex")}`;
+  const forwarded = ctx.req.headers["x-forwarded-for"];
+  const ip = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : ctx.req.ip || "unknown";
+  return `ip:${createHash("sha256").update(`${ENV.cookieSecret}:${ip}`).digest("hex")}`;
+}
+
 export const feedbackRouter = router({
   submit: publicProcedure
     .input(feedbackSubmitInput)
@@ -50,7 +62,8 @@ export const feedbackRouter = router({
       });
       return buildFeedbackSubmissionResult(item, notified);
     }),
-  publicList: publicProcedure.query(() => listPublicFeedback()),
+  publicList: publicProcedure.input(z.object({ sort: feedbackSortInput }).optional()).query(({ input }) => listPublicFeedback(input?.sort ?? "latest")),
+  vote: publicProcedure.input(feedbackVoteInput).mutation(({ input, ctx }) => addFeedbackVote(input.id, buildVoterKey(ctx, input.voterToken))),
   list: adminProcedure.query(() => listFeedback()),
   updateStatus: adminProcedure
     .input(feedbackStatusInput)
