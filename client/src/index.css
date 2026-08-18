@@ -188,3 +188,23 @@ body { background:var(--paper); color:var(--ink); }
 .feedback-status.status-reviewing { color:#80652D; background:#EFE3B8; }
 .feedback-status.status-resolved { color:#5C7650; background:#DCE9D5; }
 @media (max-width:760px){.public-feedback-actions{justify-content:flex-start}.public-feedback-actions select{flex:1}.public-feedback-add{flex:0 0 auto}.public-feedback-bottom{align-items:flex-start;flex-direction:column;gap:7px}.public-feedback-vote{width:100%;justify-content:space-between}}
+
+/* Rabbit reference gallery */
+.rabbit-reference-card { margin-top:18px; border:1px solid #D9C8B4; background:#FFFDF8; box-shadow:4px 4px 0 #E8DACA; padding:18px; }
+.rabbit-reference-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:14px; }
+.rabbit-reference-head h3 { margin:4px 0 4px; font-family:var(--display-font); font-size:23px; color:var(--ink); }
+.rabbit-reference-head p { margin:0; color:#8B7666; font-size:12px; line-height:1.6; }
+.rabbit-reference-count { border:1px solid #D5B28E; color:#A16C3C; padding:7px 9px; font-size:10px; white-space:nowrap; }
+.rabbit-reference-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:11px; }
+.rabbit-reference-item { border:1px solid #E6D9CA; background:#FAF4EC; min-width:0; }
+.rabbit-reference-item > img { display:block; width:100%; aspect-ratio:1 / 1; object-fit:cover; background:#F5EFE7; }
+.rabbit-reference-copy { padding:10px; }
+.rabbit-reference-meta { display:flex; align-items:center; justify-content:space-between; gap:5px; }
+.rabbit-reference-meta b { color:var(--ink); font-size:14px; }
+.rabbit-reference-meta span { color:#A16C3C; font-size:9px; white-space:nowrap; }
+.rabbit-reference-copy p { min-height:34px; margin:7px 0; color:#7B695D; font-size:10px; line-height:1.5; }
+.rabbit-reference-tags { display:flex; flex-wrap:wrap; gap:4px; min-height:28px; }
+.rabbit-reference-tags span { border-radius:999px; background:#EFE0D0; color:#8F6644; padding:3px 6px; font-size:8px; }
+.rabbit-reference-copy button { display:flex; align-items:center; gap:3px; margin-top:9px; border:0; background:transparent; color:#A55D32; font-size:10px; cursor:pointer; padding:0; }
+.rabbit-reference-copy button:hover { color:#7D3D20; text-decoration:underline; }
+@media (max-width:760px){.rabbit-reference-card{padding:13px}.rabbit-reference-head{flex-direction:column;gap:8px}.rabbit-reference-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.rabbit-reference-copy{padding:8px}.rabbit-reference-copy p{min-height:47px;font-size:9px}.rabbit-reference-meta{align-items:flex-start;flex-direction:column;gap:3px}.rabbit-reference-meta b{font-size:12px}.rabbit-reference-copy button{font-size:9px}}
