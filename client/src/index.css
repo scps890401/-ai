@@ -208,3 +208,15 @@ body { background:var(--paper); color:var(--ink); }
 .rabbit-reference-copy button { display:flex; align-items:center; gap:3px; margin-top:9px; border:0; background:transparent; color:#A55D32; font-size:10px; cursor:pointer; padding:0; }
 .rabbit-reference-copy button:hover { color:#7D3D20; text-decoration:underline; }
 @media (max-width:760px){.rabbit-reference-card{padding:13px}.rabbit-reference-head{flex-direction:column;gap:8px}.rabbit-reference-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.rabbit-reference-copy{padding:8px}.rabbit-reference-copy p{min-height:47px;font-size:9px}.rabbit-reference-meta{align-items:flex-start;flex-direction:column;gap:3px}.rabbit-reference-meta b{font-size:12px}.rabbit-reference-copy button{font-size:9px}}
+
+/* Chat-first sticker creation */
+.sticker-chat-card { margin-bottom:18px; border:1px solid #D9C8B4; background:#FFFDF8; box-shadow:4px 4px 0 #E8DACA; padding:18px; }
+.sticker-chat-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.sticker-chat-heading h3 { margin:4px 0; color:var(--ink); font-family:var(--display-font); font-size:24px; }
+.sticker-chat-heading p { margin:0; color:#8B7666; font-size:12px; line-height:1.6; }
+.chat-mode-badge { border:1px solid #D5B28E; color:#A16C3C; padding:7px 9px; font-size:10px; white-space:nowrap; }
+.sticker-chat-card .rounded-lg.border { border-color:#E0D0C0; border-radius:10px; box-shadow:none; }
+.sticker-chat-card .bg-primary { background:#A75B38; }
+.sticker-chat-card .bg-muted { background:#F3E9DD; }
+.sticker-chat-card .border-t { border-color:#E6D8CA; }
+@media (max-width:760px){.sticker-chat-card{padding:13px}.sticker-chat-heading{flex-direction:column;gap:8px}.sticker-chat-heading h3{font-size:20px}.sticker-chat-card .rounded-lg.border{height:390px!important}.sticker-chat-card textarea{font-size:14px}}

@@ -1,5 +1,6 @@
 /* Design philosophy: editorial workbench meets Japanese stationery. Warm paper, ink-black hierarchy, vermilion proof marks, asymmetric creator-first layout. */
 import { useMemo, useRef, useState } from "react";
+import { AIChatBox, type Message as ChatMessage } from "@/components/AIChatBox";
 import { useAuth } from "@/_core/hooks/useAuth";
 import JSZip from "jszip";
 import { Download, ImagePlus, Layers3, MousePointer2, Play, RotateCcw, Sparkles, Wand2, X, Check, ChevronRight, Info } from "lucide-react";
@@ -15,6 +16,7 @@ import { LOTTERY_CONCEPTS, pickLotteryConcept, type LotteryConcept } from "@/lib
 import { buildLotteryAgentState } from "@/lib/lotteryAgentUi";
 import { applyRabbitExampleToComposer, rabbitExampleToStickerConcept, RABBIT_EXAMPLES, type RabbitExample } from "@/lib/rabbitExamples";
 import { getFeedbackStatusLabel, getFeedbackVoterToken, setFeedbackSort as normalizeFeedbackSort, shouldOpenFeedbackFromHash, validateFeedbackMessage } from "@/lib/feedbackUi";
+import { normalizeStickerChatPlan, resolveStickerChatAction } from "@/lib/stickerChatFlow";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -146,6 +148,8 @@ export default function Home() {
   const [lotteryConcept, setLotteryConcept] = useState<LotteryConcept | null>(null);
   const [lotteryImageUrl, setLotteryImageUrl] = useState("");
   const [lotteryBusy, setLotteryBusy] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ role: "assistant", content: "嗨，我是 Sticker Muse。想製作 LINE 貼圖嗎？你可以直接告訴我想做什麼；如果還沒決定，我會先問你要隨機生成，還是簡單描述貼圖內容。" }]);
+  const [chatBusy, setChatBusy] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(() => typeof window !== "undefined" && shouldOpenFeedbackFromHash(window.location.hash));
   const [feedbackCategory, setFeedbackCategory] = useState<"suggestion" | "bug" | "feature" | "other">("suggestion");
   const [feedbackSort, setFeedbackSort] = useState<"latest" | "popular">("latest");
@@ -163,6 +167,7 @@ export default function Home() {
   const [assetChecks, setAssetChecks] = useState<Record<string, AssetCheck>>({ [asset.dog]: { width: 1024, height: 1024, transparent: true, status: "needs" } });
   const randomGenerate = trpc.stickers.randomGenerate.useMutation();
   const lotteryGenerate = trpc.stickers.lotteryGenerate.useMutation();
+  const stickerChatPlan = trpc.stickerChat.plan.useMutation();
   const feedbackSubmit = trpc.feedback.submit.useMutation({ onSuccess: (result) => { setFeedbackMessage(""); setFeedbackContact(""); void publicFeedback.refetch(); toast.success(result.notified ? "回饋已送出" : "回饋已保存", { description: result.notified ? "謝謝你的建議，我會收到通知。" : "通知服務暫時忙碌，但內容已保存。" }); }, onError: (error) => { toast.error("回饋送出失敗", { description: error.message || "請稍後再試。" }); } });
   const publicFeedback = trpc.feedback.publicList.useQuery({ sort: feedbackSort });
   const feedbackVote = trpc.feedback.vote.useMutation({ onSuccess: (result) => { void publicFeedback.refetch(); if (!result.added) toast.info("你已經支持過這則建議了"); }, onError: (error) => { toast.error("+1 失敗", { description: error.message || "請稍後再試。" }); } });
@@ -221,6 +226,35 @@ export default function Home() {
     setImagePrompts(state.imagePrompts);
     if (state.uploaded.length) setUploaded(state.uploaded);
     toast.success("已帶入代理生成", { description: `文字與動作已帶入：${lotteryConcept.action}` });
+  }
+
+  async function handleStickerChatMessage(content: string) {
+    const nextMessages: ChatMessage[] = [...chatMessages, { role: "user", content }];
+    setChatMessages(nextMessages);
+    setChatBusy(true);
+    try {
+      const rawPlan = await stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length });
+      const plan = normalizeStickerChatPlan(rawPlan);
+      setChatMessages((current) => [...current, { role: "assistant", content: plan.reply }]);
+      const action = resolveStickerChatAction(plan, Math.max(1, uploaded.length), uploaded.length);
+      if (action.draft) {
+        setMode(action.draft.mode);
+        setPrompt(action.draft.prompt);
+        setImagePrompts(action.draft.imagePrompts);
+        if (action.shouldGenerate) {
+          await createSticker(action.draft);
+          setChatMessages((current) => [...current, { role: "assistant", content: "貼圖已送進工作台，完成後會出現在右側貼圖貨架。你也可以繼續告訴我下一張想怎麼改。" }]);
+        } else if (action.needsUpload) {
+          setChatMessages((current) => [...current, { role: "assistant", content: "這個方向已準備好！請先上傳 1 至 4 張角色照片，我就能開始製作。" }]);
+        }
+      }
+    } catch (error) {
+      console.error("Sticker chat planning failed", error);
+      setChatMessages((current) => [...current, { role: "assistant", content: "我暫時無法整理這句話，請再說一次你想製作的角色、文字或動作。" }]);
+      toast.error("聊天規劃暫時失敗", { description: error instanceof Error ? error.message : "請稍後再試。" });
+    } finally {
+      setChatBusy(false);
+    }
   }
 
   function submitFeedback() {
@@ -348,23 +382,27 @@ export default function Home() {
     }
   }
 
-  async function createSticker() {
-    if (!uploaded.length) {
+  async function createSticker(overrides?: { mode: Mode; prompt: string; imagePrompts: string[] }) {
+    const modeForGeneration = overrides?.mode ?? mode;
+    const promptForGeneration = overrides?.prompt ?? prompt;
+    const imagePromptsForGeneration = overrides?.imagePrompts ?? imagePrompts;
+    const uploadedForGeneration = uploaded;
+    if (!uploadedForGeneration.length) {
       toast.error("請先放入角色照片", { description: "每張上傳照片都會對應產出一張貼圖。" });
       return;
     }
 
     const sourceName = (source: string, index: number) => source === asset.rabbit ? "兔子" : source === asset.dog ? "狗狗" : source === asset.mouse ? "老鼠" : `素材 ${String(index + 1).padStart(2, "0")}`;
     const colors = ["sage", "red", "gold"] as const;
-    const sources = uploaded.slice(0, 4);
+    const sources = uploadedForGeneration.slice(0, 4);
     setIsGenerating(true);
     setGenerationProgress(4);
 
-    if (mode === "manual") {
-      const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${imagePrompts[index]?.trim() || prompt || "好餓"}`, color: colors[index % colors.length] }));
+    if (modeForGeneration === "manual") {
+      const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"}`, color: colors[index % colors.length] }));
       setGenerated((current) => mergeBatchResults(current, cards, packSize));
       if (shouldSaveLearning(learningEnabled, Boolean(user))) {
-        cards.forEach((card, index) => { const text = imagePrompts[index]?.trim() || prompt || "好餓"; const payload = buildLearningPayload("manual", text, `角色呈現「${text}」並搭配手動對話框`, card.label); if (payload) saveLearnedIdea.mutate(payload); });
+        cards.forEach((card, index) => { const text = imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"; const payload = buildLearningPayload("manual", text, `角色呈現「${text}」並搭配手動對話框`, card.label); if (payload) saveLearnedIdea.mutate(payload); });
       }
       setGenerationProgress(100);
       toast.success(`已完成 ${cards.length} 張手動貼圖`, { description: "每張角色照片都已建立對應的貼圖草稿。" });
@@ -372,8 +410,8 @@ export default function Home() {
       return;
     }
 
-    const jobs = createBatchStickerJobs(sources, mode, prompt, imagePrompts, (keys) => pickRandomStickerConcept(keys, Math.random, learnedConcepts), recentConceptKeys);
-    if (mode === "random") {
+    const jobs = createBatchStickerJobs(sources, modeForGeneration, promptForGeneration, imagePromptsForGeneration, (keys) => pickRandomStickerConcept(keys, Math.random, learnedConcepts), recentConceptKeys);
+    if (modeForGeneration === "random") {
       setRecentConceptKeys((current) => [...jobs.map((job) => job.scenarioKey).filter((key): key is string => Boolean(key)), ...current].slice(0, 8));
     }
 
@@ -398,12 +436,12 @@ export default function Home() {
     }));
     const failedCount = collected.failedCount;
     if (cards.length) setGenerated((current) => mergeBatchResults(current, cards, packSize));
-    if (mode === "agent" && shouldSaveLearning(learningEnabled, Boolean(user))) {
+    if (modeForGeneration === "agent" && shouldSaveLearning(learningEnabled, Boolean(user))) {
       collected.successful.forEach(({ job }) => { const payload = buildLearningPayload("agent", job.text, job.action, job.scenario); if (payload) saveLearnedIdea.mutate(payload); });
     }
     setGenerationProgress(100);
     if (cards.length && failedCount === 0) {
-      toast.success(`AI 已完成 ${cards.length} 張貼圖`, { description: mode === "random" ? "每張角色照片都已各自生成不同情境。" : "每張角色照片都已各自套用你的指定句子。" });
+      toast.success(`AI 已完成 ${cards.length} 張貼圖`, { description: modeForGeneration === "random" ? "每張角色照片都已各自生成不同情境。" : "每張角色照片都已各自套用你的指定句子。" });
     } else if (cards.length) {
       toast.warning(`已完成 ${cards.length} 張，${failedCount} 張生成失敗`, { description: "成功的貼圖已保留，你可以重新上傳或稍後重試失敗素材。" });
     } else {
@@ -447,8 +485,8 @@ export default function Home() {
 
         <div className="content-grid">
           <section className="editor-panel">
-            <div className="section-heading"><div><div className="section-index">01 / CHOOSE YOUR METHOD</div><h2>你想怎麼做？</h2></div><span className="paper-tag">WORKFLOW</span></div>
-            <div className="mode-tabs">{modes.map(({ id, no, title, caption, icon: Icon }) => <button key={id} onClick={() => switchMode(id)} className={`mode-tab ${mode === id ? "selected" : ""}`}><span className="mode-no">{no}</span><Icon size={17} strokeWidth={1.8} /><span className="mode-title">{title}</span><small>{caption}</small>{mode === id && <Check className="mode-check" size={15} />}</button>)}</div>
+            <div className="section-heading"><div><div className="section-index">01 / TALK TO YOUR CREATOR</div><h2>先聊聊你的貼圖</h2></div><span className="paper-tag">AI WORKFLOW</span></div>
+            <div className="sticker-chat-card"><div className="sticker-chat-heading"><div><div className="section-index">AI CREATOR CONVERSATION</div><h3>直接跟我說，你想做什麼貼圖</h3><p>不用先選模式。AI 會先理解你的需求，再詢問要隨機發想或依描述製作。</p></div><span className="chat-mode-badge">AI 對話工作台</span></div><AIChatBox messages={chatMessages} onSendMessage={(content) => void handleStickerChatMessage(content)} isLoading={chatBusy || isGenerating} height={360} placeholder="例如：我想做一組兔子日常貼圖…" emptyStateMessage="告訴我你想製作的貼圖，我會先幫你分流。" suggestedPrompts={["我想製作 LINE 貼圖", "幫我隨機做一張角色貼圖", "讓我的狗狗說：今天也很棒"]} /></div>
             <div className="public-feedback-card"><div className="public-feedback-head"><div><div className="section-index">OPEN CREATOR WALL</div><h3>大家的建議</h3><p>每個人留下的想法，都會成為 Sticker Muse 下一步的靈感。</p></div><div className="public-feedback-actions"><select aria-label="建議排序" value={feedbackSort} onChange={(event) => setFeedbackSort(normalizeFeedbackSort(feedbackSort, event.target.value))}><option value="latest">最新留言</option><option value="popular">最多按讚</option></select><button className="public-feedback-add" onClick={() => setFeedbackOpen(true)}>留下建議</button></div></div>{publicFeedback.isLoading ? <p className="public-feedback-empty">正在讀取大家的想法…</p> : publicFeedback.isError ? <p className="public-feedback-empty">暫時讀不到留言，請稍後再試。</p> : publicFeedback.data?.length ? <div className="public-feedback-list">{publicFeedback.data.slice(0, 8).map((item) => <article className="public-feedback-item" key={item.id}><div className="public-feedback-meta"><span>{item.category === "bug" ? "錯誤回報" : item.category === "feature" ? "功能需求" : item.category === "other" ? "其他" : "使用建議"}</span><time>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-TW") : "剛剛"}</time></div><p>{item.message}</p><div className="public-feedback-bottom"><small>匿名創作者</small><div className="public-feedback-vote"><span className={`feedback-status status-${item.status}`}>{getFeedbackStatusLabel(item.status)}</span><button onClick={() => feedbackVote.mutate({ id: item.id, voterToken: getFeedbackVoterToken(typeof window === "undefined" ? null : window.localStorage) })} disabled={feedbackVote.isPending}>+1 <b>{item.upvotes}</b></button></div></div></article>)}</div> : <p className="public-feedback-empty">還沒有公開建議，成為第一位留下想法的人吧。</p>}<div className="public-feedback-foot"><span>公開留言不會顯示聯絡方式</span><button onClick={() => setFeedbackOpen(true)}>查看並留言 <ChevronRight size={13} /></button></div></div><div className="rabbit-reference-card"><div className="rabbit-reference-head"><div><div className="section-index">REFERENCE / RABBIT DAILY STICKERS</div><h3>九張貼圖，拆成九種靈感</h3><p>從文字、動作、情緒到道具，挑一張作為你的下一張貼圖起點。</p></div><span className="rabbit-reference-count">{RABBIT_EXAMPLES.length} 張範例</span></div><div className="rabbit-reference-grid">{RABBIT_EXAMPLES.map((example) => <article className="rabbit-reference-item" key={example.id}><img src={example.src} alt={`${example.text}兔子貼圖範例`} /><div className="rabbit-reference-copy"><div className="rabbit-reference-meta"><b>{example.text}</b><span>{example.mood}</span></div><p>{example.action}</p><div className="rabbit-reference-tags">{example.elements.map((element) => <span key={element}>{element}</span>)}</div><button onClick={() => useRabbitExample(example)}>套用這個構思 <ChevronRight size={12} /></button></div></article>)}</div></div><div className="lottery-card"><div className="lottery-card-head"><div><span className="section-index">BONUS / STICKER LOTTERY</span><h3>不放照片，也能抽一張貼圖</h3><p>從 {LOTTERY_CONCEPTS.length} 組原創情境抽靈感，像抽獎一樣隨機生成。</p></div><span className="lottery-count">{LOTTERY_CONCEPTS.length} 組</span></div><div className="lottery-actions"><button className="lottery-draw" onClick={drawLottery} disabled={lotteryBusy}>抽一組靈感</button><button className="lottery-generate" onClick={generateLotterySticker} disabled={lotteryBusy}>{lotteryBusy ? "AI 生成中…" : "生成這張貼圖"}</button></div>{lotteryConcept && <div className="lottery-result"><div><b>{lotteryConcept.text}</b><small>{lotteryConcept.character} · {lotteryConcept.action}</small><em>{lotteryConcept.creative}</em></div><div className="lottery-result-actions">{lotteryImageUrl && <button onClick={useLotteryInAgent}>帶入代理修改</button>}<button onClick={drawLottery}>再抽一組</button></div></div>}</div>
 
             <div className="section-heading compact"><div><div className="section-index">02 / ADD YOUR MATERIAL</div><h2>{activeMode.title}</h2><small className="material-mode-note">{mode === "random" ? "每張照片都會各自生成一張隨機貼圖" : mode === "agent" ? "每張角色照片都會各自套用你的指定句子" : "每張角色照片都會各自建立對話框"}</small></div><span className="material-count">{uploaded.length} 張素材</span></div>
@@ -464,7 +502,7 @@ export default function Home() {
 
             <div className="prompt-block"><label htmlFor="prompt"><span className="section-index">03 / MAKE YOUR STICKER</span><span>{mode === "manual" ? "對話框文字" : "你想讓角色做什麼？"}</span></label><div className="prompt-input-wrap"><textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={2} placeholder="輸入一句話，或描述一個動作…" /><span className="char-count">{prompt.length} / 80</span></div><div className="prompt-hint"><Info size={13} /> {mode === "random" ? "系統會逐張讀取你提供的照片，保留角色外觀，再隨機安排動作或情緒。" : mode === "manual" ? "文字會直接放入貼圖對話框，生成後仍可修改。" : "越像平常說話的句子，角色就越有個性。"}</div></div>
             <div className="learning-panel"><div><b>創作學習</b><small>{user ? `已學習 ${learnedIdeasQuery.data?.length ?? 0} 組文字與動作` : "登入後可保存你的創作風格"}</small></div><div className="learning-actions"><button className={`learning-toggle ${learningEnabled ? "active" : ""}`} onClick={() => setLearningEnabled((current) => !current)}>{learningEnabled ? "學習中" : "已暫停"}</button>{user && (learnedIdeasQuery.data?.length ?? 0) > 0 && <button className="learning-clear" onClick={() => clearLearnedIdeas.mutate()}>清除</button>}</div></div>
-            <button className="generate-button" onClick={createSticker} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? mode === "manual" ? `正在建立 ${uploaded.length} 張貼圖…` : `AI 正在製作 ${uploaded.length} 張貼圖 ${generationProgress}%` : `生成 ${uploaded.length || 1} 張貼圖`}</span><ChevronRight size={18} /></button>
+            <button className="generate-button" onClick={() => void createSticker()} disabled={isGenerating || uploaded.length === 0}><span className="button-seal">{isGenerating ? <RotateCcw className="spin" size={20} /> : <Play size={17} fill="currentColor" />}</span><span>{isGenerating ? mode === "manual" ? `正在建立 ${uploaded.length} 張貼圖…` : `AI 正在製作 ${uploaded.length} 張貼圖 ${generationProgress}%` : `生成 ${uploaded.length || 1} 張貼圖`}</span><ChevronRight size={18} /></button>
           </section>
 
           <aside className="preview-panel"><div className="preview-top"><div><div className="section-index">04 / YOUR STICKER SHELF</div><h2>剛剛做好的</h2></div><span className={`preview-count ${generated.length === packSize ? "valid" : "invalid"}`}>{generated.length} / {packSize}</span><button className="chat-preview-button" onClick={() => setChatPreviewOpen((current) => !current)}>{chatPreviewOpen ? "關閉聊天室" : "聊天室預覽"}<ChevronRight size={13} /></button></div><div className="pack-size-panel"><div><b>選擇貼圖組數</b><small>LINE 靜態貼圖可選 8、16、24、32 或 40 張</small></div><div className="pack-size-options">{LINE_PACK_SIZES.map((size) => <button key={size} className={packSize === size ? "selected" : ""} onClick={() => setPackSize(size)}>{size}</button>)}</div><div className={`pack-status ${generated.length === packSize ? "ready" : "needs"}`}>{generated.length === packSize ? "✓ 數量符合，可匯出" : generated.length < packSize ? `還需要 ${remainingStickers} 張貼圖` : `請移除 ${generated.length - packSize} 張貼圖`}</div><div className="completion-meter" role="progressbar" aria-label="貼圖組完成度" aria-valuenow={completionPercent} aria-valuemin={0} aria-valuemax={100}><div className="completion-meter-top"><span>貼圖組完成度</span><strong>{completionPercent}%</strong></div><div className="completion-track"><div className={`completion-fill ${completionPercent === 100 ? "complete" : ""}`} style={{ width: `${completionPercent}%` }} /></div><div className="completion-caption"><span>已完成 {generated.length} / {packSize} 張</span><span>{remainingStickers ? `還差 ${remainingStickers} 張` : "可以開始匯出"}</span></div></div></div><div className="line-spec-panel"><div className="line-spec-header"><div><b>LINE 輸出規格</b><small>四種尺寸會自動縮放、置中與保留透明背景</small></div><span className={`spec-badge ${specReady ? "ready" : "pending"}`}>{specReady ? "已整理" : "待整理"}</span></div><div className="line-spec-grid">{LINE_OUTPUTS.map((item) => <div className="line-spec-item" key={item.key}><span className={`spec-check ${specReady ? "done" : ""}`}>{specReady ? "✓" : "·"}</span><div><b>{item.label}</b><small>{item.size} px</small></div></div>)}</div><button className="auto-scale-button" onClick={prepareLineSet} disabled={isProcessing || !generated.length}>{isProcessing ? `自動整理中 ${processingProgress}%` : "自動縮放全部輸出"}<ChevronRight size={13} /></button></div><div className="shelf-rule"><span /> 拖曳卡片調整順序</div><div className="sticker-shelf">{generated.map((sticker, index) => <article className={`sticker-card ${sticker.color} ${draggedIndex === index ? "dragging" : ""}`} key={`${sticker.label}-${index}`} draggable onDragStart={() => handleDragStart(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(index)} onDragEnd={() => setDraggedIndex(null)} aria-label={`第 ${index + 1} 張貼圖：${sticker.label}`}><div className="sticker-art"><span className="sticker-order">{String(index + 1).padStart(2, "0")}</span><img src={sticker.src} alt={sticker.label} /><div className="sticker-caption">{sticker.label.split("／")[1]}</div></div><div className="sticker-footer"><span><i /> {index === 0 ? "剛剛" : "草稿"}</span><div className="sticker-actions">{sticker.source && sticker.action && <button className="retry-button" onClick={(event) => { event.stopPropagation(); void retrySticker(index); }} disabled={retryingIndex === index || isGenerating} aria-label={`重新生成第 ${index + 1} 張貼圖`}>{retryingIndex === index ? <RotateCcw className="spin" size={12} /> : <RotateCcw size={12} />}<span>{retryingIndex === index ? "重試中" : "重來"}</span></button>}<button onClick={() => downloadSticker(sticker.label)} aria-label={`匯出${sticker.label}`}><Download size={14} /></button></div></div></article>)}</div><div className="export-box"><div><b>{generated.length === packSize ? "貼圖組數量已就位" : "貼圖組還在成形"}</b><p>{isProcessing ? `AI 去背、四類尺寸與打包中 ${processingProgress}%` : generated.length === packSize ? `共 ${packSize} 張，符合 LINE 規定。` : `完成 ${packSize} 張後才可下載 ZIP。`}</p></div><button onClick={exportZip} disabled={generated.length !== packSize || isProcessing}><Download size={13} /> 下載 ZIP <ChevronRight size={14} /></button></div></aside>
