@@ -16,7 +16,7 @@ import { LOTTERY_CONCEPTS, pickLotteryConcept, type LotteryConcept } from "@/lib
 import { buildLotteryAgentState } from "@/lib/lotteryAgentUi";
 import { applyRabbitExampleToComposer, rabbitExampleToStickerConcept, RABBIT_EXAMPLES, type RabbitExample } from "@/lib/rabbitExamples";
 import { getFeedbackStatusLabel, getFeedbackVoterToken, setFeedbackSort as normalizeFeedbackSort, shouldOpenFeedbackFromHash, validateFeedbackMessage } from "@/lib/feedbackUi";
-import { normalizeStickerChatPlan, resolveStickerChatAction } from "@/lib/stickerChatFlow";
+import { buildTextRevisionPrompt, isNoIdeaRequest, isRevisionRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction } from "@/lib/stickerChatFlow";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -149,6 +149,8 @@ export default function Home() {
   const [lotteryImageUrl, setLotteryImageUrl] = useState("");
   const [lotteryBusy, setLotteryBusy] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ role: "assistant", content: "嗨，我是 Sticker Muse。想製作 LINE 貼圖嗎？你可以直接告訴我想做什麼；如果還沒決定，我會先問你要隨機生成，還是簡單描述貼圖內容。" }]);
+  const [chatAttachmentNames, setChatAttachmentNames] = useState<string[]>([]);
+  const [latestGeneratedLabel, setLatestGeneratedLabel] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(() => typeof window !== "undefined" && shouldOpenFeedbackFromHash(window.location.hash));
   const [feedbackCategory, setFeedbackCategory] = useState<"suggestion" | "bug" | "feature" | "other">("suggestion");
@@ -194,20 +196,30 @@ export default function Home() {
     setRecentLotteryIds((current) => [concept.id, ...current].slice(0, 12));
   }
 
-  async function generateLotterySticker() {
-    const concept = lotteryConcept ?? pickLotteryConcept(recentLotteryIds);
+  async function generateLotteryConcept(concept: LotteryConcept, fromChat = false) {
     setLotteryConcept(concept);
     setLotteryBusy(true);
     try {
       const result = await lotteryGenerate.mutateAsync({ text: concept.text, action: concept.action, character: concept.character, creative: concept.creative });
       setLotteryImageUrl(result.url);
-      setGenerated((current) => mergeBatchResults(current, [{ src: result.url, label: `${concept.character}／${concept.text}`, color: "gold" }], packSize));
-      toast.success("抽獎貼圖完成", { description: "喜歡這個靈感嗎？可以帶入代理生成繼續修改。" });
+      const label = `${concept.character}／${concept.text}`;
+      setGenerated((current) => mergeBatchResults(current, [{ src: result.url, label, color: "gold" }], packSize));
+      setLatestGeneratedLabel(label);
+      setChatMessages((current) => fromChat ? [...current, { role: "assistant", content: `我抽到「${concept.text}」：${concept.action}。貼圖已生成，你可以直接告訴我想怎麼修改，例如「文字改成早安」或「表情更可愛」。` }] : current);
+      toast.success("抽獎貼圖完成", { description: "喜歡這個靈感嗎？可以直接在聊天框提出修改。" });
     } catch (error) {
-      toast.error("抽獎生成失敗", { description: error instanceof Error ? error.message : "請稍後再試" });
+      const description = error instanceof Error ? error.message : "請稍後再試";
+      toast.error("抽獎生成失敗", { description });
+      if (fromChat) setChatMessages((current) => [...current, { role: "assistant", content: "我已抽出靈感，但目前 AI 圖片服務暫時無法生成，可能是服務忙碌或額度已用完。你可以稍後再試，或先告訴我想修改的文字與動作。" }]);
     } finally {
       setLotteryBusy(false);
     }
+  }
+
+  async function generateLotterySticker() {
+    const concept = lotteryConcept ?? pickLotteryConcept(recentLotteryIds);
+    setLotteryConcept(concept);
+    await generateLotteryConcept(concept);
   }
 
   function useRabbitExample(example: RabbitExample) {
@@ -233,11 +245,28 @@ export default function Home() {
     setChatMessages(nextMessages);
     setChatBusy(true);
     try {
-      const rawPlan = await stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length });
-      const plan = normalizeStickerChatPlan(rawPlan);
+      const rawPlan = await stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length, attachmentNames: chatAttachmentNames, hasGeneratedResult: Boolean(latestGeneratedLabel), latestGeneratedLabel });
+      const basePlan = normalizeStickerChatPlan(rawPlan);
+      const plan = isNoIdeaRequest(content) && !latestGeneratedLabel
+        ? { ...basePlan, intent: "lottery" as const, readyToGenerate: true, mode: null, useLottery: true, useLatestResult: false, reply: basePlan.reply || "我先替你抽一組靈感。" }
+        : isRevisionRequest(content) && Boolean(latestGeneratedLabel)
+          ? { ...basePlan, intent: "refine" as const, readyToGenerate: true, mode: isTextRevisionRequest(content) ? "manual" as const : "agent" as const, useLottery: false, useLatestResult: true, prompt: isTextRevisionRequest(content) ? buildTextRevisionPrompt(content).prompt : (basePlan.prompt || content), action: isTextRevisionRequest(content) ? buildTextRevisionPrompt(content).action : (basePlan.action || content), reply: basePlan.reply || "我會沿用上一張貼圖幫你修改。" }
+          : basePlan;
       setChatMessages((current) => [...current, { role: "assistant", content: plan.reply }]);
       const action = resolveStickerChatAction(plan, Math.max(1, uploaded.length), uploaded.length);
-      if (action.draft) {
+      if (action.shouldDrawLottery) {
+        const concept = pickLotteryConcept(recentLotteryIds);
+        setRecentLotteryIds((current) => [concept.id, ...current].slice(0, 12));
+        await generateLotteryConcept(concept, true);
+      } else if (action.shouldRefineLatest && action.draft && generated.length) {
+        const target = generated[0];
+        setMode(action.draft.mode);
+        setPrompt(action.draft.prompt);
+        setImagePrompts([action.draft.prompt]);
+        setUploaded([target.src]);
+        const revised = await createSticker({ ...action.draft, imagePrompts: [action.draft.prompt], uploaded: [target.src], revisionPrompt: action.draft.mode === "manual" ? action.draft.prompt : undefined, chatContext: true });
+        setChatMessages((current) => [...current, { role: "assistant", content: revised ? "已沿用上一張貼圖重新調整，結果已更新在貼圖貨架；你可以繼續提出下一個修改。" : "這次修改尚未完成，可能是 AI 圖片服務暫時忙碌或額度已用完。原本貼圖仍保留，你可以稍後再試。" }]);
+      } else if (action.draft) {
         setMode(action.draft.mode);
         setPrompt(action.draft.prompt);
         setImagePrompts(action.draft.imagePrompts);
@@ -273,11 +302,19 @@ export default function Home() {
 
   function onFiles(files: FileList | null) {
     if (!files?.length) return;
-    const next = Array.from(files).slice(0, 4).map((file) => URL.createObjectURL(file));
+    const selected = Array.from(files).slice(0, 4);
+    const next = selected.map((file) => URL.createObjectURL(file));
     setUploaded(next);
+    setChatAttachmentNames(selected.map((file) => file.name));
     setImagePrompts(next.map((_, index) => imagePrompts[index] ?? (mode === "agent" ? prompt : "")));
     next.forEach(inspectAsset);
-    toast.success(`已放入 ${next.length} 張素材`, { description: "現在可以開始製作屬於你的貼圖了。" });
+    toast.success(`已放入 ${next.length} 張素材`, { description: "照片已同步到聊天框與製作工作台。" });
+  }
+
+  function removeChatAttachment(index: number) {
+    setChatAttachmentNames((current) => current.filter((_, item) => item !== index));
+    setUploaded((current) => current.filter((_, item) => item !== index));
+    setImagePrompts((current) => current.filter((_, item) => item !== index));
   }
 
   async function processTransparency() {
@@ -382,14 +419,15 @@ export default function Home() {
     }
   }
 
-  async function createSticker(overrides?: { mode: Mode; prompt: string; imagePrompts: string[] }) {
+  async function createSticker(overrides?: { mode: Mode; prompt: string; imagePrompts: string[]; uploaded?: string[]; revisionPrompt?: string; chatContext?: boolean }): Promise<boolean> {
     const modeForGeneration = overrides?.mode ?? mode;
     const promptForGeneration = overrides?.prompt ?? prompt;
     const imagePromptsForGeneration = overrides?.imagePrompts ?? imagePrompts;
-    const uploadedForGeneration = uploaded;
+    const uploadedForGeneration = overrides?.uploaded ?? uploaded;
     if (!uploadedForGeneration.length) {
       toast.error("請先放入角色照片", { description: "每張上傳照片都會對應產出一張貼圖。" });
-      return;
+      if (overrides?.chatContext) setChatMessages((current) => [...current, { role: "assistant", content: "請先上傳照片，我才能依照這個方向製作貼圖。" }]);
+      return false;
     }
 
     const sourceName = (source: string, index: number) => source === asset.rabbit ? "兔子" : source === asset.dog ? "狗狗" : source === asset.mouse ? "老鼠" : `素材 ${String(index + 1).padStart(2, "0")}`;
@@ -398,16 +436,42 @@ export default function Home() {
     setIsGenerating(true);
     setGenerationProgress(4);
 
+    if (modeForGeneration === "manual" && overrides?.revisionPrompt) {
+      const revisionResults = await Promise.all(sources.map(async (source, index) => {
+        try {
+          const originalImage = await imageInputFromSource(source);
+          const result = await randomGenerate.mutateAsync({ prompt: overrides.revisionPrompt!, originalImage });
+          return { src: result.url, label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration}`, color: colors[index % colors.length] };
+        } catch (error) {
+          console.error("Manual text revision failed", error);
+          return null;
+        }
+      }));
+      const cards = revisionResults.filter((card): card is { src: string; label: string; color: typeof colors[number] } => Boolean(card));
+      if (cards.length) {
+        setGenerated((current) => mergeBatchResults(current, cards, packSize));
+        setLatestGeneratedLabel(cards[0]?.label ?? "");
+        setGenerationProgress(100);
+        toast.success(`已完成 ${cards.length} 張文字微調`, { description: "已保留角色與構圖，只更新文字修改要求。" });
+      } else {
+        toast.error("文字微調失敗", { description: "AI 圖片服務暫時無法生成，原本貼圖仍保留。" });
+      }
+      window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
+      if (!cards.length && overrides?.chatContext) setChatMessages((current) => [...current, { role: "assistant", content: "文字微調尚未完成，原本貼圖仍保留；你可以稍後再試。" }]);
+      return cards.length > 0;
+    }
+
     if (modeForGeneration === "manual") {
       const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"}`, color: colors[index % colors.length] }));
       setGenerated((current) => mergeBatchResults(current, cards, packSize));
+      setLatestGeneratedLabel(cards[0]?.label ?? "");
       if (shouldSaveLearning(learningEnabled, Boolean(user))) {
         cards.forEach((card, index) => { const text = imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"; const payload = buildLearningPayload("manual", text, `角色呈現「${text}」並搭配手動對話框`, card.label); if (payload) saveLearnedIdea.mutate(payload); });
       }
       setGenerationProgress(100);
       toast.success(`已完成 ${cards.length} 張手動貼圖`, { description: "每張角色照片都已建立對應的貼圖草稿。" });
       window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
-      return;
+      return true;
     }
 
     const jobs = createBatchStickerJobs(sources, modeForGeneration, promptForGeneration, imagePromptsForGeneration, (keys) => pickRandomStickerConcept(keys, Math.random, learnedConcepts), recentConceptKeys);
@@ -435,7 +499,10 @@ export default function Home() {
       action: job.action,
     }));
     const failedCount = collected.failedCount;
-    if (cards.length) setGenerated((current) => mergeBatchResults(current, cards, packSize));
+    if (cards.length) {
+      setGenerated((current) => mergeBatchResults(current, cards, packSize));
+      setLatestGeneratedLabel(cards[0]?.label ?? "");
+    }
     if (modeForGeneration === "agent" && shouldSaveLearning(learningEnabled, Boolean(user))) {
       collected.successful.forEach(({ job }) => { const payload = buildLearningPayload("agent", job.text, job.action, job.scenario); if (payload) saveLearnedIdea.mutate(payload); });
     }
@@ -449,6 +516,8 @@ export default function Home() {
       toast.error(failure.title, { description: "4 張素材都已自動重試 3 次仍未完成，請稍後再試。" });
     }
     window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
+    if (!cards.length && overrides?.chatContext) setChatMessages((current) => [...current, { role: "assistant", content: "這次修改尚未完成，可能是 AI 圖片服務暫時忙碌或額度已用完。原本貼圖仍保留，你可以稍後再試。" }]);
+    return cards.length > 0;
   }
 
   function downloadSticker(label: string) {
@@ -486,7 +555,7 @@ export default function Home() {
         <div className="content-grid">
           <section className="editor-panel">
             <div className="section-heading"><div><div className="section-index">01 / TALK TO YOUR CREATOR</div><h2>先聊聊你的貼圖</h2></div><span className="paper-tag">AI WORKFLOW</span></div>
-            <div className="sticker-chat-card"><div className="sticker-chat-heading"><div><div className="section-index">AI CREATOR CONVERSATION</div><h3>直接跟我說，你想做什麼貼圖</h3><p>不用先選模式。AI 會先理解你的需求，再詢問要隨機發想或依描述製作。</p></div><span className="chat-mode-badge">AI 對話工作台</span></div><AIChatBox messages={chatMessages} onSendMessage={(content) => void handleStickerChatMessage(content)} isLoading={chatBusy || isGenerating} height={360} placeholder="例如：我想做一組兔子日常貼圖…" emptyStateMessage="告訴我你想製作的貼圖，我會先幫你分流。" suggestedPrompts={["我想製作 LINE 貼圖", "幫我隨機做一張角色貼圖", "讓我的狗狗說：今天也很棒"]} /></div>
+            <div className="sticker-chat-card"><div className="sticker-chat-heading"><div><div className="section-index">AI CREATOR CONVERSATION</div><h3>直接跟我說，你想做什麼貼圖</h3><p>不用先選模式。AI 會先理解你的需求，再詢問要隨機發想或依描述製作。</p></div><span className="chat-mode-badge">AI 對話工作台</span></div><AIChatBox messages={chatMessages} onSendMessage={(content) => void handleStickerChatMessage(content)} onAttachFiles={(files) => onFiles(files)} attachmentNames={chatAttachmentNames} attachmentPreviews={uploaded.slice(0, chatAttachmentNames.length)} onRemoveAttachment={removeChatAttachment} isLoading={chatBusy || isGenerating || lotteryBusy} height={360} placeholder="例如：我想做一組兔子日常貼圖…" emptyStateMessage="告訴我你想製作的貼圖，我會先幫你分流。" suggestedPrompts={["我想製作 LINE 貼圖", "我沒有想法，幫我抽一張靈感", "讓我的狗狗說：今天也很棒"]} /></div>
             <div className="public-feedback-card"><div className="public-feedback-head"><div><div className="section-index">OPEN CREATOR WALL</div><h3>大家的建議</h3><p>每個人留下的想法，都會成為 Sticker Muse 下一步的靈感。</p></div><div className="public-feedback-actions"><select aria-label="建議排序" value={feedbackSort} onChange={(event) => setFeedbackSort(normalizeFeedbackSort(feedbackSort, event.target.value))}><option value="latest">最新留言</option><option value="popular">最多按讚</option></select><button className="public-feedback-add" onClick={() => setFeedbackOpen(true)}>留下建議</button></div></div>{publicFeedback.isLoading ? <p className="public-feedback-empty">正在讀取大家的想法…</p> : publicFeedback.isError ? <p className="public-feedback-empty">暫時讀不到留言，請稍後再試。</p> : publicFeedback.data?.length ? <div className="public-feedback-list">{publicFeedback.data.slice(0, 8).map((item) => <article className="public-feedback-item" key={item.id}><div className="public-feedback-meta"><span>{item.category === "bug" ? "錯誤回報" : item.category === "feature" ? "功能需求" : item.category === "other" ? "其他" : "使用建議"}</span><time>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-TW") : "剛剛"}</time></div><p>{item.message}</p><div className="public-feedback-bottom"><small>匿名創作者</small><div className="public-feedback-vote"><span className={`feedback-status status-${item.status}`}>{getFeedbackStatusLabel(item.status)}</span><button onClick={() => feedbackVote.mutate({ id: item.id, voterToken: getFeedbackVoterToken(typeof window === "undefined" ? null : window.localStorage) })} disabled={feedbackVote.isPending}>+1 <b>{item.upvotes}</b></button></div></div></article>)}</div> : <p className="public-feedback-empty">還沒有公開建議，成為第一位留下想法的人吧。</p>}<div className="public-feedback-foot"><span>公開留言不會顯示聯絡方式</span><button onClick={() => setFeedbackOpen(true)}>查看並留言 <ChevronRight size={13} /></button></div></div><div className="rabbit-reference-card"><div className="rabbit-reference-head"><div><div className="section-index">REFERENCE / RABBIT DAILY STICKERS</div><h3>九張貼圖，拆成九種靈感</h3><p>從文字、動作、情緒到道具，挑一張作為你的下一張貼圖起點。</p></div><span className="rabbit-reference-count">{RABBIT_EXAMPLES.length} 張範例</span></div><div className="rabbit-reference-grid">{RABBIT_EXAMPLES.map((example) => <article className="rabbit-reference-item" key={example.id}><img src={example.src} alt={`${example.text}兔子貼圖範例`} /><div className="rabbit-reference-copy"><div className="rabbit-reference-meta"><b>{example.text}</b><span>{example.mood}</span></div><p>{example.action}</p><div className="rabbit-reference-tags">{example.elements.map((element) => <span key={element}>{element}</span>)}</div><button onClick={() => useRabbitExample(example)}>套用這個構思 <ChevronRight size={12} /></button></div></article>)}</div></div><div className="lottery-card"><div className="lottery-card-head"><div><span className="section-index">BONUS / STICKER LOTTERY</span><h3>不放照片，也能抽一張貼圖</h3><p>從 {LOTTERY_CONCEPTS.length} 組原創情境抽靈感，像抽獎一樣隨機生成。</p></div><span className="lottery-count">{LOTTERY_CONCEPTS.length} 組</span></div><div className="lottery-actions"><button className="lottery-draw" onClick={drawLottery} disabled={lotteryBusy}>抽一組靈感</button><button className="lottery-generate" onClick={generateLotterySticker} disabled={lotteryBusy}>{lotteryBusy ? "AI 生成中…" : "生成這張貼圖"}</button></div>{lotteryConcept && <div className="lottery-result"><div><b>{lotteryConcept.text}</b><small>{lotteryConcept.character} · {lotteryConcept.action}</small><em>{lotteryConcept.creative}</em></div><div className="lottery-result-actions">{lotteryImageUrl && <button onClick={useLotteryInAgent}>帶入代理修改</button>}<button onClick={drawLottery}>再抽一組</button></div></div>}</div>
 
             <div className="section-heading compact"><div><div className="section-index">02 / ADD YOUR MATERIAL</div><h2>{activeMode.title}</h2><small className="material-mode-note">{mode === "random" ? "每張照片都會各自生成一張隨機貼圖" : mode === "agent" ? "每張角色照片都會各自套用你的指定句子" : "每張角色照片都會各自建立對話框"}</small></div><span className="material-count">{uploaded.length} 張素材</span></div>

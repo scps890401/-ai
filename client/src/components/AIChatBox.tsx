@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { Loader2, Send, User, Sparkles } from "lucide-react";
+import { Loader2, Send, User, Sparkles, Paperclip, X } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
 /**
@@ -56,6 +56,10 @@ export type AIChatBoxProps = {
    * Click to send directly
    */
   suggestedPrompts?: string[];
+  onAttachFiles?: (files: FileList) => void;
+  attachmentNames?: string[];
+  attachmentPreviews?: string[];
+  onRemoveAttachment?: (index: number) => void;
 };
 
 /**
@@ -118,6 +122,10 @@ export function AIChatBox({
   height = "600px",
   emptyStateMessage = "Start a conversation with AI",
   suggestedPrompts,
+  onAttachFiles,
+  attachmentNames = [],
+  attachmentPreviews = [],
+  onRemoveAttachment,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -307,6 +315,14 @@ export function AIChatBox({
         onSubmit={handleSubmit}
         className="flex gap-2 p-4 border-t bg-background/50 items-end"
       >
+        {onAttachFiles && (
+          <>
+            <input id="sticker-chat-attachments" className="hidden" type="file" accept="image/png,image/jpeg" multiple onChange={(event) => { if (event.target.files?.length) onAttachFiles(event.target.files); event.currentTarget.value = ""; }} />
+            <Button type="button" variant="outline" size="icon" className="shrink-0 h-[38px] w-[38px]" onClick={() => document.getElementById("sticker-chat-attachments")?.click()} disabled={isLoading} aria-label="上傳照片">
+              <Paperclip className="size-4" />
+            </Button>
+          </>
+        )}
         <Textarea
           ref={textareaRef}
           value={input}
@@ -329,6 +345,16 @@ export function AIChatBox({
           )}
         </Button>
       </form>
+      {attachmentNames.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-4 pb-3" aria-label="聊天附件">
+          {attachmentNames.map((name, index) => (
+            <span key={`${name}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-full border bg-background px-2 py-1 text-xs">
+              {attachmentPreviews[index] ? <img src={attachmentPreviews[index]} alt={`附件預覽 ${index + 1}`} className="size-8 rounded object-cover" /> : <Paperclip className="size-3 shrink-0" />}<span className="max-w-[160px] truncate">{name}</span>
+              {onRemoveAttachment && <button type="button" onClick={() => onRemoveAttachment(index)} aria-label={`移除附件 ${name}`}><X className="size-3" /></button>}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
