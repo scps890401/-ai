@@ -317,7 +317,7 @@ export function AIChatBox({
       >
         {onAttachFiles && (
           <>
-            <input id="sticker-chat-attachments" className="hidden" type="file" accept="image/png,image/jpeg" multiple onChange={(event) => { if (event.target.files?.length) onAttachFiles(event.target.files); event.currentTarget.value = ""; }} />
+            <input id="sticker-chat-attachments" data-chat-attachments="v2" className="hidden" type="file" accept="image/png,image/jpeg" multiple onChange={(event) => { if (event.target.files?.length) onAttachFiles(event.target.files); event.currentTarget.value = ""; }} />
             <Button type="button" variant="outline" size="icon" className="shrink-0 h-[38px] w-[38px]" onClick={() => document.getElementById("sticker-chat-attachments")?.click()} disabled={isLoading} aria-label="上傳照片">
               <Paperclip className="size-4" />
             </Button>
