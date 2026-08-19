@@ -220,3 +220,17 @@ body { background:var(--paper); color:var(--ink); }
 .sticker-chat-card .bg-muted { background:#F3E9DD; }
 .sticker-chat-card .border-t { border-color:#E6D8CA; }
 @media (max-width:760px){.sticker-chat-card{padding:13px}.sticker-chat-heading{flex-direction:column;gap:8px}.sticker-chat-heading h3{font-size:20px}.sticker-chat-card .rounded-lg.border{height:390px!important}.sticker-chat-card textarea{font-size:14px}}
+
+.chat-lottery-card { margin-top:12px; padding:13px; border:1px solid rgba(173,125,76,.42); border-radius:14px; background:linear-gradient(135deg,rgba(255,253,247,.96),rgba(250,239,218,.78)); box-shadow:0 6px 16px rgba(112,70,35,.07); }
+.chat-lottery-label { color:#A8612D; font-size:9px; letter-spacing:.12em; font-weight:700; }
+.chat-lottery-main { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; }
+.chat-lottery-main b, .chat-lottery-main small, .chat-lottery-main em { display:block; }
+.chat-lottery-main b { color:#633F26; font-size:14px; }
+.chat-lottery-main small { margin-top:3px; color:#8D6C51; font-size:10px; }
+.chat-lottery-main em { margin-top:4px; color:#B1825F; font-size:10px; font-style:normal; line-height:1.5; }
+.chat-lottery-main img, .chat-lottery-placeholder { width:58px; height:58px; flex:none; border-radius:10px; border:1px dashed rgba(168,97,45,.35); object-fit:cover; background:#FFF9EE; }
+.chat-lottery-placeholder { display:grid; place-items:center; padding:6px; color:#B1825F; font-size:9px; text-align:center; }
+.chat-lottery-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:10px; }
+.chat-lottery-actions button { border:1px solid rgba(168,97,45,.45); border-radius:999px; padding:6px 9px; color:#8A5A32; background:#FFFDF8; cursor:pointer; font-size:10px; }
+.chat-lottery-actions button:nth-child(2), .chat-lottery-actions button:last-child { color:#FFF9F0; border-color:#A8612D; background:#A8612D; }
+@media (max-width:760px){ .chat-lottery-main { align-items:flex-start; }.chat-lottery-actions { justify-content:flex-start; }.chat-lottery-actions button { flex:1; min-width:calc(50% - 6px); } }
