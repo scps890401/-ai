@@ -1,102 +1,99 @@
-import { useState } from "react";
-import { ArrowRight, Check, ChevronDown, ChevronUp, ExternalLink, Gift, Image as ImageIcon, Menu, Palette, Play, Sparkles, X, Zap } from "lucide-react";
+import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ArrowRight, Check, ChevronDown, ChevronUp, Download, Image as ImageIcon, Menu, Palette, Play, RefreshCw, Share2, Sparkles, Upload, Wand2, X, Zap } from "lucide-react";
 
-/* Style reminder: fidelity-first dark ocean landing page, electric cyan/violet accents, asymmetrical hero, glass cards, and crisp motion. */
+/* Style reminder: self-contained dark ocean creator studio, electric cyan/violet accents, asymmetric hero, glass panels, and direct in-page creation. */
 
 const logoUrl = "/manus-storage/sticker-tycoon-logo_d42e24d3.png";
 const heroUrl = "/manus-storage/sticker-tycoon-hero-reference_07193460.png";
-const featureArtUrl = "/manus-storage/sticker-tycoon-feature-art_39953123.png";
 
-const stickerProducts = [
-  { id: "32558253", name: "貼圖作品", status: "✨ 新上架", tone: "new", image: "https://stickershop.line-scdn.net/stickershop/v1/product/32558253/LINEStorePC/main.png" },
-  { id: "32182921", name: "Andy's Talk", status: "🔥 熱賣中", tone: "hot", image: "https://stickershop.line-scdn.net/stickershop/v1/product/32182921/LINEStorePC/main.png" },
-  { id: "32191704", name: "Andy's Talk2", status: "✨ 新上架", tone: "new", image: "https://stickershop.line-scdn.net/stickershop/v1/product/32191704/LINEStorePC/main.png" },
-  { id: "32392279", name: "貼圖作品", status: "✨ 新上架", tone: "new", image: "https://stickershop.line-scdn.net/stickershop/v1/product/32392279/LINEStorePC/main.png" },
-  { id: "32430992", name: "貼圖作品", status: "✨ 新上架", tone: "new", image: "https://stickershop.line-scdn.net/stickershop/v1/product/32430992/LINEStorePC/main.png" },
-  { id: "32292454", name: "貼圖作品", status: "🔥 熱賣中", tone: "hot", image: "https://stickershop.line-scdn.net/stickershop/v1/product/32292454/LINEStorePC/main.png" },
+const styles = [
+  { id: "cute", label: "可愛手繪", icon: "✏️", tone: "#ffcf70" },
+  { id: "pop", label: "繽紛流行", icon: "🌈", tone: "#65d9ff" },
+  { id: "comic", label: "漫畫表情", icon: "💥", tone: "#ff89d1" },
+  { id: "minimal", label: "清爽極簡", icon: "◌", tone: "#9bf4c5" },
 ];
+const emotions = ["開心", "收到", "加油", "謝謝", "驚訝", "晚安"];
+const stickerWords = ["太棒了！", "收到！", "一起加油", "謝謝你", "真的假的", "晚安好夢"];
 
-const stickerPreviews = [645893161, 645893162, 645893163, 645893164, 646116401, 646116402, 646116403, 646116404];
-
-function goTo(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
+function scrollToId(id: string) { document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }
 
 export default function Home() {
+  const fileRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [selectedPreview, setSelectedPreview] = useState<number | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [styleId, setStyleId] = useState("cute");
+  const [chosenEmotions, setChosenEmotions] = useState(emotions.slice(0, 4));
+  const [status, setStatus] = useState<"idle" | "generating" | "done">("idle");
+  const [progress, setProgress] = useState(0);
   const [notice, setNotice] = useState("");
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
 
-  const showNotice = (message: string) => {
-    setNotice(message);
-    window.setTimeout(() => setNotice(""), 3200);
+  const selectedStyle = styles.find((item) => item.id === styleId) ?? styles[0];
+  const resultWords = useMemo(() => chosenEmotions.map((emotion) => stickerWords[emotions.indexOf(emotion)] ?? emotion), [chosenEmotions]);
+
+  const showNotice = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(""), 2800); };
+
+  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { showNotice("請選擇 JPG、PNG 或 WEBP 圖片"); return; }
+    setFileName(file.name);
+    setPhoto(URL.createObjectURL(file));
+    setStatus("idle");
+    showNotice("照片已加入，接著選擇風格與表情");
   };
 
-  return (
-    <div className="site-shell">
-      {notice && <div className="toast"><Sparkles size={16} />{notice}</div>}
-      <header className="topbar">
-        <a className="brand" href="#top" aria-label="貼圖大亨首頁">
-          <img src={logoUrl} alt="貼圖大亨品牌標誌" />
-          <span><strong>貼圖大亨</strong><small>Sticker Tycoon</small></span>
-        </a>
-        <button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="開啟導覽選單"><Menu size={22} /></button>
-        <nav className={menuOpen ? "nav-links open" : "nav-links"}>
-          <button onClick={() => { goTo("features"); setMenuOpen(false); }}>功能特色</button>
-          <button onClick={() => { goTo("gallery"); setMenuOpen(false); }}>作品展示</button>
-          <button onClick={() => { goTo("guide"); setMenuOpen(false); }}>使用流程</button>
-          <a href="#guide">📖 使用說明</a>
-        </nav>
-        <a className="button button-primary header-cta" href="https://line.me/R/ti/p/@sticker-tycoon" target="_blank" rel="noreferrer"><Play size={15} fill="currentColor" />立即開始</a>
-      </header>
+  const toggleEmotion = (emotion: string) => {
+    setChosenEmotions((current) => current.includes(emotion) ? current.filter((item) => item !== emotion) : current.length < 6 ? [...current, emotion] : current);
+  };
 
-      <main id="top">
-        <section className="hero section-pad">
-          <div className="ambient orb-one" /><div className="ambient orb-two" />
-          <div className="hero-copy reveal">
-            <div className="eyebrow">AI 智能創作 · 3 分鐘完成</div>
-            <h1>用 AI 創造<br /><span>專屬 LINE 貼圖</span></h1>
-            <p className="hero-lead">上傳一張照片，AI 自動生成多種表情貼圖。<br /><b>8 種風格任選</b>，從創作、預覽到分享，全部免費體驗！</p>
-            <div className="legal-note">本服務為貼圖大亨之 LINE Mini App 版本，僅於 LINE 應用程式內提供使用者貼圖製作與管理相關功能，不涉及任何未經授權的內容散布或行為。</div>
-            <div className="hero-actions">
-              <a className="button button-primary" href="https://line.me/R/ti/p/@sticker-tycoon" target="_blank" rel="noreferrer"><Gift size={16} />立即免費開始</a>
-              <button className="button button-secondary" onClick={() => goTo("gallery")}><ImageIcon size={16} />看看作品</button>
-            </div>
-            <div className="trust-row"><span><Check size={14} />免費開始</span><span><Check size={14} />無需設計技能</span><span><Check size={14} />快速取得貼圖</span></div>
-            <div className="coupon-card free-note"><Gift size={19} /><span><strong>全站免費開放</strong><small>全站免費開放，立即開始創作</small></span><Check size={17} /></div>
-          </div>
-          <div className="hero-visual reveal delay-one">
-            <div className="hero-art-frame"><img src={heroUrl} alt="AI 貼圖創作示意圖" /></div>
-            <div className="floating-chip chip-style"><Palette size={15} />8 種風格</div>
-            <div className="floating-chip chip-speed"><Zap size={16} fill="currentColor" />3 分鐘生成</div>
-            <div className="scanline" />
-          </div>
-        </section>
+  const startGeneration = () => {
+    if (!photo) { showNotice("請先上傳一張照片"); scrollToId("studio"); return; }
+    setStatus("generating"); setProgress(0);
+    let value = 0;
+    const timer = window.setInterval(() => { value += 20; setProgress(value); if (value >= 100) { window.clearInterval(timer); setStatus("done"); showNotice("貼圖已完成，現在可以預覽與下載"); } }, 260);
+  };
 
-        <section className="announcement section-pad"><div className="announcement-icon">✓</div><div><strong>免費創作公告｜現在就開始你的第一套貼圖</strong><p>不用信用卡、不用訂閱，從 LINE 官方帳號進入即可免費使用創作功能。</p></div><a className="text-link" href="https://line.me/R/ti/p/@sticker-tycoon" target="_blank" rel="noreferrer">免費進入創作 <ArrowRight size={15} /></a></section>
+  const downloadSticker = (word: string, index: number) => {
+    if (!photo) return;
+    const canvas = document.createElement("canvas"); canvas.width = 900; canvas.height = 900;
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
+    ctx.fillStyle = "#fff2d8"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const image = new Image(); image.crossOrigin = "anonymous"; image.src = photo;
+    image.onload = () => { const size = 590; const x = (900 - size) / 2; const y = 85; ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, size, size, 44); ctx.clip(); ctx.drawImage(image, x, y, size, size); ctx.restore(); ctx.fillStyle = selectedStyle.tone; ctx.beginPath(); ctx.arc(756, 126, 54, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#182337"; ctx.font = "900 54px Noto Sans TC, sans-serif"; ctx.textAlign = "center"; ctx.fillText(word, 450, 785); ctx.font = "700 25px Noto Sans TC, sans-serif"; ctx.fillText(`Sticker Tycoon · ${index + 1}`, 450, 845); const link = document.createElement("a"); link.download = `sticker-tycoon-${index + 1}.png`; link.href = canvas.toDataURL("image/png"); link.click(); showNotice("貼圖已下載"); };
+  };
 
-        <section id="features" className="feature-section section-pad">
-          <div className="section-heading"><div className="eyebrow">✨ 為什麼選擇我們</div><h2>強大功能，<span>超簡單操作</span></h2><p>結合 AI 技術，讓每個人都能輕鬆創作專業級 LINE 貼圖。</p></div>
-          <div className="feature-layout"><div className="feature-art"><img src={heroUrl} alt="AI 貼圖創作示意圖" /></div><div className="feature-list">
-            {[{icon: "📸", title: "照片變貼圖", body: "上傳任意照片，AI 自動提取特徵生成多種表情貼圖。"},{icon: "🎭", title: "24 種表情", body: "開心、難過、生氣、驚訝……豐富表情一次滿足。"},{icon: "🚀", title: "免費生成", body: "選擇風格後立即生成，從靈感到作品不需要等待複雜流程。"},{icon: "💬", title: "自由分享", body: "完成後即可保存與分享你的貼圖創作，讓朋友一起看見。"}].map((item) => <article className="feature-item" key={item.title}><div className="feature-icon">{item.icon}</div><div><h3>{item.title}</h3><p>{item.body}</p></div></article>)}
-          </div></div>
-        </section>
+  const shareCreation = async () => {
+    const text = "我剛用 Sticker Tycoon 做了一套免費貼圖！";
+    if (navigator.share) { await navigator.share({ title: "Sticker Tycoon", text }); } else { await navigator.clipboard?.writeText(text); showNotice("分享文字已複製，可以貼給朋友"); }
+  };
 
-        <section id="gallery" className="gallery-section section-pad"><div className="section-heading center"><div className="eyebrow">🏆 創作者作品</div><h2>看看大家的 <span>可愛貼圖</span></h2><p>以下作品展示 AI 貼圖創作的可能性，喜歡的風格也能免費拿來當靈感。</p></div><div className="product-grid">{stickerProducts.map((product) => <article className="product-card" key={product.id}><div className="product-image"><img src={product.image} alt={`${product.name} LINE 貼圖`} /><span className={`status ${product.tone}`}>{product.status}</span><span className="visit"><ImageIcon size={13} />免費作品展示</span></div><div className="product-info"><div><h3>{product.name}</h3><p>40 張表情貼圖 · 可愛風格</p></div><span className="free-tag">免費展示</span></div></article>)}</div><div className="gallery-sheet"><div><div className="eyebrow">📸 貼圖預覽</div><h3>一張照片，八種可愛表情</h3><p>這些都是 AI 自動生成的貼圖，你也可以創作這樣的作品。</p></div><button className="sheet-art" onClick={() => setSelectedPreview(0)}><div className="sheet-grid">{stickerPreviews.map((id) => <img key={id} src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${id}/iPhone/sticker@2x.png`} alt="AI 貼圖預覽" />)}</div><span>點擊放大預覽 <ArrowRight size={15} /></span></button></div></section>
+  return <div className="site-shell">
+    {notice && <div className="toast"><Sparkles size={16} />{notice}</div>}
+    <header className="topbar">
+      <a className="brand" href="#top"><img src={logoUrl} alt="貼圖大亨標誌" /><span><strong>貼圖大亨</strong><small>Sticker Tycoon</small></span></a>
+      <button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="開啟導覽選單"><Menu size={22} /></button>
+      <nav className={menuOpen ? "nav-links open" : "nav-links"}><button onClick={() => { scrollToId("studio"); setMenuOpen(false); }}>開始製作</button><button onClick={() => { scrollToId("features"); setMenuOpen(false); }}>功能特色</button><button onClick={() => { scrollToId("gallery"); setMenuOpen(false); }}>作品靈感</button><button onClick={() => { scrollToId("guide"); setMenuOpen(false); }}>使用流程</button></nav>
+      <button className="button button-primary header-cta" onClick={() => scrollToId("studio")}><Play size={15} fill="currentColor" />開始製作</button>
+    </header>
 
-        <section className="download-section section-pad"><div className="section-heading"><div className="eyebrow">✨ 免費創作體驗</div><h2>把靈感帶走，<span>自由分享</span></h2><p>所有創作功能免費開放，完成後即可保存作品、分享給朋友，或繼續創作下一套貼圖。</p></div><div className="compare-grid"><article className="compare-card muted"><div className="compare-symbol">📷</div><h3>上傳照片</h3><ul><li>✅ 選擇一張喜歡的照片</li><li>✅ 不需要設計經驗</li><li>✅ 支援多種創作風格</li><li>✅ 立即開始免費生成</li></ul></article><article className="compare-card recommended"><div className="compare-symbol">🎉</div><h3>保存與分享</h3><ul><li>✅ 預覽多種表情變化</li><li>✅ 保存你的創作成果</li><li>✅ 分享給朋友一起欣賞</li><li>✅ 不綁定信用卡或訂閱</li></ul><button className="button button-primary" onClick={() => showNotice("免費創作功能將在 LINE Mini App 中開啟")}>免費開始 <ArrowRight size={15} /></button></article></div></section>
+    <main id="top">
+      <section className="hero section-pad"><div className="ambient orb-one" /><div className="ambient orb-two" /><div className="hero-copy reveal"><div className="eyebrow">AI 智能創作 · 全程在網頁內完成</div><h1>把照片變成<br /><span>你的專屬貼圖</span></h1><p className="hero-lead">上傳一張照片，選一種風格與幾個表情，幾秒就能完成一套可預覽、可下載、可分享的貼圖。</p><div className="hero-actions"><button className="button button-primary" onClick={() => scrollToId("studio")}><Wand2 size={16} />立即開始製作</button><button className="button button-secondary" onClick={() => scrollToId("gallery")}><ImageIcon size={16} />看看作品靈感</button></div><div className="trust-row"><span><Check size={14} />瀏覽器內完成</span><span><Check size={14} />免費使用</span><span><Check size={14} />可直接下載</span></div><div className="coupon-card free-note"><Zap size={19} /><span><strong>不用跳轉、不用註冊</strong><small>照片、風格、生成、下載，一個頁面完成</small></span><ArrowRight size={17} /></div></div><div className="hero-visual reveal delay-one"><div className="hero-art-frame"><img src={heroUrl} alt="貼圖創作示意圖" /></div><div className="floating-chip chip-style"><Palette size={15} />4 種創作風格</div><div className="floating-chip chip-speed"><Zap size={16} fill="currentColor" />幾秒完成預覽</div><div className="scanline" /></div></section>
 
-        <section id="pricing" className="pricing-section section-pad"><div className="section-heading center"><div className="eyebrow">💎 免費功能</div><h2>每個人都能 <span>免費創作</span></h2><p>沒有方案差異、沒有隱藏費用，所有創作者都能使用完整的基礎體驗。</p></div><div className="plans"><article className="plan-card popular"><div className="plan-top"><span>Free Creator</span><strong>完整開放</strong></div><p>適合想把日常照片變成可愛貼圖的每一位創作者。</p><div className="plan-price">FREE</div><ul><li><Check size={15} />AI 貼圖生成體驗</li><li><Check size={15} />8 種創作風格</li><li><Check size={15} />多種表情預覽</li><li><Check size={15} />保存與分享作品</li></ul><a className="button button-primary" href="https://line.me/R/ti/p/@sticker-tycoon" target="_blank" rel="noreferrer">立即免費開始 <ArrowRight size={15} /></a></article></div></section>
+      <section id="studio" className="studio-section section-pad"><div className="section-heading"><div className="eyebrow">🪄 網頁內創作工作室</div><h2>三步驟，完成你的 <span>第一套貼圖</span></h2><p>所有控制都在這裡，不需要離開網站。先上傳照片，再選擇風格與表情，最後按下生成。</p></div><div className="studio-layout"><div className="studio-controls"><div className="studio-step"><div className="step-number">01</div><div className="step-content"><h3>上傳一張照片</h3><p>建議使用光線清楚、主體明確的 JPG、PNG 或 WEBP 圖片。</p><button className="upload-zone" onClick={() => fileRef.current?.click()}><input ref={fileRef} type="file" accept="image/*" onChange={handleFile} hidden /><Upload size={24} /><strong>{photo ? "重新選擇照片" : "點擊上傳照片"}</strong><small>{fileName || "或將圖片拖曳到這裡"}</small></button>{photo && <div className="file-state"><Check size={15} />{fileName}<button onClick={() => { setPhoto(null); setFileName(""); setStatus("idle"); }} aria-label="移除照片"><X size={15} /></button></div>}</div></div><div className="studio-step"><div className="step-number">02</div><div className="step-content"><h3>選擇創作風格</h3><div className="style-grid">{styles.map((item) => <button key={item.id} className={styleId === item.id ? "style-option active" : "style-option"} onClick={() => setStyleId(item.id)}><span>{item.icon}</span><strong>{item.label}</strong>{styleId === item.id && <Check size={14} />}</button>)}</div></div></div><div className="studio-step"><div className="step-number">03</div><div className="step-content"><h3>選擇表情 <small>{chosenEmotions.length}/6</small></h3><div className="emotion-grid">{emotions.map((emotion) => <button key={emotion} className={chosenEmotions.includes(emotion) ? "emotion active" : "emotion"} onClick={() => toggleEmotion(emotion)}>{emotion}</button>)}</div></div></div><button className="button button-primary generate-button" onClick={startGeneration} disabled={status === "generating"}>{status === "generating" ? <><RefreshCw size={16} className="spin" />生成中 {progress}%</> : <><Sparkles size={16} />生成我的貼圖</>}</button>{status === "generating" && <div className="progress-track"><div style={{ width: `${progress}%` }} /></div>}</div><div className={status === "done" ? "studio-preview ready" : "studio-preview"}>{status === "idle" && <><div className="preview-placeholder"><ImageIcon size={31} /><strong>你的貼圖會出現在這裡</strong><span>完成設定後，按下「生成我的貼圖」</span></div><div className="preview-meta"><span>即時預覽</span><span>{selectedStyle.icon} {selectedStyle.label}</span></div></>}{status === "generating" && <div className="preview-placeholder generating"><div className="loader-ring" /><strong>正在為你組合貼圖</strong><span>套用 {selectedStyle.label} · 建立 {chosenEmotions.length} 張表情</span></div>}{status === "done" && <><div className="result-head"><div><span className="eyebrow">✨ 已完成</span><h3>你的專屬貼圖</h3></div><button className="icon-button" onClick={() => setStatus("idle")} aria-label="重新生成"><RefreshCw size={17} /></button></div><div className="result-grid">{resultWords.map((word, index) => <article className="result-sticker" key={word}><div className="sticker-photo" style={{ backgroundImage: `url(${photo})`, borderColor: selectedStyle.tone }}><span>{word}</span><i>{selectedStyle.icon}</i></div><div className="result-actions"><strong>{chosenEmotions[index]}</strong><button onClick={() => downloadSticker(word, index)} aria-label={`下載${word}`}><Download size={14} /></button></div></article>)}</div><div className="result-footer"><button className="button button-secondary" onClick={shareCreation}><Share2 size={15} />分享創作</button><button className="button button-primary" onClick={() => resultWords.forEach((word, index) => downloadSticker(word, index))}><Download size={15} />下載全部貼圖</button></div></>}</div></div></section>
 
-        <section id="guide" className="guide-section section-pad"><div className="guide-panel"><div><div className="eyebrow">📖 使用說明</div><h2>三步驟，開始你的<br /><span>免費創作之旅</span></h2><p>從 LINE 官方帳號進入，選擇風格、上傳照片，等待 AI 將你的日常變成一套可以分享的貼圖。</p></div><div className="steps">{[["01", "免費進入", "點擊立即開始，開啟 LINE Mini App。"],["02", "上傳照片與選風格", "選一張照片，再挑選你喜歡的創作風格。"],["03", "保存與分享", "預覽成果後保存作品，免費分享給朋友。"]].map(([n, t, d]) => <div className="step" key={n}><span>{n}</span><div><strong>{t}</strong><p>{d}</p></div></div>)}</div><a className="button button-primary" href="https://line.me/R/ti/p/@sticker-tycoon" target="_blank" rel="noreferrer">立即免費開始 <ArrowRight size={16} /></a></div></section>
+      <section className="announcement section-pad"><div className="announcement-icon">✓</div><div><strong>你的照片只留在目前瀏覽器工作階段</strong><p>這個版本以網頁內互動示範為核心，不需要外部帳號或第三方平台。</p></div><button className="text-link" onClick={() => scrollToId("studio")}>開始免費創作 <ArrowRight size={15} /></button></section>
 
-        <section className="faq-section section-pad"><div className="section-heading"><div className="eyebrow">💬 常見問題</div><h2>開始前，先看看<span>大家都在問什麼</span></h2></div><div className="faq-list">{[["真的完全免費嗎？", "是的，目前網站提供完整免費的創作體驗。"],["可以創作哪些內容？", "你可以上傳照片、選擇風格，預覽多種表情並保存自己的貼圖作品。"],["可以分享給朋友嗎？", "可以。完成創作後即可保存與分享，邀請朋友一起欣賞你的作品。"]].map(([q, a]) => <div className="faq-item" key={q}><button onClick={() => setExpanded(expanded === q ? null : q)}><span>{q}</span>{expanded === q ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>{expanded === q && <p>{a}</p>}</div>)}</div></section>
-      </main>
+      <section id="features" className="feature-section section-pad"><div className="section-heading"><div className="eyebrow">✨ 為什麼選擇網頁版</div><h2>從靈感到成品，<span>不必離開頁面</span></h2><p>把原本分散在不同入口的步驟收進一個清楚、直覺、可反覆操作的創作工作室。</p></div><div className="feature-layout"><div className="feature-art"><img src={heroUrl} alt="貼圖工作室示意圖" /></div><div className="feature-list">{[{icon: "📸", title: "照片即時預覽", body: "上傳後立即看到照片，重新選擇也不會打斷你的創作流程。"},{icon: "🎨", title: "風格自由切換", body: "可在可愛手繪、繽紛流行、漫畫表情與清爽極簡之間切換。"},{icon: "⚡", title: "生成狀態清楚", body: "生成進度、完成狀態與每張貼圖操作都集中在右側預覽區。"},{icon: "📤", title: "完成即可帶走", body: "單張下載、全部下載或分享創作，直接從結果畫面完成。"}].map((item) => <article className="feature-item" key={item.title}><div className="feature-icon">{item.icon}</div><div><h3>{item.title}</h3><p>{item.body}</p></div></article>)}</div></div></section>
 
-      <footer className="footer"><div className="footer-brand"><img src={logoUrl} alt="貼圖大亨標誌" /><div><strong>貼圖大亨</strong><small>Sticker Tycoon</small></div></div><p>用 AI 創造，讓每個表情都有你的名字。</p><div className="footer-links"><a href="#guide">使用說明</a><a href="#guide">免費使用</a><a href="mailto:johnyarcher2100@yahoo.com.tw">聯絡我們</a><a href="#guide">隱私權政策</a><a href="#guide">使用條款</a></div><small className="copyright">© 2026 Sticker Tycoon. Crafted for creators.</small></footer>
-      {selectedPreview !== null && <div className="lightbox" role="dialog" aria-modal="true" onClick={() => setSelectedPreview(null)}><button className="close-lightbox" onClick={() => setSelectedPreview(null)} aria-label="關閉"><X /></button><div className="lightbox-content" onClick={(e) => e.stopPropagation()}><img src={`https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerPreviews[selectedPreview]}/iPhone/sticker@2x.png`} alt="貼圖放大預覽" /><div className="preview-dots">{stickerPreviews.map((id, index) => <button className={index === selectedPreview ? "active" : ""} key={id} onClick={() => setSelectedPreview(index)} />)}</div></div></div>}
-    </div>
-  );
+      <section id="gallery" className="gallery-section section-pad"><div className="section-heading center"><div className="eyebrow">🏆 作品靈感</div><h2>每個表情，都能變成 <span>一張貼圖</span></h2><p>先看看不同表情與配色的組合，再回到工作室製作屬於你的版本。</p></div><div className="inspiration-grid">{["收到！", "太棒了！", "一起加油", "晚安好夢", "謝謝你", "真的假的"].map((word, index) => <div className="inspiration-sticker" style={{ transform: `rotate(${index % 2 ? 3 : -3}deg)` }} key={word}><div style={{ backgroundImage: `url(${heroUrl})` }}><span>{word}</span></div></div>)}</div><button className="button button-primary gallery-cta" onClick={() => scrollToId("studio")}><Wand2 size={16} />用自己的照片製作</button></section>
+
+      <section id="guide" className="guide-section section-pad"><div className="guide-panel"><div><div className="eyebrow">📖 使用流程</div><h2>簡單、直接、<br /><span>完全在網頁內</span></h2><p>不用跳轉、不用重新登入。每一步都有清楚提示，完成後還能重新挑選風格與表情。</p></div><div className="steps">{[["01", "上傳照片", "選擇一張清楚的圖片，立即在預覽區看到它。"],["02", "調整風格與表情", "選擇你喜歡的視覺風格，再勾選想要的表情。"],["03", "生成、下載、分享", "完成後可以逐張下載、全部下載，或把創作分享給朋友。"]].map(([n, t, d]) => <div className="step" key={n}><span>{n}</span><div><strong>{t}</strong><p>{d}</p></div></div>)}</div><button className="button button-primary" onClick={() => scrollToId("studio")}>開始製作 <ArrowRight size={16} /></button></div></section>
+
+      <section className="faq-section section-pad"><div className="section-heading"><div className="eyebrow">💬 常見問題</div><h2>開始前，先看看<span>大家都在問什麼</span></h2></div><div className="faq-list">{[["照片會上傳到哪裡？", "目前版本只在瀏覽器中建立預覽，照片會留在目前工作階段，不需要外部帳號。"],["可以選幾種表情？", "一次最多選擇六種表情，生成後每張都能單獨下載。"],["生成後可以重新調整嗎？", "可以。你可以重新選擇風格、表情或照片，再次生成新的貼圖組合。"]].map(([q, a]) => <div className="faq-item" key={q}><button onClick={() => setOpenFaq(openFaq === q ? null : q)}><span>{q}</span>{openFaq === q ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>{openFaq === q && <p>{a}</p>}</div>)}</div></section>
+    </main>
+    <footer className="footer"><div className="footer-brand"><img src={logoUrl} alt="貼圖大亨標誌" /><div><strong>貼圖大亨</strong><small>Sticker Tycoon</small></div></div><p>一張照片，幾個表情，完成你的專屬貼圖。</p><div className="footer-links"><button onClick={() => scrollToId("studio")}>開始製作</button><button onClick={() => scrollToId("guide")}>使用流程</button><button onClick={() => scrollToId("features")}>功能特色</button><a href="mailto:hello@sticker-tycoon.example">聯絡我們</a></div><small className="copyright">© 2026 Sticker Tycoon · Web Creator Studio</small></footer>
+    {status === "done" && <button className="floating-create" onClick={() => scrollToId("studio")}><Wand2 size={15} />回到工作室</button>}
+  </div>;
 }
-
