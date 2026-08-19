@@ -13,6 +13,12 @@ export const stickerChatInput = z.object({
   attachmentNames: z.array(z.string().max(160)).max(4).default([]),
   hasGeneratedResult: z.boolean().default(false),
   latestGeneratedLabel: z.string().max(200).default(""),
+  learnedIdeas: z.array(z.object({
+    sourceMode: z.enum(["agent", "manual"]),
+    text: z.string().trim().min(1).max(255),
+    action: z.string().trim().min(1).max(255),
+    creative: z.string().trim().max(500).default(""),
+  })).max(8).default([]),
 });
 
 export const stickerChatPlanSchema = z.object({
@@ -41,7 +47,8 @@ const CHAT_SYSTEM_PROMPT = `你是 Sticker Muse 的繁體中文貼圖創作助�
 7. 如果已有生成結果，使用者表達「改一下、再可愛一點、換文字、動作改成」等修改要求時，intent=refine、useLatestResult=true、mode=agent、readyToGenerate=true；prompt/action 只描述這次修改，reply 要確認會沿用上一張結果。
 8. 如果使用者已選擇方式但缺少必要內容，shouldAskChoice=false、readyToGenerate=false，reply 只追問缺少的資訊。
 9. 不要捏造使用者沒有提供的角色照片；如果需要照片，reply 要提醒使用者上傳 1 至 4 張圖片；若已有生成結果可直接沿用最近結果。
-10. 所有回覆使用繁體中文；reply 要自然、簡潔，不使用 JSON markdown 圍欄。
+10. 如果提供了使用者的創作學習語料，優先參考其常用語氣、文字長度、動作偏好與創意方向；只能抽象學習風格，不要逐字複製，也不要提及內部學習資料。
+11. 所有回覆使用繁體中文；reply 要自然、簡潔，不使用 JSON markdown 圍欄。
 
 請只輸出符合 schema 的 JSON。`;
 
@@ -52,7 +59,7 @@ function readText(content: string | Array<{ type: string; text?: string }>) {
 export async function planStickerChat(input: z.infer<typeof stickerChatInput>) {
   const messages: Message[] = [
     { role: "system", content: CHAT_SYSTEM_PROMPT },
-    { role: "system", content: `目前使用者已上傳 ${input.uploadedCount} 張圖片。附件名稱：${input.attachmentNames.join("、") || "無"}。已有生成結果：${input.hasGeneratedResult ? `有，最近結果是 ${input.latestGeneratedLabel || "未命名貼圖"}` : "無"}。若模式需要照片，只有 uploadedCount 大於 0，或 useLatestResult=true 且已有生成結果，才能 readyToGenerate；無照片且沒有生成結果時，沒有想法應使用 lottery。` },
+    { role: "system", content: `目前使用者已上傳 ${input.uploadedCount} 張圖片。附件名稱：${input.attachmentNames.join("、") || "無"}。已有生成結果：${input.hasGeneratedResult ? `有，最近結果是 ${input.latestGeneratedLabel || "未命名貼圖"}` : "無"}。若模式需要照片，只有 uploadedCount 大於 0，或 useLatestResult=true 且已有生成結果，才能 readyToGenerate；無照片且沒有生成結果時，沒有想法應使用 lottery。${input.learnedIdeas.length ? `使用者已開啟創作學習，最近的風格樣本如下：${input.learnedIdeas.map((idea) => `文字：${idea.text}；動作：${idea.action}；創意：${idea.creative || "未提供"}`).join("｜")}。請將這些樣本轉化為風格參考。` : "使用者目前沒有可用的創作學習樣本。"}` },
     ...input.messages.map((message) => ({ role: message.role, content: message.content })),
   ];
   const response = await invokeLLM({

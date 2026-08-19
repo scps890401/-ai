@@ -17,6 +17,15 @@ describe("sticker chat router contracts", () => {
     expect(parsed.uploadedCount).toBe(1);
     expect(parsed.attachmentNames).toEqual(["dog.png"]);
     expect(parsed.hasGeneratedResult).toBe(true);
+    expect(parsed.learnedIdeas).toEqual([]);
+  });
+
+  it("accepts bounded creative learning samples for chat context", () => {
+    const parsed = stickerChatInput.parse({
+      messages: [{ role: "user", content: "幫我想一張貼圖" }],
+      learnedIdeas: [{ sourceMode: "agent", text: "今天也很棒", action: "角色揮手並露出笑容", creative: "暖色手繪感" }],
+    });
+    expect(parsed.learnedIdeas).toEqual([{ sourceMode: "agent", text: "今天也很棒", action: "角色揮手並露出笑容", creative: "暖色手繪感" }]);
   });
 
   it("rejects unsupported roles and malformed plans", () => {

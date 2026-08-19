@@ -234,3 +234,8 @@ body { background:var(--paper); color:var(--ink); }
 .chat-lottery-actions button { border:1px solid rgba(168,97,45,.45); border-radius:999px; padding:6px 9px; color:#8A5A32; background:#FFFDF8; cursor:pointer; font-size:10px; }
 .chat-lottery-actions button:nth-child(2), .chat-lottery-actions button:last-child { color:#FFF9F0; border-color:#A8612D; background:#A8612D; }
 @media (max-width:760px){ .chat-lottery-main { align-items:flex-start; }.chat-lottery-actions { justify-content:flex-start; }.chat-lottery-actions button { flex:1; min-width:calc(50% - 6px); } }
+
+.chat-learning-controls { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.chat-learning-control { border:1px solid #D5B28E; color:#8C5B39; background:#FFF9F0; padding:6px 9px; font-size:10px; cursor:pointer; }
+.chat-learning-control:hover { background:#F3E4D3; }
+@media (max-width:760px){ .chat-learning-controls { width:100%; flex-direction:row; align-items:center; justify-content:space-between; } .chat-learning-control { white-space:nowrap; } }
