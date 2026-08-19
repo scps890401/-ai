@@ -15,7 +15,7 @@ import { buildLearningPayload, shouldSaveLearning } from "@/lib/learningUi";
 import { LOTTERY_CONCEPTS, pickLotteryConcept, type LotteryConcept } from "@/lib/lotteryConcepts";
 import { buildLotteryAgentState } from "@/lib/lotteryAgentUi";
 import { getFeedbackStatusLabel, getFeedbackVoterToken, setFeedbackSort as normalizeFeedbackSort, shouldOpenFeedbackFromHash, validateFeedbackMessage } from "@/lib/feedbackUi";
-import { buildTextRevisionPrompt, isNoIdeaRequest, isRevisionRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction } from "@/lib/stickerChatFlow";
+import { buildTextRevisionPrompt, isExplicitStickerBrief, isNoIdeaRequest, isRevisionRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction } from "@/lib/stickerChatFlow";
 import { resolveLotteryChatPresentation } from "@/lib/lotteryChatUi";
 import { buildLearningChatState } from "@/lib/learningChatUi";
 import { readAnonymousLearning, rememberAnonymousLearning, type AnonymousLearningIdea } from "@/lib/anonymousLearning";
@@ -258,7 +258,9 @@ export default function Home() {
         ? { ...basePlan, intent: "lottery" as const, readyToGenerate: true, mode: null, useLottery: true, useLatestResult: false, reply: basePlan.reply || "我先替你抽一組靈感。" }
         : isRevisionRequest(content) && Boolean(latestGeneratedLabel)
           ? { ...basePlan, intent: "refine" as const, readyToGenerate: true, mode: isTextRevisionRequest(content) ? "manual" as const : "agent" as const, useLottery: false, useLatestResult: true, prompt: isTextRevisionRequest(content) ? buildTextRevisionPrompt(content).prompt : (basePlan.prompt || content), action: isTextRevisionRequest(content) ? buildTextRevisionPrompt(content).action : (basePlan.action || content), reply: basePlan.reply || "我會沿用上一張貼圖幫你修改。" }
-          : basePlan;
+          : uploaded.length > 0 && isExplicitStickerBrief(content)
+            ? { ...basePlan, intent: "agent" as const, shouldAskChoice: false, readyToGenerate: true, mode: "agent" as const, useLottery: false, useLatestResult: false, prompt: basePlan.prompt || `依照上傳照片中的角色，${content}`, action: basePlan.action || content, reply: "我會根據你上傳的照片與這段描述直接製作貼圖。" }
+            : basePlan;
       setChatMessages((current) => [...current, { role: "assistant", content: plan.reply }]);
       const action = resolveStickerChatAction(plan, Math.max(1, uploaded.length), uploaded.length);
       if (action.shouldDrawLottery) {
@@ -486,12 +488,14 @@ export default function Home() {
       setRecentConceptKeys((current) => [...jobs.map((job) => job.scenarioKey).filter((key): key is string => Boolean(key)), ...current].slice(0, 8));
     }
 
+    let lastGenerationError: unknown;
     const results = await Promise.all(jobs.map(async (job) => {
       try {
         const result = await generateRandomWithRetry(job.source, job.action);
         setGenerationProgress((current) => Math.min(96, current + Math.round(92 / jobs.length)));
         return { job, result };
       } catch (error) {
+        lastGenerationError = error;
         console.error("Batch sticker generation failed", error);
         return { job, result: null };
       }
@@ -519,8 +523,8 @@ export default function Home() {
     } else if (cards.length) {
       toast.warning(`已完成 ${cards.length} 張，${failedCount} 張生成失敗`, { description: "成功的貼圖已保留，你可以重新上傳或稍後重試失敗素材。" });
     } else {
-      const failure = randomGenerationError();
-      toast.error(failure.title, { description: "4 張素材都已自動重試 3 次仍未完成，請稍後再試。" });
+      const failure = randomGenerationError(sources.length, lastGenerationError);
+      toast.error(failure.title, { description: failure.description });
     }
     window.setTimeout(() => { setIsGenerating(false); setGenerationProgress(0); }, 400);
     if (!cards.length && overrides?.chatContext) setChatMessages((current) => [...current, { role: "assistant", content: "這次修改尚未完成，可能是 AI 圖片服務暫時忙碌或額度已用完。原本貼圖仍保留，你可以稍後再試。" }]);

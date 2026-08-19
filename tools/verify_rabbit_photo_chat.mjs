@@ -1,0 +1,31 @@
+import { chromium } from "playwright";
+
+const url = process.env.STICKER_PREVIEW_URL || "https://3000-is7gr11wsyrrjw4z7n36n-c7d3bcf6.sg1.manus.computer/";
+const imagePath = "/home/ubuntu/upload/1000022458.jpg";
+const browser = await chromium.launch({ headless: true, executablePath: "/usr/bin/chromium", args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true });
+await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+const attachmentInput = page.locator("#sticker-chat-attachments");
+await attachmentInput.setInputFiles(imagePath);
+const attachmentCount = await page.locator('[aria-label="聊天附件"] > span').count();
+const thumbnailCount = await page.locator('img[alt^="附件預覽"]').count();
+const textarea = page.locator('textarea[placeholder*="我想做一組兔子日常貼圖"]');
+await textarea.fill("製作可愛的卡通兔子貼圖");
+await textarea.press("Enter");
+await page.waitForFunction(() => {
+  const card = document.querySelector(".sticker-chat-card")?.textContent || "";
+  const spinning = document.querySelectorAll(".sticker-chat-card .animate-spin").length;
+  return /失敗|額度|尚未生成圖片|AI 圖片服務/.test(card) || spinning === 0;
+}, { timeout: 55_000 });
+const chatText = await page.locator(".sticker-chat-card").innerText();
+const chatLoading = await page.locator(".sticker-chat-card .animate-spin").count();
+const retryTextarea = page.locator('textarea[placeholder*="我想做一組兔子日常貼圖"]');
+await retryTextarea.fill("再試一次");
+const sendDisabled = await page.locator('button[type="submit"]').isDisabled();
+const toastText = await page.locator('[data-sonner-toast]').allInnerTexts().catch(() => []);
+const hasSingleSourceError = /1 張素材|影像服務暫時無法生成|額度已用完/.test(`${chatText} ${toastText.join(" ")}`);
+const hasWrongFourSourceError = /4 張素材都已自動重試/.test(chatText);
+await page.screenshot({ path: "/home/ubuntu/screenshots/mobile-rabbit-photo-chat.png", fullPage: true });
+console.log(JSON.stringify({ viewport: page.viewportSize(), attachmentCount, thumbnailCount, hasSingleSourceError, hasWrongFourSourceError, chatLoading, sendDisabled, toastText, chatText: chatText.slice(-900) }));
+await browser.close();
+if (attachmentCount !== 1 || thumbnailCount !== 1 || hasWrongFourSourceError || !hasSingleSourceError || chatLoading !== 0 || sendDisabled) process.exit(1);

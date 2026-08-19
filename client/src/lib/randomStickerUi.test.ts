@@ -73,10 +73,17 @@ describe("random sticker UI flow", () => {
     expect(refreshed).toMatchObject({ src: "dog-retry.png", label: sticker.label, source: sticker.source, action: sticker.action });
   });
 
-  it("provides the error copy used by the failed AI generation branch", () => {
-    expect(randomGenerationError()).toEqual({
+  it("describes the actual source count instead of hard-coding four materials", () => {
+    expect(randomGenerationError(1, new Error("temporary failure"))).toEqual({
       title: "AI 隨機生成失敗",
-      description: "照片已送出但生成服務沒有完成，請稍後再試。",
+      description: "已處理 1 張素材，但生成服務沒有完成，請稍後再試。",
+    });
+  });
+
+  it("explains exhausted image quota clearly", () => {
+    expect(randomGenerationError(1, new Error("failed_precondition: usage exhausted"))).toEqual({
+      title: "AI 影像服務暫時無法生成",
+      description: "目前影像生成額度已用完，1 張素材尚未產生新貼圖；請稍後再試。",
     });
   });
 });

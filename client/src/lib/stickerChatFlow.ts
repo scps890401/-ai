@@ -56,6 +56,10 @@ export function isStickerCreationRequest(message: string) {
   return /(貼圖|貼圖包|LINE|做一張|製作.*圖|生成.*圖)/i.test(message);
 }
 
+export function isExplicitStickerBrief(message: string) {
+  return /(?:製作|生成|做).*(?:可愛|卡通|角色|兔子|動作|表情|說|日常|貼圖)/i.test(message.trim()) && message.trim().length >= 6;
+}
+
 export function isNoIdeaRequest(message: string) {
   return /(沒想法|沒有想法|沒靈感|沒有靈感|隨便|幫我想|你決定|抽一張|抽個靈感)/i.test(message);
 }

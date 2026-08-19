@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyStickerChatPlan, buildTextRevisionPrompt, isNoIdeaRequest, isRevisionRequest, isStickerCreationRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction } from "./stickerChatFlow";
+import { applyStickerChatPlan, buildTextRevisionPrompt, isExplicitStickerBrief, isNoIdeaRequest, isRevisionRequest, isStickerCreationRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction } from "./stickerChatFlow";
 
 describe("sticker chat flow", () => {
+  it("recognizes explicit briefs that should generate from an uploaded photo", () => {
+    expect(isExplicitStickerBrief("製作可愛的卡通兔子貼圖")).toBe(true);
+    expect(isExplicitStickerBrief("幫我做狗狗早安貼圖")).toBe(true);
+    expect(isExplicitStickerBrief("我想做貼圖")).toBe(false);
+  });
+
   it("recognizes common sticker creation language", () => {
     expect(isStickerCreationRequest("我想做 LINE 貼圖")).toBe(true);
     expect(isStickerCreationRequest("幫我做一張角色圖")).toBe(true);
