@@ -10,11 +10,13 @@ export function buildLearningChatState(input: {
   enabled: boolean;
   ideas: ChatLearningIdea[];
 }) {
-  const learnedIdeas = input.authenticated && input.enabled ? input.ideas.slice(0, 8) : [];
+  const learnedIdeas = input.enabled ? input.ideas.slice(0, 8) : [];
+  const countLabel = learnedIdeas.length ? ` · ${learnedIdeas.length} 組` : "";
   return {
     learnedIdeas,
-    canUseLearning: input.authenticated && input.enabled,
-    badge: !input.authenticated ? "登入後啟用創作學習" : input.enabled ? `AI 學習中 · ${input.ideas.length} 組` : "AI 學習已暫停",
-    controlLabel: !input.authenticated ? "登入啟用學習" : input.enabled ? "暫停學習" : "開啟學習",
+    canUseLearning: input.enabled,
+    badge: input.enabled ? `AI 創作學習中${countLabel}` : "AI 創作學習已暫停",
+    controlLabel: input.enabled ? "暫停學習" : "開啟學習",
+    isAnonymous: !input.authenticated,
   };
 }

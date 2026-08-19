@@ -210,3 +210,13 @@
 - [x] 修正錯誤並補上對應回歸測試；badge 改為純狀態文字，保留唯一登入／學習控制按鈕，learningChatUi 新增 badge／唯一控制按鈕契約測試
 - [x] 完成 TypeScript、Vitest、正式建置與 390×844 驗證
 - [x] 保存修正版 checkpoint 並核對正式站；正式網域載入正常，聊天區只保留一個可操作的「登入啟用學習」按鈕
+
+## 手機聊天 2 errors 與匿名創作學習
+
+- [x] 查詢正式站、本地瀏覽器／網路與後台紀錄，確認 2 errors 與聊天 loading 卡住的實際原因；後台確認影像服務回傳 usage exhausted，聊天規劃另加逾時保護
+- [x] 重現手機聊天送出、附件與 AI 回覆流程，定位前端或後端錯誤；Playwright 390×844 實測附件 1、縮圖 1、送出後附件仍保留、Lottery 回覆 9 處命中，額度耗盡 fallback 正常
+- [x] 讓未登入訪客也能啟用創作學習，並以匿名瀏覽器 localStorage 識別、去重與最近 8 組上限保護資料
+- [x] 修正聊天錯誤與 loading 狀態，避免失敗後輸入區永久鎖定；加入 25 秒聊天規劃逾時與單一錯誤回覆
+- [x] 補上匿名學習、錯誤回覆與聊天 UI 回歸測試；新增 anonymousLearning、learningChatUi、retryRandomSticker 測試並重跑手機 UI 腳本
+- [x] 完成 TypeScript、Vitest、正式建置、390×844 與正式站驗證；19 個測試檔、86 項測試通過
+- [ ] 保存修正版 checkpoint 並核對正式站

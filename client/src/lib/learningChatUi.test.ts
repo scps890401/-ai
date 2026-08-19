@@ -12,7 +12,7 @@ describe("learning chat state", () => {
   it("passes only the latest eight ideas when learning is enabled", () => {
     const state = buildLearningChatState({ authenticated: true, enabled: true, ideas });
     expect(state.learnedIdeas).toHaveLength(8);
-    expect(state.badge).toBe("AI 學習中 · 10 組");
+    expect(state.badge).toBe("AI 創作學習中 · 8 組");
     expect(state.controlLabel).toBe("暫停學習");
   });
 
@@ -23,11 +23,13 @@ describe("learning chat state", () => {
     expect(state.controlLabel).toBe("開啟學習");
   });
 
-  it("offers login instead of exposing private learning data to guests", () => {
+  it("allows guests to use anonymous learning without exposing a login gate", () => {
     const state = buildLearningChatState({ authenticated: false, enabled: true, ideas });
-    expect(state.learnedIdeas).toEqual([]);
-    expect(state.badge).toBe("登入後啟用創作學習");
-    expect(state.controlLabel).toBe("登入啟用學習");
+    expect(state.learnedIdeas).toHaveLength(8);
+    expect(state.canUseLearning).toBe(true);
+    expect(state.badge).toBe("AI 創作學習中 · 8 組");
+    expect(state.controlLabel).toBe("暫停學習");
+    expect(state.isAnonymous).toBe(true);
   });
 
   it("keeps the status badge distinct from the single actionable control", () => {

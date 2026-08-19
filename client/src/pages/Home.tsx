@@ -2,7 +2,6 @@
 import { useMemo, useRef, useState } from "react";
 import { AIChatBox, type Message as ChatMessage } from "@/components/AIChatBox";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import JSZip from "jszip";
 import { Download, ImagePlus, Layers3, MousePointer2, Play, RotateCcw, Sparkles, Wand2, X, Check, ChevronRight, Info } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +18,7 @@ import { getFeedbackStatusLabel, getFeedbackVoterToken, setFeedbackSort as norma
 import { buildTextRevisionPrompt, isNoIdeaRequest, isRevisionRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction } from "@/lib/stickerChatFlow";
 import { resolveLotteryChatPresentation } from "@/lib/lotteryChatUi";
 import { buildLearningChatState } from "@/lib/learningChatUi";
+import { readAnonymousLearning, rememberAnonymousLearning, type AnonymousLearningIdea } from "@/lib/anonymousLearning";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -110,6 +110,13 @@ async function renderLineAsset(src: string, width = LINE_WIDTH, height = LINE_HE
 
 const toLinePng = (src: string, useAiBackgroundRemoval = true, onProgress?: (progress: number) => void) => renderLineAsset(src, LINE_WIDTH, LINE_HEIGHT, useAiBackgroundRemoval, onProgress);
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error("AI 聊天回應逾時，請再試一次。")), milliseconds)),
+  ]);
+}
+
 async function imageInputFromSource(src: string) {
   const response = await fetch(src);
   if (!response.ok) throw new Error("Unable to read source image");
@@ -135,8 +142,10 @@ export default function Home() {
   const learnedIdeasQuery = trpc.learning.list.useQuery(undefined, { enabled: Boolean(user) });
   const saveLearnedIdea = trpc.learning.save.useMutation({ onSuccess: () => { void learnedIdeasQuery.refetch(); } });
   const [learningEnabled, setLearningEnabled] = useState(true);
-  const learnedConcepts = useMemo(() => learningEnabled ? (learnedIdeasQuery.data ?? []).map((idea) => ({ key: `learned:${idea.id}`, scenarioKey: `learned:${idea.id}`, scenario: "你的創作風格", text: idea.text, action: idea.action })) : [], [learnedIdeasQuery.data, learningEnabled]);
-  const learningChatState = useMemo(() => buildLearningChatState({ authenticated: Boolean(user), enabled: learningEnabled, ideas: (learnedIdeasQuery.data ?? []).map((idea) => ({ sourceMode: idea.sourceMode, text: idea.text, action: idea.action, creative: idea.creative ?? "" })) }), [learnedIdeasQuery.data, learningEnabled, user]);
+  const [anonymousLearningIdeas, setAnonymousLearningIdeas] = useState<AnonymousLearningIdea[]>(() => readAnonymousLearning(typeof window === "undefined" ? null : window.localStorage));
+  const availableLearningIdeas = useMemo(() => user ? (learnedIdeasQuery.data ?? []).map((idea) => ({ sourceMode: idea.sourceMode, text: idea.text, action: idea.action, creative: idea.creative ?? "" })) : anonymousLearningIdeas, [anonymousLearningIdeas, learnedIdeasQuery.data, user]);
+  const learnedConcepts = useMemo(() => learningEnabled ? availableLearningIdeas.map((idea, index) => ({ key: `learned:${index}:${idea.text}`, scenarioKey: `learned:${index}:${idea.text}`, scenario: "你的創作風格", text: idea.text, action: idea.action })) : [], [availableLearningIdeas, learningEnabled]);
+  const learningChatState = useMemo(() => buildLearningChatState({ authenticated: Boolean(user), enabled: learningEnabled, ideas: availableLearningIdeas }), [availableLearningIdeas, learningEnabled, user]);
   const chatLearnedIdeas = learningChatState.learnedIdeas;
 
   const [mode, setMode] = useState<Mode>("agent");
@@ -243,7 +252,7 @@ export default function Home() {
     setChatMessages(nextMessages);
     setChatBusy(true);
     try {
-      const rawPlan = await stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length, attachmentNames: chatAttachmentNames, hasGeneratedResult: Boolean(latestGeneratedLabel), latestGeneratedLabel, learnedIdeas: chatLearnedIdeas });
+      const rawPlan = await withTimeout(stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length, attachmentNames: chatAttachmentNames, hasGeneratedResult: Boolean(latestGeneratedLabel), latestGeneratedLabel, learnedIdeas: chatLearnedIdeas }), 25_000);
       const basePlan = normalizeStickerChatPlan(rawPlan);
       const plan = isNoIdeaRequest(content) && !latestGeneratedLabel
         ? { ...basePlan, intent: "lottery" as const, readyToGenerate: true, mode: null, useLottery: true, useLatestResult: false, reply: basePlan.reply || "我先替你抽一組靈感。" }
@@ -277,8 +286,8 @@ export default function Home() {
       }
     } catch (error) {
       console.error("Sticker chat planning failed", error);
-      setChatMessages((current) => [...current, { role: "assistant", content: "我暫時無法整理這句話，請再說一次你想製作的角色、文字或動作。" }]);
       toast.error("聊天規劃暫時失敗", { description: error instanceof Error ? error.message : "請稍後再試。" });
+      setChatMessages((current) => [...current, { role: "assistant", content: error instanceof Error && error.message.includes("逾時") ? "我回應得有點慢，請再按一次送出；這次不會鎖住輸入框。" : "我暫時無法整理這句話，請再說一次你想製作的角色、文字或動作。" }]);
     } finally {
       setChatBusy(false);
     }
@@ -463,8 +472,8 @@ export default function Home() {
       const cards = sources.map((source, index) => ({ src: source, label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"}`, color: colors[index % colors.length] }));
       setGenerated((current) => mergeBatchResults(current, cards, packSize));
       setLatestGeneratedLabel(cards[0]?.label ?? "");
-      if (shouldSaveLearning(learningEnabled, Boolean(user))) {
-        cards.forEach((card, index) => { const text = imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"; const payload = buildLearningPayload("manual", text, `角色呈現「${text}」並搭配手動對話框`, card.label); if (payload) saveLearnedIdea.mutate(payload); });
+      if (learningEnabled) {
+        cards.forEach((card, index) => { const text = imagePromptsForGeneration[index]?.trim() || promptForGeneration || "好餓"; const payload = buildLearningPayload("manual", text, `角色呈現「${text}」並搭配手動對話框`, card.label); if (!payload) return; if (user) saveLearnedIdea.mutate(payload); else setAnonymousLearningIdeas((current) => rememberAnonymousLearning(typeof window === "undefined" ? null : window.localStorage, payload)); });
       }
       setGenerationProgress(100);
       toast.success(`已完成 ${cards.length} 張手動貼圖`, { description: "每張角色照片都已建立對應的貼圖草稿。" });
@@ -501,8 +510,8 @@ export default function Home() {
       setGenerated((current) => mergeBatchResults(current, cards, packSize));
       setLatestGeneratedLabel(cards[0]?.label ?? "");
     }
-    if (modeForGeneration === "agent" && shouldSaveLearning(learningEnabled, Boolean(user))) {
-      collected.successful.forEach(({ job }) => { const payload = buildLearningPayload("agent", job.text, job.action, job.scenario); if (payload) saveLearnedIdea.mutate(payload); });
+    if (modeForGeneration === "agent" && learningEnabled) {
+      collected.successful.forEach(({ job }) => { const payload = buildLearningPayload("agent", job.text, job.action, job.scenario); if (!payload) return; if (user) saveLearnedIdea.mutate(payload); else setAnonymousLearningIdeas((current) => rememberAnonymousLearning(typeof window === "undefined" ? null : window.localStorage, payload)); });
     }
     setGenerationProgress(100);
     if (cards.length && failedCount === 0) {
@@ -553,7 +562,7 @@ export default function Home() {
         <div className="content-grid">
           <section className="editor-panel">
             <div className="section-heading"><div><div className="section-index">01 / TALK TO YOUR CREATOR</div><h2>先聊聊你的貼圖</h2></div><span className="paper-tag">AI WORKFLOW</span></div>
-            <div className="sticker-chat-card"><div className="sticker-chat-heading"><div><div className="section-index">AI CREATOR CONVERSATION</div><h3>直接跟我說，你想做什麼貼圖</h3><p>不用先選模式。AI 會先理解你的需求，也會參考你過去保存的創作風格。</p></div><div className="chat-learning-controls"><span className="chat-mode-badge">{learningChatState.badge}</span><button className="chat-learning-control" onClick={() => user ? setLearningEnabled((current) => !current) : startLogin()}>{learningChatState.controlLabel}</button></div></div><AIChatBox messages={chatMessages} onSendMessage={(content) => void handleStickerChatMessage(content)} onAttachFiles={(files) => onFiles(files)} attachmentNames={chatAttachmentNames} attachmentPreviews={uploaded.slice(0, chatAttachmentNames.length)} onRemoveAttachment={removeChatAttachment} isLoading={chatBusy || isGenerating || lotteryBusy} height={360} placeholder="例如：我想做一組兔子日常貼圖…" emptyStateMessage="告訴我你想製作的貼圖，我會先幫你分流。" suggestedPrompts={["我想製作 LINE 貼圖", "我沒有想法，幫我抽一張靈感", "讓我的狗狗說：今天也很棒"]} />{lotteryChatPresentation.showCard && lotteryConcept && <div className="chat-lottery-card"><div className="chat-lottery-label">BONUS / STICKER LOTTERY</div><div className="chat-lottery-main"><div><b>{lotteryConcept.text}</b><small>{lotteryConcept.character} · {lotteryConcept.action}</small><em>{lotteryConcept.creative}</em></div>{lotteryImageUrl ? <img src={lotteryImageUrl} alt={`${lotteryConcept.text} Lottery 貼圖`} /> : <div className="chat-lottery-placeholder">尚未生成圖片</div>}</div><div className="chat-lottery-actions"><button onClick={() => drawLottery(true)} disabled={lotteryBusy}>再抽一組</button><button onClick={() => void generateLotteryConcept(lotteryConcept, true)} disabled={lotteryBusy || !lotteryChatPresentation.canGenerate}>{lotteryBusy ? "AI 生成中…" : "生成這張貼圖"}</button>{lotteryChatPresentation.canUseInAgent && <button onClick={useLotteryInAgent}>帶入代理修改</button>}</div></div>}</div>
+            <div className="sticker-chat-card"><div className="sticker-chat-heading"><div><div className="section-index">AI CREATOR CONVERSATION</div><h3>直接跟我說，你想做什麼貼圖</h3><p>不用先選模式。AI 會先理解你的需求，也會參考你在這個瀏覽器保存的創作風格。登入後也可同步到你的帳戶。</p></div><div className="chat-learning-controls"><span className="chat-mode-badge">{learningChatState.badge}</span><button className="chat-learning-control" onClick={() => setLearningEnabled((current) => !current)}>{learningChatState.controlLabel}</button></div></div><AIChatBox messages={chatMessages} onSendMessage={(content) => void handleStickerChatMessage(content)} onAttachFiles={(files) => onFiles(files)} attachmentNames={chatAttachmentNames} attachmentPreviews={uploaded.slice(0, chatAttachmentNames.length)} onRemoveAttachment={removeChatAttachment} isLoading={chatBusy || isGenerating || lotteryBusy} height={360} placeholder="例如：我想做一組兔子日常貼圖…" emptyStateMessage="告訴我你想製作的貼圖，我會先幫你分流。" suggestedPrompts={["我想製作 LINE 貼圖", "我沒有想法，幫我抽一張靈感", "讓我的狗狗說：今天也很棒"]} />{lotteryChatPresentation.showCard && lotteryConcept && <div className="chat-lottery-card"><div className="chat-lottery-label">BONUS / STICKER LOTTERY</div><div className="chat-lottery-main"><div><b>{lotteryConcept.text}</b><small>{lotteryConcept.character} · {lotteryConcept.action}</small><em>{lotteryConcept.creative}</em></div>{lotteryImageUrl ? <img src={lotteryImageUrl} alt={`${lotteryConcept.text} Lottery 貼圖`} /> : <div className="chat-lottery-placeholder">尚未生成圖片</div>}</div><div className="chat-lottery-actions"><button onClick={() => drawLottery(true)} disabled={lotteryBusy}>再抽一組</button><button onClick={() => void generateLotteryConcept(lotteryConcept, true)} disabled={lotteryBusy || !lotteryChatPresentation.canGenerate}>{lotteryBusy ? "AI 生成中…" : "生成這張貼圖"}</button>{lotteryChatPresentation.canUseInAgent && <button onClick={useLotteryInAgent}>帶入代理修改</button>}</div></div>}</div>
             <div className="public-feedback-card"><div className="public-feedback-head"><div><div className="section-index">OPEN CREATOR WALL</div><h3>大家的建議</h3><p>每個人留下的想法，都會成為 Sticker Muse 下一步的靈感。</p></div><div className="public-feedback-actions"><select aria-label="建議排序" value={feedbackSort} onChange={(event) => setFeedbackSort(normalizeFeedbackSort(feedbackSort, event.target.value))}><option value="latest">最新留言</option><option value="popular">最多按讚</option></select><button className="public-feedback-add" onClick={() => setFeedbackOpen(true)}>留下建議</button></div></div>{publicFeedback.isLoading ? <p className="public-feedback-empty">正在讀取大家的想法…</p> : publicFeedback.isError ? <p className="public-feedback-empty">暫時讀不到留言，請稍後再試。</p> : publicFeedback.data?.length ? <div className="public-feedback-list">{publicFeedback.data.slice(0, 8).map((item) => <article className="public-feedback-item" key={item.id}><div className="public-feedback-meta"><span>{item.category === "bug" ? "錯誤回報" : item.category === "feature" ? "功能需求" : item.category === "other" ? "其他" : "使用建議"}</span><time>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-TW") : "剛剛"}</time></div><p>{item.message}</p><div className="public-feedback-bottom"><small>匿名創作者</small><div className="public-feedback-vote"><span className={`feedback-status status-${item.status}`}>{getFeedbackStatusLabel(item.status)}</span><button onClick={() => feedbackVote.mutate({ id: item.id, voterToken: getFeedbackVoterToken(typeof window === "undefined" ? null : window.localStorage) })} disabled={feedbackVote.isPending}>+1 <b>{item.upvotes}</b></button></div></div></article>)}</div> : <p className="public-feedback-empty">還沒有公開建議，成為第一位留下想法的人吧。</p>}<div className="public-feedback-foot"><span>公開留言不會顯示聯絡方式</span><button onClick={() => setFeedbackOpen(true)}>查看並留言 <ChevronRight size={13} /></button></div></div><div className="lottery-card"><div className="lottery-card-head"><div><span className="section-index">BONUS / STICKER LOTTERY</span><h3>不放照片，也能抽一張貼圖</h3><p>從 {LOTTERY_CONCEPTS.length} 組原創情境抽靈感，像抽獎一樣隨機生成。</p></div><span className="lottery-count">{LOTTERY_CONCEPTS.length} 組</span></div><div className="lottery-actions"><button className="lottery-draw" onClick={() => drawLottery()} disabled={lotteryBusy}>抽一組靈感</button><button className="lottery-generate" onClick={generateLotterySticker} disabled={lotteryBusy}>{lotteryBusy ? "AI 生成中…" : "生成這張貼圖"}</button></div>{lotteryConcept && <div className="lottery-result"><div><b>{lotteryConcept.text}</b><small>{lotteryConcept.character} · {lotteryConcept.action}</small><em>{lotteryConcept.creative}</em></div><div className="lottery-result-actions">{lotteryImageUrl && <button onClick={useLotteryInAgent}>帶入代理修改</button>}<button onClick={() => drawLottery()}>再抽一組</button></div></div>}</div>
 
             <div className="section-heading compact"><div><div className="section-index">02 / ADD YOUR MATERIAL</div><h2>{activeMode.title}</h2><small className="material-mode-note">{mode === "random" ? "每張照片都會各自生成一張隨機貼圖" : mode === "agent" ? "每張角色照片都會各自套用你的指定句子" : "每張角色照片都會各自建立對話框"}</small></div><span className="material-count">{uploaded.length} 張素材</span></div>

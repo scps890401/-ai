@@ -15,6 +15,11 @@ export async function regenerateSingleSticker(
   return { ...sticker, src: result.url };
 }
 
+export function isNonRetryableGenerationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /usage exhausted|failed_precondition|quota|rate limit|insufficient/i.test(message);
+}
+
 export async function generateWithRetry(
   generator: RandomGenerator,
   input: { prompt: string; originalImage: { b64Json: string; mimeType: string } },
@@ -27,6 +32,7 @@ export async function generateWithRetry(
       return await generator(input);
     } catch (error) {
       lastError = error;
+      if (isNonRetryableGenerationError(error)) break;
       if (attempt < maxAttempts) await wait(350 * attempt);
     }
   }

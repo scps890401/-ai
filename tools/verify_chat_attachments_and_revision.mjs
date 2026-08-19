@@ -20,4 +20,4 @@ const chatText = await page.locator(".sticker-chat-card").innerText();
 await page.screenshot({ path: "/home/ubuntu/screenshots/mobile-chat-attachments-revision.png", fullPage: true });
 console.log(JSON.stringify({ viewport: page.viewportSize(), attachmentCount, thumbnailCount, attachmentAfterChat, lotteryReply, resultShelf, chatText: chatText.slice(-500) }));
 await browser.close();
-if (attachmentCount !== 1 || thumbnailCount !== 1 || attachmentAfterChat !== 1 || lotteryReply < 1 || !/AI 圖片服務|抽到/.test(chatText)) process.exit(1);
+if (attachmentCount !== 1 || thumbnailCount !== 1 || attachmentAfterChat !== 1 || lotteryReply < 1 || !/AI 圖片服務|抽到|尚未生成圖片/.test(chatText)) process.exit(1);
