@@ -29,4 +29,10 @@ describe("learning chat state", () => {
     expect(state.badge).toBe("登入後啟用創作學習");
     expect(state.controlLabel).toBe("登入啟用學習");
   });
+
+  it("keeps the status badge distinct from the single actionable control", () => {
+    const state = buildLearningChatState({ authenticated: false, enabled: true, ideas: [] });
+    expect(state.badge).not.toBe(state.controlLabel);
+    expect([state.controlLabel]).toHaveLength(1);
+  });
 });
