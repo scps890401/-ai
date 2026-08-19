@@ -219,4 +219,4 @@
 - [x] 修正聊天錯誤與 loading 狀態，避免失敗後輸入區永久鎖定；加入 25 秒聊天規劃逾時與單一錯誤回覆
 - [x] 補上匿名學習、錯誤回覆與聊天 UI 回歸測試；新增 anonymousLearning、learningChatUi、retryRandomSticker 測試並重跑手機 UI 腳本
 - [x] 完成 TypeScript、Vitest、正式建置、390×844 與正式站驗證；19 個測試檔、86 項測試通過
-- [ ] 保存修正版 checkpoint 並核對正式站
+- [x] 保存修正版 checkpoint 並核對正式站；checkpoint 63d6d535 已保存發布，正式網域可載入但核對時仍顯示舊快取文案，需重新整理或等待發布快取同步
