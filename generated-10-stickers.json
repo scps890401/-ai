@@ -1,0 +1,141 @@
+{
+  "referenceUrls": [
+    "/manus-storage/1000027555_64d55c91.jpg",
+    "/manus-storage/1000027557_f8da6ae6.jpg",
+    "/manus-storage/1000027558_90ed979a.jpg",
+    "/manus-storage/1000027559_2b5bc670.jpg",
+    "/manus-storage/1000027691_f4580032.jpg",
+    "/manus-storage/1000027865_60991973.jpg",
+    "/manus-storage/1000027866_cd154718.jpg",
+    "/manus-storage/1000027867_bd7a8d96.jpg",
+    "/manus-storage/1000027868_db10ac35.jpg",
+    "/manus-storage/1000027869_a1abfd98.jpg"
+  ],
+  "results": [
+    {
+      "position": 1,
+      "emotion": "早安",
+      "phrase": "早安",
+      "scene": "開心揮手打招呼，晨光與小星星",
+      "url": "/manus-storage/generated/sticker-1787220275830-rqn3zN_c1a1b85b.png",
+      "hasAlpha": true,
+      "mode": "generate",
+      "quality": {
+        "transparent": true,
+        "phrase": "早安",
+        "dimensions": "檢查完成",
+        "textReady": true
+      }
+    },
+    {
+      "position": 2,
+      "emotion": "謝謝",
+      "phrase": "謝謝",
+      "scene": "雙手合十，溫暖微笑",
+      "url": "/manus-storage/generated/sticker-1787220283252-EM9C5v_e41add83.png",
+      "hasAlpha": true,
+      "mode": "generate",
+      "quality": {
+        "transparent": true,
+        "phrase": "謝謝",
+        "dimensions": "檢查完成",
+        "textReady": true
+      }
+    },
+    {
+      "position": 3,
+      "emotion": "收到",
+      "phrase": "收到",
+      "scene": "俐落點頭或敬禮，表示已收到",
+      "url": "/manus-storage/generated/sticker-1787220346144-C3xCXV_3686b727.png",
+      "hasAlpha": true,
+      "mode": "generate",
+      "quality": {
+        "transparent": true,
+        "phrase": "收到",
+        "dimensions": "檢查完成",
+        "textReady": true
+      }
+    },
+    {
+      "position": 4,
+      "emotion": "加油",
+      "phrase": "加油",
+      "scene": "握拳鼓勵，充滿活力",
+      "url": "/manus-storage/generated/sticker-1787220359767-6BDmbV_389f0d2b.png",
+      "hasAlpha": true,
+      "mode": "generate",
+      "quality": {
+        "transparent": true,
+        "phrase": "加油",
+        "dimensions": "檢查完成",
+        "textReady": true
+      }
+    },
+    {
+      "position": 5,
+      "emotion": "等等我",
+      "phrase": "等等我",
+      "scene": "小跑步揮手，帶一點急迫感",
+      "url": "",
+      "mode": "generate",
+      "hasAlpha": false,
+      "error": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}"
+    },
+    {
+      "position": 6,
+      "emotion": "好累喔",
+      "phrase": "好累喔",
+      "scene": "慵懶趴下，眼神疲憊但可愛",
+      "url": "/manus-storage/generated/sticker-1787220421691-gjYIlR_c27a4c70.png",
+      "hasAlpha": true,
+      "mode": "generate",
+      "quality": {
+        "transparent": true,
+        "phrase": "好累喔",
+        "dimensions": "檢查完成",
+        "textReady": true
+      }
+    },
+    {
+      "position": 7,
+      "emotion": "太好了",
+      "phrase": "太好了",
+      "scene": "開心跳起來，周圍有彩色星星",
+      "url": "",
+      "mode": "generate",
+      "hasAlpha": false,
+      "error": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}"
+    },
+    {
+      "position": 8,
+      "emotion": "不要啦",
+      "phrase": "不要啦",
+      "scene": "搖手拒絕，表情撒嬌",
+      "url": "",
+      "mode": "generate",
+      "hasAlpha": false,
+      "error": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}"
+    },
+    {
+      "position": 9,
+      "emotion": "晚安",
+      "phrase": "晚安",
+      "scene": "抱著枕頭打呵欠，月亮與星星",
+      "url": "",
+      "mode": "generate",
+      "hasAlpha": false,
+      "error": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}"
+    },
+    {
+      "position": 10,
+      "emotion": "掰掰",
+      "phrase": "掰掰",
+      "scene": "揮手道別，笑容可愛",
+      "url": "",
+      "mode": "generate",
+      "hasAlpha": false,
+      "error": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}"
+    }
+  ]
+}

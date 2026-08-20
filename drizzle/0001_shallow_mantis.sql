@@ -1,0 +1,1 @@
+ALTER TABLE `stickerScripts` ADD `errorMessage` text;

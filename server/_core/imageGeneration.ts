@@ -74,6 +74,8 @@ export async function generateImage(
   const quality =
     options.quality ?? (model === DEFAULT_IMAGE_MODEL ? DEFAULT_IMAGE_QUALITY : undefined);
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
   const response = await fetch(fullUrl, {
     method: "POST",
     headers: {
@@ -88,7 +90,9 @@ export async function generateImage(
       model,
       ...(quality ? { quality } : {}),
     }),
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -108,8 +112,9 @@ export async function generateImage(
   const hasAlpha = pngHasAlpha(base64Data, result.image.mimeType);
 
   // Save to S3
+  const extension = result.image.mimeType === "image/jpeg" ? "jpg" : result.image.mimeType === "image/webp" ? "webp" : "png";
   const { url } = await storagePut(
-    `generated/${Date.now()}.png`,
+    `generated/${Date.now()}.${extension}`,
     buffer,
     result.image.mimeType
   );
@@ -152,6 +157,8 @@ export async function listImageModels(): Promise<ListImageModelsResponse> {
     baseUrl
   ).toString();
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
   const response = await fetch(fullUrl, {
     method: "POST",
     headers: {
