@@ -1,5 +1,5 @@
 import { ChangeEvent, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, ChevronDown, ChevronUp, Download, Image as ImageIcon, Menu, Palette, Play, RefreshCw, Share2, Sparkles, Upload, Wand2, X, Zap } from "lucide-react";
+import { ArrowRight, Check, Download, Image as ImageIcon, Menu, Palette, Play, RefreshCw, Share2, Sparkles, Upload, Wand2, X, Zap } from "lucide-react";
 
 /* Style reminder: self-contained dark ocean creator studio, electric cyan/violet accents, asymmetric hero, glass panels, and direct in-page creation. */
 
@@ -27,7 +27,6 @@ export default function Home() {
   const [status, setStatus] = useState<"idle" | "generating" | "done">("idle");
   const [progress, setProgress] = useState(0);
   const [notice, setNotice] = useState("");
-  const [openFaq, setOpenFaq] = useState<string | null>(null);
 
   const selectedStyle = styles.find((item) => item.id === styleId) ?? styles[0];
   const resultWords = useMemo(() => chosenEmotions.map((emotion) => stickerWords[emotions.indexOf(emotion)] ?? emotion), [chosenEmotions]);
@@ -91,9 +90,8 @@ export default function Home() {
 
       <section id="guide" className="guide-section section-pad"><div className="guide-panel"><div><div className="eyebrow">📖 使用流程</div><h2>簡單、直接、<br /><span>完全在網頁內</span></h2><p>不用跳轉、不用重新登入。每一步都有清楚提示，完成後還能重新挑選風格與表情。</p></div><div className="steps">{[["01", "上傳照片", "選擇一張清楚的圖片，立即在預覽區看到它。"],["02", "調整風格與表情", "選擇你喜歡的視覺風格，再勾選想要的表情。"],["03", "生成、下載、分享", "完成後可以逐張下載、全部下載，或把創作分享給朋友。"]].map(([n, t, d]) => <div className="step" key={n}><span>{n}</span><div><strong>{t}</strong><p>{d}</p></div></div>)}</div><button className="button button-primary" onClick={() => scrollToId("studio")}>開始製作 <ArrowRight size={16} /></button></div></section>
 
-      <section className="faq-section section-pad"><div className="section-heading"><div className="eyebrow">💬 常見問題</div><h2>開始前，先看看<span>大家都在問什麼</span></h2></div><div className="faq-list">{[["照片會上傳到哪裡？", "目前版本只在瀏覽器中建立預覽，照片會留在目前工作階段，不需要外部帳號。"],["可以選幾種表情？", "一次最多選擇六種表情，生成後每張都能單獨下載。"],["生成後可以重新調整嗎？", "可以。你可以重新選擇風格、表情或照片，再次生成新的貼圖組合。"]].map(([q, a]) => <div className="faq-item" key={q}><button onClick={() => setOpenFaq(openFaq === q ? null : q)}><span>{q}</span>{openFaq === q ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>{openFaq === q && <p>{a}</p>}</div>)}</div></section>
     </main>
-    <footer className="footer"><div className="footer-brand"><img src={logoUrl} alt="貼圖大亨標誌" /><div><strong>貼圖大亨</strong><small>Sticker Tycoon</small></div></div><p>一張照片，幾個表情，完成你的專屬貼圖。</p><div className="footer-links"><button onClick={() => scrollToId("studio")}>開始製作</button><button onClick={() => scrollToId("guide")}>使用流程</button><button onClick={() => scrollToId("features")}>功能特色</button><a href="mailto:hello@sticker-tycoon.example">聯絡我們</a></div><small className="copyright">© 2026 Sticker Tycoon · Web Creator Studio</small></footer>
+    <footer className="footer footer-minimal"><div className="footer-brand"><img src={logoUrl} alt="貼圖大亨標誌" /><div><strong>貼圖大亨</strong><small>Sticker Tycoon</small></div></div><p>一張照片，幾個表情，完成你的專屬貼圖。</p><a className="footer-contact" href="mailto:hello@sticker-tycoon.example">聯絡我們 <ArrowRight size={14} /></a></footer>
     {status === "done" && <button className="floating-create" onClick={() => scrollToId("studio")}><Wand2 size={15} />回到工作室</button>}
   </div>;
 }
