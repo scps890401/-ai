@@ -84,3 +84,7 @@ h1 span,h2 span { background:linear-gradient(100deg,#22d0f4 12%,#5b9ef7 52%,#a08
 /* Style reminder: minimal footer removes navigation noise and leaves only brand, promise, and contact. */
 .footer-minimal{display:flex;align-items:center;gap:34px;padding-top:32px;padding-bottom:34px}.footer-minimal .footer-brand{margin:0}.footer-minimal>p{margin:0;color:#8ea5b7;font-size:12px}.footer-contact{display:inline-flex;align-items:center;gap:6px;margin-left:auto;color:#8ea5b7;font-size:12px}.footer-contact:hover{color:var(--cyan)}
 @media(max-width:650px){.footer-minimal{display:grid;grid-template-columns:1fr auto;gap:14px 18px;padding-top:25px;padding-bottom:25px}.footer-minimal>p{grid-column:1/-1;grid-row:2}.footer-contact{grid-column:2;grid-row:1}}
+
+/* Style reminder: simplified hero prioritizes the creation CTA and removes decorative visual noise from the fold. */
+.hero-simplified{min-height:620px;display:flex;align-items:center}.hero-simplified .hero-copy{max-width:760px}.hero-simplified .hero-lead{max-width:620px}.hero-simplified .hero-actions{margin-top:28px}.hero-simplified .trust-row{margin-top:22px}
+@media(max-width:650px){.hero-simplified{min-height:540px;padding-top:74px;padding-bottom:58px}.hero-simplified .hero-copy{max-width:none}.hero-simplified .hero-lead{max-width:none}.hero-simplified .hero-actions{margin-top:23px}.hero-simplified .trust-row{margin-top:18px;flex-wrap:wrap;gap:8px 15px}}
