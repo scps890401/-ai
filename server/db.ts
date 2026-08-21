@@ -87,8 +87,9 @@ export async function addStickerScript(input: { projectId: number; position: num
 export async function updateStickerScript(input: { id: number; status?: "draft" | "queued" | "generating" | "ready" | "error"; resultUrl?: string | null; errorMessage?: string | null; qualityReport?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.update(stickerScripts).set({ ...input, id: undefined }).where(eq(stickerScripts.id, input.id));
-  const result = await db.select().from(stickerScripts).where(eq(stickerScripts.id, input.id)).limit(1);
+  const { id, ...updates } = input;
+  await db.update(stickerScripts).set(updates).where(eq(stickerScripts.id, id));
+  const result = await db.select().from(stickerScripts).where(eq(stickerScripts.id, id)).limit(1);
   return result[0];
 }
 

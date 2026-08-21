@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCutoutPrompt, buildRefinementPrompt, buildStickerPrompt } from "./routers";
+import { buildCutoutPrompt, buildFallbackProjectPlan, buildRefinementPrompt, buildStickerPrompt } from "./routers";
 
 describe("creative prompt builders", () => {
   it("keeps character identity and user direction in the generation prompt", () => {
@@ -21,5 +21,13 @@ describe("creative prompt builders", () => {
     expect(prompt).toContain("文字改成早安");
     expect(prompt).toContain("保留角色姿勢");
     expect(prompt).toContain("no watermark");
+  });
+
+  it("creates a complete editable fallback plan when AI planning is unavailable", () => {
+    const plan = buildFallbackProjectPlan({ brief: "製作日常貼圖", style: "可愛手繪", stickerCount: 4 });
+    expect(plan.fallback).toBe(true);
+    expect(plan.scripts).toHaveLength(4);
+    expect(plan.scripts.map((item) => item.position)).toEqual([1, 2, 3, 4]);
+    expect(plan.scripts.every((item) => item.phrase.length > 0 && item.scene.length > 0)).toBe(true);
   });
 });

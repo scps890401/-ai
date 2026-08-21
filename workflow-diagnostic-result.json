@@ -1,0 +1,41 @@
+{
+  "projectKey": "hbXfhtqIxvIo",
+  "uploaded": 5,
+  "scripts": 4,
+  "quality": {
+    "transparent": false,
+    "dimensions": true,
+    "textReady": true,
+    "report": {
+      "transparent": "需要重新去背",
+      "dimensions": "1200×1600",
+      "text": "文字腳本已建立，請人工確認字形"
+    }
+  },
+  "zipBytes": 716337,
+  "batch": [
+    {
+      "position": 1,
+      "emotion": "早安",
+      "phrase": "早安",
+      "scene": "揮手打招呼，精神飽滿",
+      "url": "",
+      "mode": "generate",
+      "hasAlpha": false,
+      "error": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}"
+    }
+  ],
+  "restoredScript": {
+    "id": 30001,
+    "projectId": 30001,
+    "position": 1,
+    "emotion": "早安",
+    "phrase": "早安",
+    "scene": "揮手打招呼，精神飽滿",
+    "status": "error",
+    "resultUrl": null,
+    "errorMessage": "Image generation request failed (400 Bad Request): {\"code\":\"failed_precondition\",\"message\":\"your account has hit a usage exhausted\"}",
+    "qualityReport": null,
+    "updatedAt": "2026-08-21T09:51:33.000Z"
+  }
+}
