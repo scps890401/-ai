@@ -70,3 +70,9 @@
 - [x] 在 Android 手機視窗新增受控後端成功路徑回歸：上傳、自然語言規劃、至少一張生成、指定修改、單張 PNG 與 ZIP 輸出。
 - [x] 為 server route 整合測試補上 paused_quota checkpoint 保存與「繼續製作」僅續跑未完成貼圖的驗證，並保留生成、修改與 LINE 輸出覆蓋。
 - [x] 建立適合 GitHub 的 README、交接包與安全推送指引，並保存最終 checkpoint。
+
+# GitHub 遠端交接
+
+- [x] 確認 GitHub 授權、目標遠端倉庫與目前 Git 工作樹狀態。
+- [ ] 將最新版安全交接包置入可提交目錄並建立包含最新程式碼的 Git commit。
+- [ ] 經使用者確認目標遠端後推送並驗證 GitHub 分支內容。
