@@ -69,4 +69,4 @@
 - [x] 實作 LINE 規格檢查、透明 PNG／文字後製、單張下載與 ZIP 匯出。
 - [x] 在 Android 手機視窗新增受控後端成功路徑回歸：上傳、自然語言規劃、至少一張生成、指定修改、單張 PNG 與 ZIP 輸出。
 - [x] 為 server route 整合測試補上 paused_quota checkpoint 保存與「繼續製作」僅續跑未完成貼圖的驗證，並保留生成、修改與 LINE 輸出覆蓋。
-- [ ] 建立適合 GitHub 的 README、交接包與安全推送指引，並保存最終 checkpoint。
+- [x] 建立適合 GitHub 的 README、交接包與安全推送指引，並保存最終 checkpoint。
