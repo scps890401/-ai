@@ -8,7 +8,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
-import { addStickerReference, addStickerScript, addStickerVersion, createStickerProject, getStickerProject, getDb, updateStickerScript } from "./db";
+import { addStickerReference, addStickerScript, addStickerVersion, createStickerProject, getStickerProject, getDb, getStickerStudio, updateStickerScript } from "./db";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { publicProcedure, router } from "./_core/trpc";
 
@@ -153,6 +153,25 @@ export const appRouter = router({
     }),
     get: publicProcedure.input(z.object({ projectKey: z.string().min(1) })).query(async ({ input }) => (await getStickerProject(input.projectKey)) ?? null),
     prepareReference: publicProcedure.input(z.object({ photoDataUrl: z.string().min(32), fileName: z.string().min(1) })).mutation(async ({ input }) => { const parsed = await resolveImageRef(input.photoDataUrl); if (!parsed.b64Json) throw new Error("參考照片格式無法讀取"); const saved = await normalizeReference(parsed.b64Json, parsed.mimeType); return { url: saved.url, fileName: input.fileName, mimeType: "image/jpeg" }; }),
+  }),
+  studio: router({
+    get: publicProcedure.input(z.object({ projectKey: z.string().min(1) })).query(({ input }) => getStickerStudio(input.projectKey)),
+    sendMessage: publicProcedure.input(z.object({ projectKey: z.string().min(1).optional(), content: z.string().min(1).max(4000), attachments: z.array(z.object({ dataUrl: z.string().min(32), fileName: z.string().min(1).max(255), mimeType: z.string().min(1).max(120) })).max(10).default([]) })).mutation(async ({ input }) => {
+      const { sendStudioMessage } = await import("./studio");
+      return sendStudioMessage(input);
+    }),
+    runPending: publicProcedure.input(z.object({ projectKey: z.string().min(1), maxJobs: z.number().int().min(1).max(4).default(2), position: z.number().int().min(1).max(40).optional() })).mutation(async ({ input }) => {
+      const { runPendingStudioJobs } = await import("./studio");
+      return runPendingStudioJobs(input.projectKey, input.maxJobs, input.position);
+    }),
+    retrySticker: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40) })).mutation(async ({ input }) => {
+      const { retryStudioSticker } = await import("./studio");
+      return retryStudioSticker(input.projectKey, input.position);
+    }),
+    editSticker: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40), instruction: z.string().min(2).max(500) })).mutation(async ({ input }) => {
+      const { editStudioSticker } = await import("./studio");
+      return editStudioSticker(input);
+    }),
   }),
   creative: router({
     generateSample: publicProcedure.input(z.object({ characterNeed: z.string().min(2).max(800), action: z.string().min(1).max(160), text: z.string().min(1).max(80) })).mutation(async ({ input }) => { const result = await generateImage({ prompt: buildCharacterSamplePrompt(input), quality: "medium" }); const stored = await storeGeneratedResult(result); return { ...stored, mode: "sample" as const }; }),

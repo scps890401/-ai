@@ -57,6 +57,69 @@ export const stickerVersions = mysqlTable("stickerVersions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const stickerConversations = mysqlTable("stickerConversations", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  status: varchar("status", { length: 40 }).notNull().default("active"),
+  lastActiveAt: timestamp("lastActiveAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const stickerMessages = mysqlTable("stickerMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  conversationId: int("conversationId").notNull(),
+  role: mysqlEnum("role", ["user", "assistant", "system"]).notNull(),
+  content: text("content").notNull(),
+  intentJson: text("intentJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const stickerAttachments = mysqlTable("stickerAttachments", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  messageId: int("messageId").notNull(),
+  fileKey: text("fileKey").notNull(),
+  url: text("url").notNull(),
+  fileName: varchar("fileName", { length: 255 }).notNull(),
+  mimeType: varchar("mimeType", { length: 120 }).notNull(),
+  sortOrder: int("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const stickerCharacterProfiles = mysqlTable("stickerCharacterProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  profileJson: text("profileJson").notNull(),
+  anchorUrl: text("anchorUrl"),
+  status: varchar("status", { length: 40 }).notNull().default("draft"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const stickerJobs = mysqlTable("stickerJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  scriptId: int("scriptId"),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  status: varchar("status", { length: 40 }).notNull().default("queued"),
+  attempt: int("attempt").notNull().default(0),
+  provider: varchar("provider", { length: 64 }),
+  errorCode: varchar("errorCode", { length: 120 }),
+  errorMessage: text("errorMessage"),
+  checkpointJson: text("checkpointJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const stickerExports = mysqlTable("stickerExports", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  url: text("url").notNull(),
+  qualityReportJson: text("qualityReportJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type StickerProject = typeof stickerProjects.$inferSelect;
@@ -64,3 +127,9 @@ export type InsertStickerProject = typeof stickerProjects.$inferInsert;
 export type StickerReference = typeof stickerReferences.$inferSelect;
 export type StickerScript = typeof stickerScripts.$inferSelect;
 export type StickerVersion = typeof stickerVersions.$inferSelect;
+export type StickerConversation = typeof stickerConversations.$inferSelect;
+export type StickerMessage = typeof stickerMessages.$inferSelect;
+export type StickerAttachment = typeof stickerAttachments.$inferSelect;
+export type StickerCharacterProfile = typeof stickerCharacterProfiles.$inferSelect;
+export type StickerJob = typeof stickerJobs.$inferSelect;
+export type StickerExport = typeof stickerExports.$inferSelect;

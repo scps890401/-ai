@@ -1,69 +1,128 @@
-import { useState } from "react";
-import { ArrowRight, Check, Download, Plus, RefreshCw, Sparkles, Wand2 } from "lucide-react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Download, ImagePlus, Loader2, Paperclip, Play, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import { Streamdown } from "streamdown";
 import { trpc } from "@/lib/trpc";
+import "../chat-studio.css";
 
-const logoUrl = "/manus-storage/sticker-tycoon-logo_d42e24d3.png";
-type ApprovedSample = { url: string; hasAlpha?: boolean; characterNeed: string; action: string; text: string };
-type Variation = { url: string; hasAlpha?: boolean; action: string; text: string };
+type LocalAttachment = { id: string; dataUrl: string; fileName: string; mimeType: string; preview?: string };
+const STORAGE_KEY = "sticker-tycoon-chat-project-key";
+
+const suggestions = [
+  "幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。",
+  "我要做 16 張日常貼圖，角色要維持同一套衣服和可愛比例。",
+  "繼續製作上次尚未完成的貼圖。",
+];
+
+function asDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`無法讀取 ${file.name}`));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function normaliseFile(file: File) {
+  const isHeic = /\.(heic|heif)$/i.test(file.name) || /image\/hei[cf]/i.test(file.type);
+  if (!isHeic) return file;
+  const converter = (await import("heic2any")).default;
+  const converted = await converter({ blob: file, toType: "image/jpeg", quality: 0.92 });
+  const blob = Array.isArray(converted) ? converted[0]! : converted;
+  return new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
+}
+
+function statusLabel(status: string | undefined) {
+  if (status === "generating") return "正在生成";
+  if (status === "completed" || status === "ready") return "已完成";
+  if (status === "paused_quota") return "額度暫停";
+  if (status === "failed" || status === "error") return "需要重試";
+  if (status === "retrying") return "正在重試";
+  return "等待中";
+}
 
 export default function Home() {
-  const [characterNeed, setCharacterNeed] = useState("");
-  const [action, setAction] = useState("");
-  const [text, setText] = useState("");
-  const [sample, setSample] = useState<ApprovedSample | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
-  const [variations, setVariations] = useState<Variation[]>([]);
+  const utils = trpc.useUtils();
+  const [projectKey, setProjectKey] = useState(() => localStorage.getItem(STORAGE_KEY) ?? "");
+  const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
-  const sampleMutation = trpc.creative.generateSample.useMutation();
-  const variationMutation = trpc.creative.generateVariation.useMutation();
-  const isGenerating = sampleMutation.isPending || variationMutation.isPending;
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const studio = trpc.studio.get.useQuery({ projectKey: projectKey || "no-project" }, { enabled: Boolean(projectKey), refetchInterval: projectKey ? 8_000 : false });
+  const sendMessage = trpc.studio.sendMessage.useMutation();
+  const runPending = trpc.studio.runPending.useMutation();
+  const retrySticker = trpc.studio.retrySticker.useMutation();
+  const editSticker = trpc.studio.editSticker.useMutation();
+  const busy = sendMessage.isPending || runPending.isPending || retrySticker.isPending || editSticker.isPending || uploading;
+  const project = studio.data?.project;
+  const messages = studio.data?.messages ?? [];
+  const attachmentsByMessage = useMemo(() => {
+    const grouped = new Map<number, NonNullable<typeof studio.data>["attachments"]>();
+    for (const attachment of studio.data?.attachments ?? []) grouped.set(attachment.messageId, [...(grouped.get(attachment.messageId) ?? []), attachment]);
+    return grouped;
+  }, [studio.data?.attachments]);
 
-  const showNotice = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(""), 4200); };
-  const valid = () => { if (characterNeed.trim() && action.trim() && text.trim()) return true; showNotice("請完整填寫角色需求、動作與文字"); return false; };
-  const displayError = (error: unknown, fallback: string) => { const detail = error instanceof Error ? error.message : fallback; showNotice(/usage exhausted|failed_precondition/i.test(detail) ? "AI 服務使用量目前暫時耗盡，請稍後再試" : detail); };
+  useEffect(() => {
+    if (projectKey) localStorage.setItem(STORAGE_KEY, projectKey);
+  }, [projectKey]);
 
-  const createSample = async () => {
-    if (!valid()) return;
-    try {
-      const result = await sampleMutation.mutateAsync({ characterNeed: characterNeed.trim(), action: action.trim(), text: text.trim() });
-      setSample({ ...result, characterNeed: characterNeed.trim(), action: action.trim(), text: text.trim() });
-      setConfirmed(false);
-      setVariations([]);
-      showNotice("角色樣本已生成，請確認角色是否正確");
-    } catch (error) { displayError(error, "角色樣本生成失敗"); }
+  const toast = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(""), 5000); };
+  const refreshStudio = async (key = projectKey) => { if (key) await utils.studio.get.invalidate({ projectKey: key }); };
+  const drainPending = async (key: string, position?: number) => {
+    const result = await runPending.mutateAsync({ projectKey: key, maxJobs: position ? 1 : 2, position });
+    await refreshStudio(key);
+    if (!position && result.remaining > 0 && !result.completed.some((item) => item.status === "paused_quota")) window.setTimeout(() => void drainPending(key), 500);
+    if (result.completed.some((item) => item.status === "paused_quota")) toast("AI 額度目前已用完，已完成與未完成進度都已保存。恢復後輸入「繼續製作」即可續作。");
   };
 
-  const createVariation = async () => {
-    if (!sample || !confirmed || !valid()) return;
+  const submit = async (content = input) => {
+    if ((!content.trim() && !attachments.length) || busy) return;
     try {
-      const result = await variationMutation.mutateAsync({ sampleImageUrl: sample.url, characterNeed: sample.characterNeed, action: action.trim(), text: text.trim() });
-      setVariations((items) => [...items, { ...result, action: action.trim(), text: text.trim() }]);
-      showNotice("同款角色圖片已新增");
-    } catch (error) { displayError(error, "同款角色圖片生成失敗"); }
+      const result = await sendMessage.mutateAsync({ projectKey: projectKey || undefined, content: content.trim() || "請分析我上傳的角色圖片並建立 LINE 貼圖專案。", attachments: attachments.map(({ dataUrl, fileName, mimeType }) => ({ dataUrl, fileName, mimeType })) });
+      setProjectKey(result.projectKey);
+      setInput("");
+      setAttachments([]);
+      await refreshStudio(result.projectKey);
+      if (result.autoRun) void drainPending(result.projectKey);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "訊息送出失敗，請稍後再試");
+    }
   };
 
-  const restart = () => { setSample(null); setConfirmed(false); setVariations([]); setCharacterNeed(""); setAction(""); setText(""); showNotice("已準備建立新的角色樣本"); };
-  const download = (url: string, name: string) => { const link = document.createElement("a"); link.href = url; link.download = name; link.style.display = "none"; document.body.appendChild(link); link.click(); link.remove(); };
+  const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).slice(0, Math.max(0, 10 - attachments.length));
+    event.target.value = "";
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      const prepared = await Promise.all(files.map(async (original) => {
+        const file = await normaliseFile(original);
+        if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} 超過 12 MB 上限`);
+        const dataUrl = await asDataUrl(file);
+        return { id: `${file.name}-${crypto.randomUUID()}`, dataUrl, fileName: file.name, mimeType: file.type || "application/octet-stream", preview: file.type.startsWith("image/") ? dataUrl : undefined };
+      }));
+      setAttachments((items) => [...items, ...prepared]);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "附件處理失敗");
+    } finally { setUploading(false); }
+  };
 
-  return <div className="site-shell minimal-shell">
+  const retry = async (position: number) => {
+    if (!projectKey || busy) return;
+    try { const result = await retrySticker.mutateAsync({ projectKey, position }); await refreshStudio(projectKey); if (result.completed.some((item) => item.status === "paused_quota")) toast("AI 額度目前已用完，這張貼圖與其他進度都已保存。"); } catch (error) { toast(error instanceof Error ? error.message : "重新生成失敗"); }
+  };
+  const requestEdit = (position: number) => { setInput(`第 ${position} 張請修改：`); composerRef.current?.focus(); };
+  const download = (url: string, fileName: string) => { const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove(); };
+
+  return <main className="chat-studio-shell">
     {notice && <div className="toast"><Sparkles size={15} />{notice}</div>}
-    <header className="topbar minimal-topbar"><a className="brand" href="#top"><img src={logoUrl} alt="貼圖大亨標誌" /><span><strong>貼圖大亨</strong><small>Sticker Tycoon</small></span></a>{sample && <button className="restart-link" onClick={restart}><RefreshCw size={14} />重新建立角色</button>}</header>
-    <main id="top" className="minimal-main">
-      <section className="minimal-hero"><div className="ambient orb-one" /><div className="ambient orb-two" /><div className="minimal-hero-copy"><span className="eyebrow">AI CHARACTER STUDIO</span><h1>先確認角色，<span>再延伸每一張。</span></h1><p>只需要描述角色需求、動作與文字。先生成一張角色樣本，確認無誤後，再建立同一角色的其他版本。</p></div></section>
-      <section className="minimal-studio" aria-label="角色樣本生成器">
-        <div className="minimal-form-card">
-          <div className="form-intro"><span className="step-tag">{sample ? "角色設定" : "建立樣本"}</span><h2>{confirmed ? "新增同款角色圖片" : "描述你的角色"}</h2><p>{confirmed ? "動作與文字可自由變更；系統會以已確認樣本維持角色一致性。" : "填寫三項資訊，生成第一張可供確認的角色樣本。"}</p></div>
-          <label>角色需求<textarea aria-label="角色需求" value={characterNeed} onChange={(event) => setCharacterNeed(event.target.value)} placeholder="例如：戴圓眼鏡、穿深藍圍裙的橘貓店長，溫暖手繪風格" disabled={isGenerating || confirmed} /></label>
-          <label>動作<input aria-label="動作" value={action} onChange={(event) => setAction(event.target.value)} placeholder="例如：揮手打招呼" disabled={isGenerating} /></label>
-          <label>文字<input aria-label="文字" value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：你好" disabled={isGenerating} /></label>
-          {confirmed ? <button className="button button-primary generate-button" onClick={() => void createVariation()} disabled={isGenerating}><Plus size={16} />{variationMutation.isPending ? "正在生成同款角色…" : "生成同款角色圖片"}<ArrowRight size={15} /></button> : <button className="button button-primary generate-button" onClick={() => void createSample()} disabled={isGenerating}><Wand2 size={16} />{sampleMutation.isPending ? "正在生成角色樣本…" : sample ? "重新生成角色樣本" : "生成角色樣本"}<ArrowRight size={15} /></button>}
-        </div>
-        <div className="sample-stage">
-          {!sample ? <div className="sample-empty"><div className="empty-mark"><Wand2 size={26} /></div><strong>角色樣本會出現在這裡</strong><span>先填寫左側三個欄位。</span></div> : <div className="sample-result"><div className="sample-result-head"><div><span className="step-tag">STEP 1</span><h2>角色樣本</h2></div>{sample.hasAlpha && <span className="alpha-status"><Check size={14} />透明背景</span>}</div><div className="character-image"><img src={sample.url} alt={`${sample.text} 角色樣本`} /></div>{confirmed ? <div className="confirmed-panel"><Check size={17} /><div><strong>角色樣本已確認</strong><span>現在可在左側修改動作與文字，建立更多同款角色圖片。</span></div></div> : <div className="confirm-panel"><p>角色外觀、風格與感覺都正確嗎？確認後才能生成同款角色的其他動作與文字。</p><div><button className="button button-secondary" onClick={() => void createSample()} disabled={isGenerating}><RefreshCw size={15} />重新生成</button><button className="button button-primary" onClick={() => { setConfirmed(true); showNotice("已確認角色樣本；接下來可生成同款角色的其他動作與文字"); }}><Check size={16} />確認這個角色</button></div></div>}</div>}
-        </div>
-      </section>
-      {confirmed && <section className="variation-section"><div className="variation-heading"><div><span className="eyebrow">SAME CHARACTER</span><h2>同款角色的其他版本</h2></div><span>{variations.length} 張</span></div>{variations.length ? <div className="variation-grid">{variations.map((item, index) => <article className="variation-card" key={`${item.url}-${index}`}><div><img src={item.url} alt={`${item.text} 同款角色`} /></div><footer><span>{item.action}</span><strong>{item.text}</strong><button aria-label={`下載${item.text}`} onClick={() => download(item.url, `sticker-${String(index + 1).padStart(2, "0")}-${item.text}.png`)}><Download size={15} /></button></footer></article>)}</div> : <div className="variation-empty"><Plus size={19} /><span>確認角色後，在上方輸入新的動作與文字，即可增加更多版本。</span></div>}</section>}
-    </main>
-    <footer className="footer footer-minimal"><div className="footer-brand"><img src={logoUrl} alt="貼圖大亨標誌" /><div><strong>貼圖大亨</strong><small>Sticker Tycoon</small></div></div><p>從一張確認過的角色樣本，延伸每一個表情與動作。</p></footer>
-  </div>;
+    <header className="chat-topbar"><div className="chat-brand"><span className="brand-spark"><Sparkles size={17} /></span><div><strong>貼圖大亨</strong><small>AI LINE 貼圖工作室</small></div></div>{project && <div className="project-chip"><span>專案</span><strong>{project.title}</strong><button onClick={() => { navigator.clipboard.writeText(project.projectKey); toast("專案代碼已複製，可在其他裝置續作"); }}>{project.projectKey}</button></div>}</header>
+    <section className="chat-layout">
+      <div className="conversation-column">
+        {messages.length === 0 ? <div className="chat-welcome"><span className="eyebrow">AI STICKER STUDIO</span><h1>像聊天一樣，完成一整套貼圖。</h1><p>傳照片、描述角色，或直接告訴我你想做幾張 LINE 貼圖。角色理解、規劃、生成、修改與保存都會自動處理。</p><div className="suggestion-list">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setInput(suggestion); composerRef.current?.focus(); }}><Sparkles size={14} />{suggestion}</button>)}</div></div> : <div className="message-list">{messages.map((message) => <article key={message.id} className={`chat-message ${message.role}`}><div className="message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "你"}</div><div className="message-content">{message.role === "assistant" ? <Streamdown>{message.content}</Streamdown> : <p>{message.content}</p>}{(attachmentsByMessage.get(message.id) ?? []).length > 0 && <div className="message-attachments">{attachmentsByMessage.get(message.id)!.map((attachment) => attachment.mimeType.startsWith("image/") ? <img key={attachment.id} src={attachment.url} alt={attachment.fileName} /> : <span key={attachment.id}><Paperclip size={13} />{attachment.fileName}</span>)}</div>}</div></article>)}</div>}
+        <div className="composer-wrap"><div className="queued-files">{attachments.map((attachment) => <div className="queued-file" key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt="" /> : <Paperclip size={15} />}<span>{attachment.fileName}</span><button aria-label={`移除 ${attachment.fileName}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}><X size={14} /></button></div>)}</div><div className="composer"><label className="attach-button" aria-label="上傳圖片或檔案"><ImagePlus size={19} /><input type="file" accept="image/*,.heic,.heif,.pdf" multiple onChange={handleFiles} /></label><textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder="例如：幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。" rows={1} disabled={busy} /><button className="send-button" onClick={() => void submit()} disabled={busy || (!input.trim() && !attachments.length)}>{busy ? <Loader2 className="spin" size={18} /> : <Send size={18} />}</button></div><small>可上傳多張角色照片；HEIC 會在手機／瀏覽器端轉檔。按 Enter 送出，Shift + Enter 換行。</small></div>
+      </div>
+      <aside className="task-panel"><div className="task-panel-head"><div><span className="eyebrow">STICKER TASKS</span><h2>{project ? "製作進度" : "等待你的需求"}</h2></div>{project && <button className="continue-button" onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button>}</div>{studio.isLoading ? <div className="panel-loading"><Loader2 className="spin" />正在載入專案…</div> : (studio.data?.scripts.length ?? 0) === 0 ? <div className="task-empty"><ImagePlus size={24} /><strong>從一段對話開始</strong><span>AI 會自動建立角色設定與貼圖清單。</span></div> : <div className="task-grid">{studio.data!.scripts.map((script) => { const job = studio.data!.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1); const taskStatus = job?.status ?? script.status; return <article className="sticker-task" key={script.id}><div className="task-image">{script.resultUrl ? <img src={script.resultUrl} alt={`第 ${script.position} 張 ${script.phrase}`} /> : <span>{script.position}</span>}<em className={`task-status ${taskStatus}`}>{statusLabel(taskStatus)}</em></div><div className="task-meta"><small>第 {script.position} 張 · {script.emotion}</small><strong>{script.phrase}</strong><div className="task-actions">{script.resultUrl && <button onClick={() => download(script.resultUrl!, `sticker-${String(script.position).padStart(2, "0")}.png`)} aria-label={`下載第 ${script.position} 張`}><Download size={14} /></button>}<button onClick={() => requestEdit(script.position)} disabled={!script.resultUrl || busy}>告訴 AI 修改</button>{["failed", "error", "paused_quota"].includes(taskStatus) && <button onClick={() => void retry(script.position)} disabled={busy}><RefreshCw size={13} />重試</button>}</div></div></article>; })}</div>}</aside>
+    </section>
+  </main>;
 }
