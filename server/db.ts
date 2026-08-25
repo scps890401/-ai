@@ -122,6 +122,12 @@ export async function createStickerConversation(projectId: number) {
   return (await db.select().from(stickerConversations).where(eq(stickerConversations.projectId, projectId)).orderBy(desc(stickerConversations.id)).limit(1))[0];
 }
 
+export async function getLatestStickerConversation(projectId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  return (await db.select().from(stickerConversations).where(eq(stickerConversations.projectId, projectId)).orderBy(desc(stickerConversations.lastActiveAt)).limit(1))[0];
+}
+
 export async function addStickerMessage(input: { conversationId: number; role: "user" | "assistant" | "system"; content: string; intentJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;

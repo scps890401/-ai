@@ -8,15 +8,16 @@ const image = "https://placehold.co/512x512/png?text=Sticker";
 const projectKey = "chatStudio1";
 let sent = false;
 let generated = false;
+let zipExports = 0;
 const consoleErrors = [];
 
-const scripts = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: null, updatedAt: new Date().toISOString() }));
-const jobs = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, scriptId: index + 1, kind: "generate", status: generated || index < 2 ? "completed" : "queued", attempt: 0, provider: "gemini", errorCode: null, errorMessage: null, checkpointJson: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: null, updatedAt: new Date().toISOString() }));
+const jobs = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, scriptId: index + 1, kind: "generate", status: generated || index < 2 ? "completed" : "queued", attempt: 0, provider: "gemini", errorCode: null, errorMessage: null, checkpointJson: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
 const studio = () => sent ? {
   project: { id: 1, projectKey, title: "橘貓店長日常貼圖", brief: "幫我把橘貓做成 8 張可愛貼圖", characterProfile: "橘貓店長，圓眼睛，深藍圍裙", style: "可愛", stickerCount: 8, status: "generating", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   conversation: { id: 1, projectId: 1, status: "active", lastActiveAt: new Date().toISOString(), createdAt: new Date().toISOString() },
   messages: [{ id: 1, conversationId: 1, role: "user", content: "幫我把這隻橘貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。", intentJson: null, createdAt: new Date().toISOString() }, { id: 2, conversationId: 1, role: "assistant", content: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", intentJson: "{}", createdAt: new Date().toISOString() }],
-  attachments: [], characterProfile: { id: 1, projectId: 1, profileJson: "{}", anchorUrl: image, status: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, scripts, jobs, exports: [],
+  attachments: [], characterProfile: { id: 1, projectId: 1, profileJson: "{}", anchorUrl: image, status: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, scripts: scripts(), jobs: jobs(), exports: [],
 } : null;
 
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
@@ -26,7 +27,7 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 await page.route("**/api/trpc/**", async (route) => {
   const url = route.request().url();
-  const data = url.includes("studio.get") ? studio() : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 6 }) : null;
+  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
   if (data === null) return route.continue();
   return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ result: { data: { json: data } } }]) });
 });
@@ -38,12 +39,19 @@ try {
   await page.locator(".send-button").click();
   await page.getByText("我已建立角色設定與 8 張日常貼圖計畫").waitFor({ timeout: 10_000 });
   await page.getByText("第 1 張 · 早安").waitFor();
-  if (await page.locator(".sticker-task").count() !== 8) throw new Error("Expected eight independently rendered sticker tasks");
+  const taskCount = await page.locator(".sticker-task").count();
+  if (taskCount !== 8) throw new Error("Expected eight independently rendered sticker tasks");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByText("橘貓店長日常貼圖").waitFor();
+  if (await page.locator(".sticker-task").count() !== 8) throw new Error("Saved projectKey must restore independently tracked sticker tasks after reload");
   await page.getByRole("button", { name: "告訴 AI 修改" }).first().click();
   const editPrompt = await page.getByPlaceholder(/幫我把這隻貓做成/).inputValue();
   if (!editPrompt.includes("第 1 張請修改")) throw new Error("Single sticker edit must target the selected position");
+  await page.getByRole("button", { name: "LINE ZIP" }).click();
+  await page.waitForTimeout(500);
+  if (zipExports !== 1) throw new Error("Expected one LINE ZIP export request");
   if (consoleErrors.length) throw new Error(`Unexpected browser console errors: ${consoleErrors.join(" | ")}`);
-  const result = { ok: true, viewport: viewportName, taskCount: await page.locator(".sticker-task").count(), editPrompt, consoleErrors };
+  const result = { ok: true, viewport: viewportName, taskCount, editPrompt, projectRestoredAfterReload: true, zipExports, consoleErrors };
   await writeFile(`/home/ubuntu/sticker-tycoon-replica/chat-studio-flow-${viewportName}.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 } finally {

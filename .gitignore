@@ -112,3 +112,14 @@ temp/
 # Manus version file (auto-generated, not part of source)
 client/public/__manus__/version.json
 .project-config.json
+
+# Local webdev diagnostics and browser regression output
+.manus-logs/
+chat-studio-flow-*.json
+chat-heic-upload-result.json
+chat-quota-resume-result.json
+android-real-server-quota-result.json
+android-controlled-success-result.json
+gemini-image-connection-result.json
+generated-10-stickers.json
+research-gemini-video.txt

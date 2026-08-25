@@ -8,7 +8,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
-import { addStickerReference, addStickerScript, addStickerVersion, createStickerProject, getStickerProject, getDb, getStickerStudio, updateStickerScript } from "./db";
+import { addStickerExport, addStickerReference, addStickerScript, addStickerVersion, createStickerProject, getStickerProject, getDb, getStickerStudio, updateStickerScript } from "./db";
+import { renderLinePack, renderLineSticker } from "./lineExport";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { publicProcedure, router } from "./_core/trpc";
 
@@ -171,6 +172,27 @@ export const appRouter = router({
     editSticker: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40), instruction: z.string().min(2).max(500) })).mutation(async ({ input }) => {
       const { editStudioSticker } = await import("./studio");
       return editStudioSticker(input);
+    }),
+    exportLineSingle: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40) })).mutation(async ({ input }) => {
+      const studio = await getStickerStudio(input.projectKey);
+      if (!studio) throw new Error("找不到要輸出的專案");
+      const script = studio.scripts.find((item) => item.position === input.position);
+      if (!script?.resultUrl) throw new Error(`第 ${input.position} 張尚未完成，無法輸出`);
+      const rendered = await renderLineSticker({ imageUrl: script.resultUrl, phrase: script.phrase });
+      if (!rendered.report.valid) throw new Error("此貼圖未通過 LINE 圖檔檢查，請重新生成或調整內容");
+      const saved = await storagePut(`line-exports/${studio.project.id}/sticker-${String(script.position).padStart(2, "0")}-${Date.now()}.png`, rendered.buffer, "image/png");
+      await addStickerExport({ projectId: studio.project.id, kind: "line_single", url: saved.url, qualityReportJson: JSON.stringify(rendered.report) });
+      return { url: saved.url, fileName: `sticker_${String(script.position).padStart(2, "0")}.png`, report: rendered.report };
+    }),
+    exportLinePack: publicProcedure.input(z.object({ projectKey: z.string().min(1) })).mutation(async ({ input }) => {
+      const studio = await getStickerStudio(input.projectKey);
+      if (!studio) throw new Error("找不到要輸出的專案");
+      const ready = studio.scripts.filter((item) => item.resultUrl).map((item) => ({ position: item.position, phrase: item.phrase, imageUrl: item.resultUrl! }));
+      if (ready.length !== studio.scripts.length) throw new Error(`仍有 ${studio.scripts.length - ready.length} 張貼圖尚未完成；完成後即可匯出 LINE 套組。`);
+      const pack = await renderLinePack({ title: studio.project.title, items: ready });
+      const saved = await storagePut(`line-exports/${studio.project.id}/line-sticker-pack-${Date.now()}.zip`, Buffer.from(pack.base64, "base64"), "application/zip");
+      await addStickerExport({ projectId: studio.project.id, kind: "line_pack", url: saved.url, qualityReportJson: JSON.stringify({ reports: pack.reports, zipBytes: pack.zipBytes }) });
+      return { url: saved.url, fileName: pack.fileName, reports: pack.reports, zipBytes: pack.zipBytes };
     }),
   }),
   creative: router({

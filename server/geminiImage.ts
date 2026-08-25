@@ -1,3 +1,5 @@
+import sharp from "sharp";
+
 export type GeminiImageReference = {
   url: string;
   mimeType: string;
@@ -5,7 +7,7 @@ export type GeminiImageReference = {
 
 export type GeminiImageResult = {
   b64Json: string;
-  mimeType: "image/png";
+  mimeType: "image/jpeg";
   provider: "gemini";
 };
 
@@ -28,6 +30,10 @@ async function readReference(reference: GeminiImageReference) {
 }
 
 export async function generateGeminiImage(input: { prompt: string; references?: GeminiImageReference[]; model?: "gemini-3.1-flash-image" | "gemini-3-pro-image" }) {
+  if (process.env.STICKER_E2E_TEST_MODE === "1") {
+    const buffer = await sharp({ create: { width: 512, height: 512, channels: 3, background: { r: 239, g: 152, b: 58 } } }).jpeg({ quality: 90 }).toBuffer();
+    return { b64Json: buffer.toString("base64"), mimeType: "image/jpeg", provider: "gemini" } satisfies GeminiImageResult;
+  }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new GeminiImageError("Gemini 圖像服務尚未設定", "MISSING_API_KEY");
   const references = await Promise.all((input.references ?? []).slice(0, 4).map(readReference));
@@ -40,7 +46,7 @@ export async function generateGeminiImage(input: { prompt: string; references?: 
       body: JSON.stringify({
         model: input.model ?? "gemini-3.1-flash-image",
         input: [{ type: "text", text: input.prompt }, ...references],
-        response_format: { type: "image", mime_type: "image/png", aspect_ratio: "1:1", image_size: "1K" },
+        response_format: { type: "image", mime_type: "image/jpeg", aspect_ratio: "1:1", image_size: "1K" },
       }),
       signal: controller.signal,
     });
@@ -49,7 +55,7 @@ export async function generateGeminiImage(input: { prompt: string; references?: 
     const payload = JSON.parse(detail) as { output_image?: { data?: string } };
     const b64Json = payload.output_image?.data;
     if (!b64Json) throw new GeminiImageError("Gemini 沒有回傳圖片資料", "EMPTY_IMAGE", true);
-    return { b64Json, mimeType: "image/png", provider: "gemini" } satisfies GeminiImageResult;
+    return { b64Json, mimeType: "image/jpeg", provider: "gemini" } satisfies GeminiImageResult;
   } catch (error) {
     if (error instanceof GeminiImageError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") throw new GeminiImageError("Gemini 圖像生成逾時，請稍後重試", "TIMEOUT", true);
