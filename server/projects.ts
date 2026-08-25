@@ -1,9 +1,23 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { projectAssets, projectCheckpoints, stickerProjects, type StickerProject } from "../drizzle/schema";
+import { characterProfiles, projectAssets, projectCheckpoints, projectConversations, projectMessages, stickerJobVersions, stickerJobs, stickerPlanItems, stickerPlans, stickerProjects, type StickerProject } from "../drizzle/schema";
 import { storagePut } from "./storage";
 
 export type ProjectActor = { userId?: number; guestKey?: string };
+
+export const STICKER_JOB_STATUSES = ["pending", "generating", "completed", "failed", "retrying"] as const;
+export type StickerJobStatus = (typeof STICKER_JOB_STATUSES)[number];
+
+export function resolveStickerJobStatus(args: { requestedStatus?: string; hasGeneratedAsset: boolean; existingStatus?: string }): StickerJobStatus {
+  const requested = STICKER_JOB_STATUSES.includes(args.requestedStatus as StickerJobStatus)
+    ? args.requestedStatus as StickerJobStatus
+    : args.hasGeneratedAsset ? "completed" : "pending";
+  return args.existingStatus === "completed" && requested !== "completed" ? "completed" : requested;
+}
+
+export function shouldCreateStickerJobVersion(existingAssetId: number | null | undefined, nextAssetId: number | null | undefined) {
+  return nextAssetId !== null && nextAssetId !== undefined && nextAssetId !== existingAssetId;
+}
 
 export function parseProjectState(stateJson: string): Record<string, unknown> {
   try {
@@ -81,12 +95,107 @@ export async function saveProjectSnapshot(args: {
     updatedAt: now,
     lastOpenedAt: now,
   }).where(eq(stickerProjects.id, args.project.id));
+  await syncStructuredState(args.project.id, args.stateJson, args.packSize);
   await db.insert(projectCheckpoints).values({
     projectId: args.project.id,
     reason: args.reason,
     snapshotJson: args.stateJson,
   });
   return now;
+}
+
+async function syncStructuredState(projectId: number, stateJson: string, packSize: number) {
+  const db = await getDb();
+  if (!db) return;
+  const state = parseProjectState(stateJson) as {
+    prompt?: string;
+    uploaded?: unknown[];
+    sourceAssetIds?: unknown[];
+    generated?: Array<{ label?: string; action?: string; src?: string; assetId?: number }>;
+    chatMessages?: Array<{ role?: string; content?: string }>;
+    imagePrompts?: unknown[];
+    jobStates?: Array<{ position?: number; status?: string; errorMessage?: string }>;
+  };
+  const [existingConversation] = await db.select().from(projectConversations).where(eq(projectConversations.projectId, projectId)).limit(1);
+  let conversation = existingConversation;
+  if (!conversation) {
+    const result = await db.insert(projectConversations).values({ projectId, title: state.prompt?.slice(0, 160) || "Sticker Muse 創作對話" });
+    [conversation] = await db.select().from(projectConversations).where(eq(projectConversations.id, Number(result[0].insertId))).limit(1);
+  }
+  if (conversation) {
+    await db.delete(projectMessages).where(eq(projectMessages.conversationId, conversation.id));
+    const messages = (state.chatMessages ?? []).filter((message) => typeof message.content === "string" && message.content.trim()).map((message) => ({
+      conversationId: conversation.id,
+      role: (message.role === "assistant" || message.role === "system" ? message.role : "user") as "user" | "assistant" | "system",
+      content: message.content!.slice(0, 6000),
+    }));
+    if (messages.length) await db.insert(projectMessages).values(messages);
+  }
+
+  const [latestProfile] = await db.select().from(characterProfiles).where(eq(characterProfiles.projectId, projectId)).orderBy(desc(characterProfiles.version)).limit(1);
+  const visualBible = {
+    source: "workspace-draft",
+    referenceCount: state.uploaded?.length ?? 0,
+    referenceAssetIds: state.sourceAssetIds ?? [],
+    identityPrompt: state.prompt ?? "",
+    preserve: ["物種與身份", "臉部／五官或毛色標記", "身體比例", "服裝與配件", "主色與輪廓", "貼圖畫風"],
+    negative: ["不要改變角色身份", "不要增加角色肢體", "不要讓角色變成 generic mascot"],
+  };
+  if (!latestProfile) {
+    await db.insert(characterProfiles).values({ projectId, name: "主要角色", visualBibleJson: JSON.stringify(visualBible), referenceAssetIdsJson: JSON.stringify(state.sourceAssetIds ?? []) });
+  } else {
+    await db.update(characterProfiles).set({ visualBibleJson: JSON.stringify(visualBible), referenceAssetIdsJson: JSON.stringify(state.sourceAssetIds ?? []), updatedAt: new Date() }).where(eq(characterProfiles.id, latestProfile.id));
+  }
+
+  const [latestPlan] = await db.select().from(stickerPlans).where(eq(stickerPlans.projectId, projectId)).orderBy(desc(stickerPlans.version)).limit(1);
+  let plan = latestPlan;
+  if (!plan) {
+    const result = await db.insert(stickerPlans).values({ projectId, brief: state.prompt || "LINE 貼圖創作", language: "zh-Hant", style: "保持角色一致的可愛貼圖風格" });
+    [plan] = await db.select().from(stickerPlans).where(eq(stickerPlans.id, Number(result[0].insertId))).limit(1);
+  }
+  if (plan) {
+    const [existingItem] = await db.select().from(stickerPlanItems).where(eq(stickerPlanItems.planId, plan.id)).limit(1);
+    if (!existingItem) {
+      const items = Array.from({ length: packSize }, (_, index) => {
+        const generated = state.generated?.[index];
+        return {
+          planId: plan.id,
+          position: index + 1,
+          text: generated?.label?.split("／").at(-1)?.slice(0, 160) || `第 ${index + 1} 張貼圖`,
+          action: generated?.action?.slice(0, 255) || "待 AI 規劃動作與情境",
+          emotion: "待規劃",
+          composition: "角色置中、保留清楚輪廓與透明背景",
+          prompt: state.imagePrompts?.[index] ? String(state.imagePrompts[index]).slice(0, 6000) : state.prompt?.slice(0, 6000),
+          targetStickerId: null,
+        };
+      });
+      await db.insert(stickerPlanItems).values(items);
+    }
+  }
+
+  for (let index = 0; index < packSize; index += 1) {
+    const position = index + 1;
+    const generated = state.generated?.[index];
+    const savedJob = state.jobStates?.find((item) => item.position === position);
+    const [job] = await db.select().from(stickerJobs).where(and(eq(stickerJobs.projectId, projectId), eq(stickerJobs.position, position))).limit(1);
+    const status = resolveStickerJobStatus({ requestedStatus: savedJob?.status, hasGeneratedAsset: Boolean(generated), existingStatus: job?.status });
+    const errorMessage = savedJob?.errorMessage?.slice(0, 6000) || null;
+    const errorCode = errorMessage && /usage exhausted|failed_precondition|quota|rate limit|insufficient/i.test(errorMessage) ? "quota" : errorMessage ? "generation_failed" : null;
+    let jobId: number;
+    if (job) {
+      jobId = job.id;
+      await db.update(stickerJobs).set({ status, errorCode, errorMessage, attemptCount: Math.max(job.attemptCount, status === "generating" || status === "retrying" || status === "completed" || status === "failed" ? 1 : 0), currentAssetId: generated?.assetId ?? job.currentAssetId, completedAt: status === "completed" ? job.completedAt ?? new Date() : null, updatedAt: new Date() }).where(eq(stickerJobs.id, job.id));
+    } else {
+      const inserted = await db.insert(stickerJobs).values({ projectId, position, status, attemptCount: status === "pending" ? 0 : 1, currentAssetId: generated?.assetId ?? null, errorCode, errorMessage, completedAt: status === "completed" ? new Date() : null });
+      jobId = Number(inserted[0].insertId);
+    }
+    const generatedAssetId = generated?.assetId;
+    const persistedJobId = jobId;
+    if (persistedJobId !== undefined && shouldCreateStickerJobVersion(job?.currentAssetId, generatedAssetId) && generatedAssetId !== undefined) {
+      const [latestVersion] = await db.select().from(stickerJobVersions).where(eq(stickerJobVersions.jobId, persistedJobId)).orderBy(desc(stickerJobVersions.version)).limit(1);
+      await db.insert(stickerJobVersions).values({ jobId: persistedJobId, version: (latestVersion?.version ?? 0) + 1, assetId: generatedAssetId, editPrompt: state.prompt ?? null, changeSummary: generated?.label ?? null });
+    }
+  }
 }
 
 export async function createProjectAsset(args: {
@@ -110,6 +219,12 @@ export async function createProjectAsset(args: {
     fileSize: args.data.byteLength,
   });
   return { id: Number(result[0].insertId), key: stored.key, url: stored.url };
+}
+
+export async function listProjectJobs(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(stickerJobs).where(eq(stickerJobs.projectId, projectId)).orderBy(stickerJobs.position);
 }
 
 export async function touchProject(projectId: number) {

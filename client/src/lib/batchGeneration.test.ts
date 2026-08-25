@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { collectBatchResults, createBatchStickerJobs, mergeBatchResults } from "./batchGeneration";
+import { collectBatchResults, createBatchStickerJobs, createPlannedStickerJobs, mergeBatchResults } from "./batchGeneration";
+import type { StickerPlanItem } from "./stickerChatFlow";
 import type { StickerConcept } from "./stickerLanguage";
 
 const concepts: StickerConcept[] = [
@@ -29,6 +30,23 @@ describe("batch sticker generation", () => {
     const jobs = createBatchStickerJobs(["a", "b", "c", "d"], "agent", "真棒", ["第一張", "第二張", "第三張", "第四張"], () => concepts[0]!, []);
     expect(jobs).toHaveLength(4);
     expect(jobs.map((job) => job.text)).toEqual(["第一張", "第二張", "第三張", "第四張"]);
+  });
+
+  it("maps an AI pack plan to independent jobs and preserves each item", () => {
+    const items: StickerPlanItem[] = Array.from({ length: 8 }, (_, index) => ({
+      position: index + 1,
+      text: ["早安", "收到", "謝謝", "加油", "好累", "等等", "晚安", "太棒了"][index]!,
+      action: `第 ${index + 1} 個動作`,
+      emotion: "開心",
+      composition: "角色置中",
+      prompt: `兔子貼圖場景 ${index + 1}`,
+      sourceIndex: 0,
+    }));
+    const jobs = createPlannedStickerJobs(["rabbit"], "agent", items, "保持兔子外觀");
+    expect(jobs).toHaveLength(8);
+    expect(jobs.every((job) => job.source === "rabbit")).toBe(true);
+    expect(jobs.map((job) => job.position)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(jobs.map((job) => job.text)).toEqual(["早安", "收到", "謝謝", "加油", "好累", "等等", "晚安", "太棒了"]);
   });
 
   it("keeps successful cards and counts partial failures", () => {

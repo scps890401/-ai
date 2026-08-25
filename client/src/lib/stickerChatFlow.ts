@@ -1,12 +1,40 @@
 export type StickerChatIntent = "general" | "sticker" | "random" | "agent" | "manual" | "lottery" | "refine";
 export type StickerChatMode = "random" | "agent" | "manual";
 
+export type StickerPlanItem = {
+  position: number;
+  text: string;
+  action: string;
+  emotion: string;
+  composition: string;
+  prompt: string;
+  sourceIndex: number;
+};
+
+export type CharacterUpdate = {
+  species: string;
+  appearance: string;
+  clothing: string;
+  accessories: string;
+  styleAnchors: string;
+  preserve: string[];
+  negative: string[];
+};
+
 export type StickerChatPlan = {
   intent: StickerChatIntent;
+  projectAction: "chat" | "create" | "revise_plan" | "generate" | "resume";
   reply: string;
   shouldAskChoice: boolean;
+  needsClarification: boolean;
   readyToGenerate: boolean;
   mode: StickerChatMode | null;
+  packSize: 8 | 16 | 24 | 32 | 40;
+  language: string;
+  style: string;
+  characterUpdate: CharacterUpdate | null;
+  targetPositions: number[];
+  planItems: StickerPlanItem[];
   prompt: string;
   action: string;
   text: string;
@@ -26,12 +54,22 @@ export function normalizeStickerChatPlan(plan: Partial<StickerChatPlan>): Sticke
   const intent = plan.intent === "random" || plan.intent === "agent" || plan.intent === "manual" || plan.intent === "sticker" || plan.intent === "lottery" || plan.intent === "refine" ? plan.intent : "general";
   const useLottery = Boolean(plan.useLottery);
   const useLatestResult = Boolean(plan.useLatestResult);
+  const packSize = [8, 16, 24, 32, 40].includes(plan.packSize as number) ? plan.packSize as StickerChatPlan["packSize"] : 8;
+  const planItems = Array.isArray(plan.planItems) ? plan.planItems.filter((item): item is StickerPlanItem => Boolean(item && typeof item === "object" && Number.isInteger(item.position) && typeof item.text === "string" && typeof item.action === "string")).slice(0, packSize) : [];
   return {
     intent,
+    projectAction: plan.projectAction === "create" || plan.projectAction === "revise_plan" || plan.projectAction === "generate" || plan.projectAction === "resume" ? plan.projectAction : "chat",
     reply: String(plan.reply || "我可以幫你製作 LINE 貼圖。你想先隨機發想，還是描述角色與想做的內容？"),
     shouldAskChoice: Boolean(plan.shouldAskChoice),
-    readyToGenerate: Boolean(plan.readyToGenerate && (mode || useLottery || useLatestResult)),
+    needsClarification: Boolean(plan.needsClarification),
+    readyToGenerate: Boolean(plan.readyToGenerate && (mode || useLottery || useLatestResult || plan.projectAction === "resume")),
     mode,
+    packSize,
+    language: String(plan.language || "zh-Hant"),
+    style: String(plan.style || "").trim(),
+    characterUpdate: plan.characterUpdate && typeof plan.characterUpdate === "object" ? plan.characterUpdate as CharacterUpdate : null,
+    targetPositions: Array.isArray(plan.targetPositions) ? plan.targetPositions.filter((position): position is number => Number.isInteger(position) && position >= 1 && position <= 40).slice(0, 40) : [],
+    planItems,
     prompt: String(plan.prompt || "").trim(),
     action: String(plan.action || "").trim(),
     text: String(plan.text || "").trim(),
@@ -88,5 +126,7 @@ export function resolveStickerChatAction(plan: StickerChatPlan, currentPromptCou
     needsUpload: Boolean(draft && plan.readyToGenerate && uploadedCount === 0 && !plan.useLottery && !plan.useLatestResult),
     shouldDrawLottery: Boolean(plan.readyToGenerate && plan.useLottery),
     shouldRefineLatest: Boolean(plan.readyToGenerate && plan.useLatestResult),
+    shouldResume: Boolean(plan.readyToGenerate && plan.projectAction === "resume"),
+    targetPositions: plan.targetPositions,
   };
 }

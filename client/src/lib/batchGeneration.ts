@@ -1,5 +1,7 @@
 import type { StickerConcept } from "./stickerLanguage";
 
+import type { StickerPlanItem } from "./stickerChatFlow";
+
 export type BatchStickerJob = {
   source: string;
   action: string;
@@ -7,6 +9,8 @@ export type BatchStickerJob = {
   scenario: string;
   scenarioKey?: string;
   sourceIndex: number;
+  position?: number;
+  prompt?: string;
 };
 
 export type BatchStickerResult<T> = {
@@ -41,6 +45,28 @@ export function createBatchStickerJobs(
     const text = prompts[sourceIndex]?.trim() || prompt.trim() || "真棒";
     return { source, sourceIndex, action: `角色說「${text}」並做出自然、符合角色個性的反應`, text, scenario: "代理指定" };
   });
+}
+
+export function createPlannedStickerJobs(
+  sources: string[],
+  mode: "random" | "agent",
+  planItems: StickerPlanItem[],
+  fallbackPrompt: string,
+): BatchStickerJob[] {
+  if (!sources.length || !planItems.length) return [];
+  return planItems.map((item, index) => {
+    const sourceIndex = Math.min(Math.max(item.sourceIndex, 0), sources.length - 1);
+    return {
+      source: sources[sourceIndex]!,
+      sourceIndex,
+      position: item.position,
+      action: item.action,
+      text: item.text || item.action,
+      scenario: `${item.emotion}／${item.composition}`,
+      scenarioKey: `plan:${item.position}:${item.text}`,
+      prompt: item.prompt || fallbackPrompt,
+    };
+  }).filter((job) => mode === "random" || Boolean(job.text || job.prompt));
 }
 
 export function mergeBatchResults<T>(

@@ -40,6 +40,34 @@ describe("sticker chat router contracts", () => {
     expect(refine.useLatestResult).toBe(true);
   });
 
+  it("accepts a structured pack plan with character and target-position data", () => {
+    const plan = stickerChatPlanSchema.parse({
+      intent: "agent",
+      projectAction: "create",
+      reply: "我會先規劃 8 張，再逐張製作。",
+      shouldAskChoice: false,
+      needsClarification: false,
+      readyToGenerate: true,
+      mode: "agent",
+      packSize: 8,
+      language: "zh-Hant",
+      style: "溫暖手繪、白邊貼圖",
+      characterUpdate: { species: "兔子", appearance: "黑白毛色與長耳朵", clothing: "無", accessories: "粉紅牽繩", styleAnchors: "圓潤可愛", preserve: ["黑白臉部花紋"], negative: ["不要多出肢體"] },
+      targetPositions: [3],
+      planItems: [{ position: 1, text: "早安", action: "揮手", emotion: "開心", composition: "角色置中", prompt: "兔子揮手", sourceIndex: 0 }],
+      prompt: "保留兔子外觀製作可愛貼圖",
+      action: "揮手",
+      text: "早安",
+      creative: "溫暖手繪",
+      useLottery: false,
+      useLatestResult: false,
+    });
+    expect(plan.packSize).toBe(8);
+    expect(plan.characterUpdate?.species).toBe("兔子");
+    expect(plan.planItems[0]?.position).toBe(1);
+    expect(plan.targetPositions).toEqual([3]);
+  });
+
   it("accepts a complete ready-to-generate agent plan", () => {
     const plan = stickerChatPlanSchema.parse({
       intent: "agent",

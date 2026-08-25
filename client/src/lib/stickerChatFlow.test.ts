@@ -35,7 +35,7 @@ describe("sticker chat flow", () => {
   it("does not trigger generation before a mode and prompt are ready", () => {
     const plan = normalizeStickerChatPlan({ intent: "sticker", shouldAskChoice: true, readyToGenerate: false, reply: "你想隨機還是描述？" });
     expect(applyStickerChatPlan(plan, 1)).toBeNull();
-    expect(resolveStickerChatAction(plan, 1, 1)).toEqual({ draft: null, shouldGenerate: false, needsUpload: false, shouldDrawLottery: false, shouldRefineLatest: false });
+    expect(resolveStickerChatAction(plan, 1, 1)).toEqual({ draft: null, shouldGenerate: false, needsUpload: false, shouldDrawLottery: false, shouldRefineLatest: false, shouldResume: false, targetPositions: [] });
   });
 
   it("supports lottery and latest-result refinement decisions", () => {

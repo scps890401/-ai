@@ -239,3 +239,27 @@ body { background:var(--paper); color:var(--ink); }
 .chat-learning-control { border:1px solid #D5B28E; color:#8C5B39; background:#FFF9F0; padding:6px 9px; font-size:10px; cursor:pointer; }
 .chat-learning-control:hover { background:#F3E4D3; }
 @media (max-width:760px){ .chat-learning-controls { width:100%; flex-direction:row; align-items:center; justify-content:space-between; } .chat-learning-control { white-space:nowrap; } }
+
+/* Compact AI plan and character consistency status */
+.ai-plan-summary { display:flex; align-items:center; gap:7px; margin-top:8px; padding:8px 10px; border:1px solid #E8D9C8; border-radius:10px; background:#FBF4EA; color:#70472F; font-size:10px; }
+.ai-plan-summary-dot { width:7px; height:7px; flex:none; border-radius:50%; background:#B46D3C; box-shadow:0 0 0 3px rgba(180,109,60,.12); }
+.ai-plan-summary small { margin-left:auto; color:#A28A76; font-size:9px; text-align:right; }
+@media (max-width:760px){ .ai-plan-summary { align-items:flex-start; flex-wrap:wrap; gap:6px; }.ai-plan-summary small { width:100%; margin-left:14px; text-align:left; } }
+
+
+/* Per-sticker job rail: compact enough for mobile, explicit enough for recovery. */
+.studio-job-summary { margin-top:9px; padding:9px 10px 10px; border:1px solid #E8D9C8; border-radius:10px; background:#FFF9F0; color:#70472F; }
+.studio-job-summary-head, .studio-job-summary-counts { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.studio-job-summary-head { font-size:10px; }
+.studio-job-summary-head b { font-family:'Noto Serif TC',serif; font-size:11px; }
+.studio-job-summary-head span { color:#8B7666; font:600 10px 'Space Grotesk'; }
+.studio-job-summary-counts { margin-top:5px; color:#A28A76; font-size:9px; }
+.studio-job-summary-counts .has-failures { color:#A3582E; font-weight:700; }
+.studio-job-summary-counts .no-failures { color:#6F8963; }
+.studio-job-dots { display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:8px; }
+.studio-job-dot { display:grid; place-items:center; width:22px; height:22px; border:1px solid #DCCBBB; border-radius:50%; background:#F0E7DA; color:#8B7666; font:600 9px 'Space Grotesk'; }
+.studio-job-dot.completed { border-color:#A9BF9C; background:#DCE9D6; color:#54734A; }
+.studio-job-dot.generating, .studio-job-dot.retrying { border-color:#D7AA6D; background:#F7E1B9; color:#9A5A21; }
+.studio-job-dot.failed { border-color:#D28D7D; background:#F4D8D0; color:#9C4837; }
+.studio-job-dots > small { color:#A28A76; font-size:9px; }
+@media (max-width:760px){.studio-job-summary{padding:9px}.studio-job-dot{width:24px;height:24px}.studio-job-summary-counts{align-items:flex-start;flex-direction:column;gap:3px}}

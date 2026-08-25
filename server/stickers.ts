@@ -18,11 +18,11 @@ export const randomStickerInput = z.object({
 });
 
 export function buildLotteryStickerPrompt(input: z.infer<typeof lotteryStickerInput>) {
-  return `Create one original LINE sticker with no reference photo. Main character: ${input.character}. Spoken text in Traditional Chinese: 「${input.text}」. Pose and action: ${input.action}. Visual idea: ${input.creative}. Warm hand-drawn illustration, clear expressive silhouette, readable text, balanced sticker composition, transparent background, no watermark, no brand logos, no extra characters, no unrelated objects.`;
+  return `Create one original LINE sticker with no reference photo. Main character: ${input.character}. Spoken text in Traditional Chinese: 「${input.text}」. Pose and action: ${input.action}. Visual idea: ${input.creative}. Warm hand-drawn illustration, clear expressive silhouette, balanced sticker composition, leave a clean uncluttered area for the app to typeset Traditional Chinese, do not render words or letters inside the image, transparent background, no watermark, no brand logos, no extra characters, no unrelated objects.`;
 }
 
 export function buildRandomStickerPrompt(prompt: string) {
-  return `Create a LINE sticker based on the exact character shown in the provided reference photo. Preserve the character's identity, species, colors, markings, face, proportions, and recognizable appearance. Do not replace the character with a generic illustration and do not create a text-only variation. Show the same character naturally performing this action or expression: ${prompt}. Clean sticker composition, expressive pose, transparent background, no extra characters, no watermark, no unrelated objects.`;
+  return `Create a LINE sticker based on the exact character shown in the provided reference photo. Preserve the character's identity, species, colors, markings, face, proportions, and recognizable appearance. Do not replace the character with a generic illustration and do not create a text-only variation. Show the same character naturally performing this action or expression: ${prompt}. Clean sticker composition, expressive pose, leave a clean uncluttered area for the app to typeset Traditional Chinese, do not render words or letters inside the image, transparent background, no extra characters, no watermark, no unrelated objects.`;
 }
 
 type ImageGenerator = typeof generateImage;

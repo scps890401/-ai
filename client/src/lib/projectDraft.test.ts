@@ -38,6 +38,7 @@ describe("projectDraft", () => {
     const draft = serializeProjectSnapshot(baseSnapshot);
     expect(JSON.parse(draft)).toMatchObject({ prompt: "做一組兔子貼圖", packSize: 8 });
     expect(projectSnapshotStatus(baseSnapshot)).toBe("draft");
+    expect(projectSnapshotStatus({ ...baseSnapshot, jobStates: [{ position: 5, status: "failed", errorMessage: "usage exhausted" }] })).toBe("paused");
     expect(projectSnapshotStatus({ ...baseSnapshot, generated: Array.from({ length: 8 }, (_, index) => ({ src: String(index) })) })).toBe("completed");
   });
 

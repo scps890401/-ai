@@ -1,11 +1,13 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { normalizeImageUpload } from "./heic";
 import {
   createProject,
   createProjectAsset,
   getProjectForActor,
   listProjectCheckpoints,
+  listProjectJobs,
   listProjectsForUser,
   parseProjectState,
   saveProjectSnapshot,
@@ -79,7 +81,15 @@ export const projectRouter = router({
     if (!match || match[1] !== input.mimeType) throw new TRPCError({ code: "BAD_REQUEST", message: "素材格式無效，請重新選擇圖片。" });
     const data = Buffer.from(match[2], "base64");
     if (data.byteLength > 8 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "單張素材不可超過 8 MB。" });
-    const asset = await createProjectAsset({ projectId: project.id, kind: input.kind, position: input.position, fileName: input.fileName, mimeType: input.mimeType, data });
+    let normalized;
+    try {
+      normalized = await normalizeImageUpload({ fileName: input.fileName, mimeType: input.mimeType, data });
+    } catch (error) {
+      console.error("HEIC conversion failed", error);
+      throw new TRPCError({ code: "BAD_REQUEST", message: "HEIC/HEIF 轉 PNG 失敗，請改用 JPG 或 PNG 再試一次。" });
+    }
+    if (normalized.data.byteLength > 8 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "轉換後的圖片不可超過 8 MB。" });
+    const asset = await createProjectAsset({ projectId: project.id, kind: input.kind, position: input.position, fileName: normalized.fileName, mimeType: normalized.mimeType, data: normalized.data });
     return { asset };
   }),
 
@@ -87,11 +97,15 @@ export const projectRouter = router({
     const project = await getProjectForActor(input.projectId, actorFromContext(ctx, input.guestKey));
     if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個專案，或你沒有存取權限。" });
     const state = parseProjectState(project.stateJson);
+    const jobs = await listProjectJobs(project.id);
+    const nextJob = jobs.find((job) => job.status !== "completed");
     return {
       project,
       state,
+      jobs,
+      nextPosition: nextJob?.position ?? null,
       checkpoints: await listProjectCheckpoints(project.id, 20),
-      resumeHint: project.status === "paused" ? "輸入「繼續製作」即可從未完成項目繼續。" : null,
+      resumeHint: project.status === "paused" || nextJob ? `輸入「繼續製作」即可從第 ${nextJob?.position ?? 1} 張未完成貼圖繼續。` : null,
     };
   }),
 });

@@ -4,14 +4,31 @@ export type RandomStickerCard = {
   color: string;
   source?: string;
   action?: string;
+  assetId?: number;
 };
 
-export function addRandomSticker(current: RandomStickerCard[], result: { url: string; label: string; source: string; action: string }, packSize: number) {
-  return [{ src: result.url, label: result.label, color: "gold", source: result.source, action: result.action }, ...current].slice(0, packSize);
+export type StickerJobState = { position: number; status: string; errorMessage?: string };
+
+export function updateStickerJobState(current: StickerJobState[], position: number, status: string, errorMessage?: string) {
+  const next: StickerJobState = { position, status, ...(errorMessage ? { errorMessage } : {}) };
+  const found = current.some((job) => job.position === position);
+  return found ? current.map((job) => job.position === position ? next : job) : [...current, next];
 }
 
-export function replaceStickerAt(current: RandomStickerCard[], index: number, result: { url: string }) {
-  return current.map((sticker, stickerIndex) => stickerIndex === index ? { ...sticker, src: result.url } : sticker);
+export function addRandomSticker(current: RandomStickerCard[], result: { url: string; label: string; source: string; action: string; assetId?: number }, packSize: number) {
+  return [{ src: result.url, label: result.label, color: "gold", source: result.source, action: result.action, ...(result.assetId !== undefined ? { assetId: result.assetId } : {}) }, ...current].slice(0, packSize);
+}
+
+export function replaceStickerAt(current: RandomStickerCard[], index: number, result: { url: string; label?: string; action?: string; source?: string; color?: string; assetId?: number | null }) {
+  return current.map((sticker, stickerIndex) => stickerIndex === index ? {
+    ...sticker,
+    src: result.url,
+    ...(result.label !== undefined ? { label: result.label } : {}),
+    ...(result.action !== undefined ? { action: result.action } : {}),
+    ...(result.source !== undefined ? { source: result.source } : {}),
+    ...(result.color !== undefined ? { color: result.color } : {}),
+    ...(result.assetId !== undefined ? { assetId: result.assetId ?? undefined } : {}),
+  } : sticker);
 }
 
 export function randomGenerationError(sourceCount = 1, error?: unknown) {

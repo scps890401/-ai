@@ -34,7 +34,11 @@ export type ProjectSnapshot = {
   mode: string;
   prompt: string;
   uploaded: string[];
+  sourceAssetIds: number[];
   imagePrompts: string[];
+  planItems: unknown[];
+  characterProfile: unknown;
+  jobStates: Array<{ position: number; status: string; errorMessage?: string }> ;
   generated: unknown[];
   chatMessages: unknown[];
   chatAttachmentNames: string[];
@@ -62,6 +66,10 @@ export function serializeProjectSnapshot(snapshot: ProjectSnapshot): string {
   });
 }
 
-export function projectSnapshotStatus(snapshot: ProjectSnapshot): "draft" | "generating" | "completed" {
-  return snapshot.generated.length >= snapshot.packSize ? "completed" : "draft";
+export function projectSnapshotStatus(snapshot: ProjectSnapshot): "draft" | "generating" | "paused" | "completed" {
+  if (snapshot.generated.length >= snapshot.packSize) return "completed";
+  const jobStates = Array.isArray(snapshot.jobStates) ? snapshot.jobStates : [];
+  const hasQuotaFailure = jobStates.some((job) => job.status === "failed" && /usage exhausted|failed_precondition|quota|rate limit|insufficient/i.test(job.errorMessage ?? ""));
+  if (hasQuotaFailure) return "paused";
+  return jobStates.some((job) => job.status === "generating" || job.status === "retrying") ? "generating" : "draft";
 }

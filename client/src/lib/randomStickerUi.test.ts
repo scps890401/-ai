@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addRandomSticker, randomGenerationError, replaceStickerAt } from "./randomStickerUi";
+import { addRandomSticker, randomGenerationError, replaceStickerAt, updateStickerJobState } from "./randomStickerUi";
 import { generateWithRetry, regenerateSingleSticker } from "./retryRandomSticker";
 
 describe("random sticker UI flow", () => {
@@ -19,6 +19,28 @@ describe("random sticker UI flow", () => {
     expect(next[0]?.src).toBe("new.png");
     expect(next.find((sticker) => sticker.src === "6.png")).toBeDefined();
     expect(next.find((sticker) => sticker.src === "7.png")).toBeUndefined();
+  });
+
+  it("updates only the selected sticker and its metadata after a targeted revision", () => {
+    const current = [
+      { src: "first.png", label: "兔子／早安", color: "gold", source: "rabbit.jpg", action: "揮手" },
+      { src: "second.png", label: "兔子／收到", color: "gold", source: "rabbit.jpg", action: "點頭" },
+      { src: "third.png", label: "兔子／晚安", color: "gold", source: "rabbit.jpg", action: "睡覺" },
+    ];
+    const next = replaceStickerAt(current, 2, { url: "third-revised.png", label: "兔子／早安", action: "開心揮手", assetId: 303 });
+    expect(next[0]).toEqual(current[0]);
+    expect(next[1]).toEqual(current[1]);
+    expect(next[2]).toMatchObject({ src: "third-revised.png", label: "兔子／早安", action: "開心揮手", source: "rabbit.jpg", assetId: 303 });
+  });
+
+  it("tracks retrying, completed, and failed job state for one position", () => {
+    const initial = [{ position: 1, status: "completed" }, { position: 2, status: "failed", errorMessage: "quota" }];
+    const retrying = updateStickerJobState(initial, 2, "retrying");
+    const completed = updateStickerJobState(retrying, 2, "completed");
+    const failed = updateStickerJobState(completed, 3, "failed", "usage exhausted");
+    expect(retrying).toEqual([{ position: 1, status: "completed" }, { position: 2, status: "retrying" }]);
+    expect(completed).toEqual([{ position: 1, status: "completed" }, { position: 2, status: "completed" }]);
+    expect(failed[2]).toEqual({ position: 3, status: "failed", errorMessage: "usage exhausted" });
   });
 
   it("replaces only the selected sticker after a single-card retry", () => {
