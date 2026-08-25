@@ -1,5 +1,5 @@
 /* Design philosophy: editorial workbench meets Japanese stationery. Warm paper, ink-black hierarchy, vermilion proof marks, asymmetric creator-first layout. */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AIChatBox, type Message as ChatMessage } from "@/components/AIChatBox";
 import { useAuth } from "@/_core/hooks/useAuth";
 import JSZip from "jszip";
@@ -19,6 +19,7 @@ import { buildTextRevisionPrompt, isExplicitStickerBrief, isNoIdeaRequest, isRev
 import { resolveLotteryChatPresentation } from "@/lib/lotteryChatUi";
 import { buildLearningChatState } from "@/lib/learningChatUi";
 import { readAnonymousLearning, rememberAnonymousLearning, type AnonymousLearningIdea } from "@/lib/anonymousLearning";
+import { getOrCreateGuestKey, projectSnapshotStatus, readProjectId, serializeProjectSnapshot, writeProjectId, type ProjectSnapshot } from "@/lib/projectDraft";
 
 type Mode = "random" | "agent" | "manual";
 
@@ -117,6 +118,15 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number) {
   ]);
 }
 
+async function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Image encoding failed"));
+    reader.onerror = () => reject(reader.error ?? new Error("Image encoding failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function imageInputFromSource(src: string) {
   const response = await fetch(src);
   if (!response.ok) throw new Error("Unable to read source image");
@@ -139,6 +149,11 @@ const starterStickers: RandomStickerCard[] = [
 
 export default function Home() {
   const { user } = useAuth();
+  const [guestKey] = useState(() => getOrCreateGuestKey(typeof window === "undefined" ? null : window.localStorage));
+  const [projectId, setProjectId] = useState<number | null>(() => readProjectId(typeof window === "undefined" ? null : window.localStorage));
+  const projectIdRef = useRef<number | null>(projectId);
+  const projectCreationRef = useRef<Promise<number | null> | null>(null);
+  const hasHydratedProject = useRef(false);
   const learnedIdeasQuery = trpc.learning.list.useQuery(undefined, { enabled: Boolean(user) });
   const saveLearnedIdea = trpc.learning.save.useMutation({ onSuccess: () => { void learnedIdeasQuery.refetch(); } });
   const [learningEnabled, setLearningEnabled] = useState(true);
@@ -183,6 +198,11 @@ export default function Home() {
   const randomGenerate = trpc.stickers.randomGenerate.useMutation();
   const lotteryGenerate = trpc.stickers.lotteryGenerate.useMutation();
   const stickerChatPlan = trpc.stickerChat.plan.useMutation();
+  const createProject = trpc.projects.create.useMutation();
+  const saveProjectSnapshot = trpc.projects.saveSnapshot.useMutation();
+  const uploadProjectAsset = trpc.projects.uploadAsset.useMutation();
+  const projectAccess = useMemo(() => projectId ? { projectId, guestKey: guestKey ?? undefined } : undefined, [guestKey, projectId]);
+  const projectResume = trpc.projects.resume.useQuery(projectAccess ?? { projectId: 0, guestKey: guestKey ?? undefined }, { enabled: Boolean(projectAccess) });
   const feedbackSubmit = trpc.feedback.submit.useMutation({ onSuccess: (result) => { setFeedbackMessage(""); setFeedbackContact(""); void publicFeedback.refetch(); toast.success(result.notified ? "回饋已送出" : "回饋已保存", { description: result.notified ? "謝謝你的建議，我會收到通知。" : "通知服務暫時忙碌，但內容已保存。" }); }, onError: (error) => { toast.error("回饋送出失敗", { description: error.message || "請稍後再試。" }); } });
   const publicFeedback = trpc.feedback.publicList.useQuery({ sort: feedbackSort });
   const feedbackVote = trpc.feedback.vote.useMutation({ onSuccess: (result) => { void publicFeedback.refetch(); if (!result.added) toast.info("你已經支持過這則建議了"); }, onError: (error) => { toast.error("+1 失敗", { description: error.message || "請稍後再試。" }); } });
@@ -195,6 +215,87 @@ export default function Home() {
   const completionPercent = Math.min(100, Math.round((generated.length / packSize) * 100));
   const remainingStickers = Math.max(0, packSize - generated.length);
   const lotteryChatPresentation = resolveLotteryChatPresentation({ visible: chatLotteryVisible, hasConcept: Boolean(lotteryConcept), hasImage: Boolean(lotteryImageUrl) });
+  const projectPackSize = packSize === 16 ? 16 : packSize === 24 ? 24 : packSize === 32 ? 32 : packSize === 40 ? 40 : 8;
+  const projectSnapshot = useMemo<ProjectSnapshot>(() => ({
+    mode,
+    prompt,
+    uploaded,
+    imagePrompts,
+    generated,
+    chatMessages,
+    chatAttachmentNames,
+    latestGeneratedLabel,
+    lotteryConcept,
+    lotteryImageUrl,
+    packSize: projectPackSize,
+    learningEnabled,
+  }), [chatAttachmentNames, chatMessages, generated, imagePrompts, learningEnabled, latestGeneratedLabel, lotteryConcept, lotteryImageUrl, mode, projectPackSize, prompt, uploaded]);
+
+  async function ensureProjectId() {
+    if (projectIdRef.current) return projectIdRef.current;
+    if (projectCreationRef.current) return projectCreationRef.current;
+    if (!guestKey && !user) return null;
+    const creation = (async () => {
+      const result = await createProject.mutateAsync({
+        name: "我的 LINE 貼圖草稿",
+        packSize: projectPackSize,
+        stateJson: serializeProjectSnapshot(projectSnapshot),
+        guestKey: guestKey ?? undefined,
+      });
+      projectIdRef.current = result.projectId;
+      setProjectId(result.projectId);
+      writeProjectId(typeof window === "undefined" ? null : window.localStorage, result.projectId);
+      return result.projectId;
+    })();
+    projectCreationRef.current = creation;
+    try {
+      return await creation;
+    } finally {
+      projectCreationRef.current = null;
+    }
+  }
+
+  async function persistProject(reason = "autosave", status = projectSnapshotStatus(projectSnapshot)) {
+    const id = await ensureProjectId();
+    if (!id) return;
+    await saveProjectSnapshot.mutateAsync({
+      projectId: id,
+      guestKey: guestKey ?? undefined,
+      packSize: projectPackSize,
+      stateJson: serializeProjectSnapshot(projectSnapshot),
+      status,
+      reason,
+    });
+  }
+
+  useEffect(() => {
+    const state = projectResume.data?.state as Partial<ProjectSnapshot> | undefined;
+    if (!state || hasHydratedProject.current) return;
+    if (state.mode === "random" || state.mode === "agent" || state.mode === "manual") setMode(state.mode);
+    if (typeof state.prompt === "string") setPrompt(state.prompt);
+    if (Array.isArray(state.uploaded)) setUploaded(state.uploaded.filter((item): item is string => typeof item === "string"));
+    if (Array.isArray(state.imagePrompts)) setImagePrompts(state.imagePrompts.filter((item): item is string => typeof item === "string"));
+    if (Array.isArray(state.generated)) setGenerated(state.generated as RandomStickerCard[]);
+    if (Array.isArray(state.chatMessages)) setChatMessages(state.chatMessages as ChatMessage[]);
+    if (Array.isArray(state.chatAttachmentNames)) setChatAttachmentNames(state.chatAttachmentNames.filter((item): item is string => typeof item === "string"));
+    if (typeof state.latestGeneratedLabel === "string") setLatestGeneratedLabel(state.latestGeneratedLabel);
+    if (typeof state.lotteryImageUrl === "string") setLotteryImageUrl(state.lotteryImageUrl);
+    if (state.lotteryConcept && typeof state.lotteryConcept === "object") {
+      setLotteryConcept(state.lotteryConcept as LotteryConcept);
+      setChatLotteryVisible(true);
+    }
+    if (typeof state.packSize === "number" && [8, 16, 24, 32, 40].includes(state.packSize)) setPackSize(state.packSize);
+    if (typeof state.learningEnabled === "boolean") setLearningEnabled(state.learningEnabled);
+    hasHydratedProject.current = true;
+  }, [projectResume.data]);
+
+  useEffect(() => {
+    if (projectId && (!projectResume.data || projectResume.isLoading || projectResume.isError || !hasHydratedProject.current)) return;
+    const timer = window.setTimeout(() => {
+      void persistProject("autosave").catch((error) => console.warn("Project autosave failed", error));
+    }, 1600);
+    return () => window.clearTimeout(timer);
+  }, [projectId, projectResume.data, projectResume.isError, projectResume.isLoading, projectSnapshot]);
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -309,15 +410,36 @@ export default function Home() {
     inspectImage(src, (result) => setAssetChecks((current) => ({ ...current, [src]: result })));
   }
 
-  function onFiles(files: FileList | null) {
+  async function onFiles(files: FileList | null) {
     if (!files?.length) return;
     const selected = Array.from(files).slice(0, 4);
-    const next = selected.map((file) => URL.createObjectURL(file));
-    setUploaded(next);
+    const oversized = selected.find((file) => file.size > 8 * 1024 * 1024);
+    if (oversized) {
+      toast.error("素材太大", { description: `「${oversized.name}」超過 8 MB，請先壓縮或選擇較小的圖片。` });
+      return;
+    }
+    const localPreviews = selected.map((file) => URL.createObjectURL(file));
+    setUploaded(localPreviews);
     setChatAttachmentNames(selected.map((file) => file.name));
-    setImagePrompts(next.map((_, index) => imagePrompts[index] ?? (mode === "agent" ? prompt : "")));
-    next.forEach(inspectAsset);
-    toast.success(`已放入 ${next.length} 張素材`, { description: "照片已同步到聊天框與製作工作台。" });
+    setImagePrompts(localPreviews.map((_, index) => imagePrompts[index] ?? (mode === "agent" ? prompt : "")));
+    localPreviews.forEach(inspectAsset);
+    toast.success(`已放入 ${selected.length} 張素材`, { description: "照片已同步到聊天框，正在保存到此專案。" });
+    try {
+      const id = await ensureProjectId();
+      if (!id) return;
+      const stored = await Promise.all(selected.map(async (file, index) => {
+        const dataUrl = await fileToDataUrl(file);
+        const mimeType = file.type || (file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif") ? "image/heic" : "application/octet-stream");
+        const result = await uploadProjectAsset.mutateAsync({ projectId: id, guestKey: guestKey ?? undefined, kind: "source", position: index, fileName: file.name, mimeType, dataUrl });
+        return result.asset.url;
+      }));
+      setUploaded(stored);
+      stored.forEach(inspectAsset);
+      toast.success("素材已保存", { description: "重新開啟這個瀏覽器專案時，原始圖片仍可繼續使用。" });
+    } catch (error) {
+      console.warn("Project asset upload failed", error);
+      toast.warning("素材暫存在本頁", { description: "目前無法保存到專案；本頁仍可繼續製作，但重新整理後需重新上傳。" });
+    }
   }
 
   function removeChatAttachment(index: number) {
@@ -557,7 +679,7 @@ export default function Home() {
       </aside>
 
       <main className="workbench">
-        <header className="topbar"><div className="breadcrumb"><span>工作台</span><ChevronRight size={13} /><b>新貼圖草稿</b></div><div className="top-actions"><span className="status-dot" /> 草稿自動儲存 <button className="avatar">S</button></div></header>
+        <header className="topbar"><div className="breadcrumb"><span>工作台</span><ChevronRight size={13} /><b>我的 LINE 貼圖草稿</b></div><div className="top-actions"><span className="status-dot" /> {projectResume.isFetching ? "正在載入草稿" : saveProjectSnapshot.isPending || createProject.isPending ? "正在保存" : "草稿已自動保存"} <button className="save-project-button" onClick={() => void persistProject("manual-save")} disabled={saveProjectSnapshot.isPending || createProject.isPending}>立即保存</button><button className="avatar">S</button></div></header>
         <section className="hero-strip">
           <div className="hero-copy"><div className="eyebrow"><span className="red-line" /> STICKER EDITOR / 001</div><h1>製作屬於你的<em>貼圖。</em></h1><p>從一張照片開始，把角色、日常對話與你的靈感，做成可以分享的 LINE 貼圖。</p><div className="hero-meta"><span>↳ 三種製作方式</span><span>↳ 即時預覽</span><span>↳ 可直接匯出</span></div></div>
           <div className="hero-image"><img src={asset.hero} alt="兔子、狗狗與老鼠的紙張拼貼" /><div className="hero-stamp">今日<br /><strong>有靈感</strong></div></div>
