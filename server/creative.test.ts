@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCutoutPrompt, buildFallbackProjectPlan, buildRefinementPrompt, buildStickerPrompt } from "./routers";
+import { buildCharacterSamplePrompt, buildCharacterVariationPrompt, buildCutoutPrompt, buildFallbackProjectPlan, buildRefinementPrompt, buildStickerPrompt } from "./routers";
 
 describe("creative prompt builders", () => {
   it("keeps character identity and user direction in the generation prompt", () => {
@@ -29,5 +29,21 @@ describe("creative prompt builders", () => {
     expect(plan.scripts).toHaveLength(4);
     expect(plan.scripts.map((item) => item.position)).toEqual([1, 2, 3, 4]);
     expect(plan.scripts.every((item) => item.phrase.length > 0 && item.scene.length > 0)).toBe(true);
+  });
+
+  it("creates a text-only character sample prompt from the three minimal fields", () => {
+    const prompt = buildCharacterSamplePrompt({ characterNeed: "戴圓眼鏡的橘貓店長", action: "揮手", text: "歡迎光臨" });
+    expect(prompt).toContain("戴圓眼鏡的橘貓店長");
+    expect(prompt).toContain("揮手");
+    expect(prompt).toContain("歡迎光臨");
+    expect(prompt).toContain("transparent background");
+  });
+
+  it("uses an approved sample as the identity contract for later variations", () => {
+    const prompt = buildCharacterVariationPrompt({ characterNeed: "戴圓眼鏡的橘貓店長", action: "端咖啡", text: "請慢用" });
+    expect(prompt).toContain("exact approved character reference");
+    expect(prompt).toContain("Preserve the same character identity");
+    expect(prompt).toContain("端咖啡");
+    expect(prompt).toContain("請慢用");
   });
 });

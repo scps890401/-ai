@@ -83,6 +83,27 @@ export function buildStickerPrompt(input: { prompt?: string; style: string; emot
   ].filter(Boolean).join(" ");
 }
 
+export function buildCharacterSamplePrompt(input: { characterNeed: string; action: string; text: string }) {
+  return [
+    "Create a single polished messaging-sticker character sample from this written brief.",
+    `Character requirement: ${input.characterNeed}.`,
+    `Required action or pose: ${input.action}.`,
+    `Display this Traditional Chinese sticker text exactly and clearly: ${input.text}.`,
+    "Create one memorable, consistent character with a clean expressive pose, generous transparent background, no watermark, no extra characters, and no decorative frame.",
+  ].join(" ");
+}
+
+export function buildCharacterVariationPrompt(input: { characterNeed: string; action: string; text: string }) {
+  return [
+    "Create a new messaging sticker by using the supplied image as the exact approved character reference.",
+    "Preserve the same character identity, silhouette, facial features, colors, outfit, illustration style, proportions, and recognizable details. Do not create a different character.",
+    `Original character requirement: ${input.characterNeed}.`,
+    `New required action or pose: ${input.action}.`,
+    `Display this Traditional Chinese sticker text exactly and clearly: ${input.text}.`,
+    "One subject only, transparent background, clean edges, no watermark, no unrelated objects, and no decorative frame.",
+  ].join(" ");
+}
+
 export function buildCutoutPrompt() { return "Remove the background from the supplied character photo using semantic subject understanding. Preserve every part of the character, including pale or white areas, fur, whiskers, ears, hands and accessories. Return the same character isolated on a transparent background, with clean edges and no new objects."; }
 export function buildRefinementPrompt(instruction: string, plan: string) { return ["Edit the supplied sticker image while preserving the original character identity and overall composition.", `Apply this requested change: ${instruction}.`, `Use this concise visual plan: ${plan}.`, "Keep the result as a polished messaging sticker with clean edges, readable Traditional Chinese text when relevant, no watermark and no unrelated changes."].join(" "); }
 
@@ -134,6 +155,8 @@ export const appRouter = router({
     prepareReference: publicProcedure.input(z.object({ photoDataUrl: z.string().min(32), fileName: z.string().min(1) })).mutation(async ({ input }) => { const parsed = await resolveImageRef(input.photoDataUrl); if (!parsed.b64Json) throw new Error("參考照片格式無法讀取"); const saved = await normalizeReference(parsed.b64Json, parsed.mimeType); return { url: saved.url, fileName: input.fileName, mimeType: "image/jpeg" }; }),
   }),
   creative: router({
+    generateSample: publicProcedure.input(z.object({ characterNeed: z.string().min(2).max(800), action: z.string().min(1).max(160), text: z.string().min(1).max(80) })).mutation(async ({ input }) => { const result = await generateImage({ prompt: buildCharacterSamplePrompt(input), quality: "medium" }); const stored = await storeGeneratedResult(result); return { ...stored, mode: "sample" as const }; }),
+    generateVariation: publicProcedure.input(z.object({ sampleImageUrl: z.string().min(1), characterNeed: z.string().min(2).max(800), action: z.string().min(1).max(160), text: z.string().min(1).max(80) })).mutation(async ({ input }) => { const reference = await resolveImageRef(input.sampleImageUrl); const result = await generateImage({ prompt: buildCharacterVariationPrompt(input), originalImages: [reference], quality: "medium" }); const stored = await storeGeneratedResult(result); return { ...stored, mode: "variation" as const }; }),
     generate: publicProcedure.input(z.object({ photoDataUrl: z.string().min(32), style: z.string().min(1).max(80), emotion: z.string().min(1).max(80), prompt: z.string().max(500).optional(), characterProfile: z.string().max(2000).optional(), phrase: z.string().max(160).optional(), scene: z.string().max(300).optional(), referenceUrls: z.array(z.string()).max(10).optional() })).mutation(async ({ input }: { input: GenerateInput }) => { const refs = input.referenceUrls?.length ? await Promise.all(input.referenceUrls.map((url) => resolveImageRef(url))) : [await resolveImageRef(input.photoDataUrl)]; const result = await generateImage({ prompt: buildStickerPrompt(input), originalImages: refs, quality: "medium" }); const stored = await storeGeneratedResult(result); return { ...stored, mode: "generate" as const }; }),
     generateBatch: publicProcedure.input(z.object({ projectKey: z.string().optional(), photoDataUrl: z.string().min(32), referenceUrls: z.array(z.string()).max(10).optional(), style: z.string().min(1), characterProfile: z.string().max(2000).optional(), items: z.array(scriptSchema).min(1).max(40) })).mutation(async ({ input }) => { const refs = input.referenceUrls?.length ? await Promise.all(input.referenceUrls.map((url) => resolveImageRef(url))) : [await resolveImageRef(input.photoDataUrl)]; const project = input.projectKey ? await getStickerProject(input.projectKey) : undefined; const scriptRows = new Map((project?.scripts ?? []).map((script) => [script.position, script])); const results = []; for (let index = 0; index < input.items.length; index += 2) { const chunk = input.items.slice(index, index + 2); const generated = await Promise.all(chunk.map((item) => generateStickerOne(refs, input, item))); results.push(...generated); await Promise.all(generated.map((item) => { const row = scriptRows.get(item.position); if (!row) return undefined; return updateStickerScript({ id: row.id, status: item.error ? "error" : "ready", resultUrl: item.url || null, errorMessage: item.error || null, qualityReport: item.quality ? JSON.stringify(item.quality) : null }); })); } return results; }),
     removeBackground: publicProcedure.input(z.object({ photoDataUrl: z.string().min(32) })).mutation(async ({ input }) => { const original = await resolveImageRef(input.photoDataUrl); const result = await generateImage({ prompt: buildCutoutPrompt(), originalImages: [original], quality: "high" }); if (!result.url) throw new Error("AI 沒有回傳去背圖片，請稍後重試"); const stored = await storeGeneratedResult(result); return { url: stored.url, mode: "cutout" as const, hasAlpha: stored.hasAlpha }; }),
