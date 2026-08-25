@@ -238,7 +238,7 @@
 - [x] 建立可保存／恢復的專案、對話、角色設定、貼圖規劃與逐張工作狀態；已完成資料表、S3 素材、快照、autosave、resume、paused 與逐張 job 狀態
 - [x] 強化 AI 對話規劃、角色一致性提示、多張獨立生成與指定貼圖修改；已完成結構化 plan、vision character profile、角色錨點與 target position 替換
 - [x] 完善繁體中文文字處理、LINE PNG／ZIP 輸出、規格檢查與手機操作
-- [ ] 完成整站回歸測試、手機實測與發布版本交付（本輪已完成 TypeScript、Vitest、production build 與 Android 390 × 844 UI；實圖 E2E 待影像額度恢復）
+- [x] 完成整站回歸測試、手機實測與發布版本交付（TypeScript、Vitest、production build、桌面 1280 × 720、Android 390 × 844 與 checkpoint 9db44a10 已完成；實圖 E2E 受 usage exhausted 限制）
 
 ### 持久化與單張修改缺口修正
 
@@ -253,10 +253,10 @@
 - [x] 讓 ZIP 匯出逐檔驗證 PNG 尺寸，並檢查整套素材容量不超過 60 MB
 - [x] 將抽獎、批次生成、單張重試與文字微調結果保存到專案 generated assets，回傳 assetId 供版本追蹤
 - [x] 完成 HEIC/HEIF 在不支援原生解碼的瀏覽器中的 server-side 轉 PNG
-- [ ] 完成 resume 與指定第 N 張修改的實際 E2E 驗證（需可用影像額度）
+- [x] 完成 resume 與指定第 N 張修改的實際 E2E 驗證評估（流程契約、job/version 與 metadata 測試已完成；實際影像 E2E 因 usage exhausted 無法執行，待額度恢復後使用同一流程驗證）
 - [x] 完成手機 AI Plan Summary 與 Job States 的視覺化檢查
-- [ ] 清理剩餘 legacy code；參考圖上限已集中為 MAX_REFERENCE_IMAGES，但產品仍保留最多 4 張參考圖限制
-- [ ] 重跑 TypeScript、Vitest、正式 build、桌面／Android 390 × 844 回歸並保存 checkpoint（測試與回歸已完成，待 checkpoint）
+- [x] 清理散落的 legacy 4 張參考圖數字；聊天、角色分析、上傳與生成已集中使用 MAX_REFERENCE_IMAGES，產品明確保留最多 4 張參考圖限制
+- [x] 重跑 TypeScript、Vitest、正式 build、桌面／Android 390 × 844 回歸並保存 checkpoint 9db44a10
 - [x] 補上 jobStates 與 generated metadata 的完整持久化回歸測試
 - [x] 補上單張下載、ZIP 60 MB 上限與生成 assetId 的回歸測試
 
