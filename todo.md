@@ -147,3 +147,4 @@
 - [x] 建立 `PREVIEW-REPORT.md`、`UI-STRUCTURE.md`、`RESPONSIVE-REPORT.md`、`AI-INSPECTION.md` 與 `PREVIEW-MANIFEST.json`，明確區分 DEMO_ONLY、IMPLEMENTED、PARTIALLY_IMPLEMENTED、NOT_IMPLEMENTED。
 - [x] 更新 README 加入 Preview URL、Inspection URL 與 Preview Inspection Report 路徑，並驗證所有檢查包檔案、截圖、JSON 與公開頁內容一致。
 - [ ] 比較 GitHub `chat-first-studio` 的最新分岔；在不 force push 前提下取得使用者對合併或新安全分支的選擇並完成同步驗證。
+- [ ] 依使用者選項 3 推送 `preview-inspection-package`，驗證遠端含完整檢查文件、18 張 PNG、manifest、README 路徑與擷取腳本，且 `chat-first-studio` 保持不變。
