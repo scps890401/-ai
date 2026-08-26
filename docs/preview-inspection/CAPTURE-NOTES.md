@@ -14,3 +14,5 @@
 這些檔案均由 `scripts/capture-preview-inspection.mjs` 以真實 `/preview` 瀏覽器頁面擷取；它們不是 Figma、設計稿或人工繪製畫面。
 
 另於公開匿名網址重新開啟 Preview，所見 DEMO notice、八張任務、第 3 張 V2、第 6 張 `Fix → Pass`、quota、LINE Preflight 與截圖／報告相符；其瀏覽器資源清單經 Provider／tRPC 關鍵字篩選後為空。
+
+於 2026-08-26（GMT+8）將僅文件、PNG 與擷取腳本正常提交至 `chat-first-studio` 後，再以匿名瀏覽器重新開啟 `/preview` 與 `/preview/inspection`。兩頁仍分別顯示既有 DEMO notice、示範聊天、八張任務、LINE Preflight，以及 Inspection 的 Desktop View／Mobile View；此次文件整合沒有修改 client、server、schema 或網站設定檔。

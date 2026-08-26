@@ -153,5 +153,6 @@
 
 - [x] 以既有 18 張真實瀏覽器 PNG、Preview 文件與 `chat-first-studio` 最新遠端為依據，盤點僅文件／截圖整合所需的安全變更與衝突風險。
 - [x] 建立 `UI-VISUAL-AUDIT.md` 與 `SCREENSHOT-INDEX.md`，以實際 PNG 客觀稽核 ChatGPT／Gemini／Manus 的相似性、差異與可改善處。
-- [ ] 將完整 `docs/preview-inspection/` 安全整合至 GitHub `chat-first-studio`，保留該分支既有提交與正式網站程式，不 force push。
-- [ ] 驗證目標分支可正常顯示 18 張 PNG、全部報告、manifest、README 路徑及最新 commit，並回歸公開 Preview／Inspection 不受文件整合影響。
+- [x] 將完整 `docs/preview-inspection/` 安全整合至 GitHub `chat-first-studio`，保留該分支既有提交與正式網站程式，不 force push。
+- [x] 驗證目標分支可正常顯示 18 張 PNG、全部報告、manifest、README 路徑及最新 commit，並回歸公開 Preview／Inspection 不受文件整合影響。
+- [x] 逐一確認 GitHub `chat-first-studio` 的 18 張 raw PNG 皆回傳 200 與 `image/png`，並重新以匿名瀏覽器檢查 `/preview`、`/preview/inspection` 均完整載入。
