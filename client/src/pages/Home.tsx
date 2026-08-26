@@ -1,6 +1,7 @@
 /* Design philosophy: editorial workbench meets Japanese stationery. Warm paper, ink-black hierarchy, vermilion proof marks, asymmetric creator-first layout. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AIChatBox, type Message as ChatMessage } from "@/components/AIChatBox";
+import { AgentOperationsCard } from "@/components/AgentOperationsCard";
 import { useAuth } from "@/_core/hooks/useAuth";
 import JSZip from "jszip";
 import { Download, ImagePlus, Layers3, MousePointer2, Play, RotateCcw, Sparkles, Wand2, X, Check, ChevronRight, Info } from "lucide-react";
@@ -16,6 +17,8 @@ import { LOTTERY_CONCEPTS, pickLotteryConcept, type LotteryConcept } from "@/lib
 import { buildLotteryAgentState } from "@/lib/lotteryAgentUi";
 import { getFeedbackStatusLabel, getFeedbackVoterToken, setFeedbackSort as normalizeFeedbackSort, shouldOpenFeedbackFromHash, validateFeedbackMessage } from "@/lib/feedbackUi";
 import { buildTextRevisionPrompt, isExplicitStickerBrief, isNoIdeaRequest, isRevisionRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction, type CharacterUpdate, type StickerPlanItem } from "@/lib/stickerChatFlow";
+import { formatStickerVersionHistory, parseStickerVersionChatCommand } from "@/lib/stickerVersionChat";
+import { addAcceptedReference, addStyleReference, emptyReferenceAnchors, parseAnchorChatCommand, selectGenerationReferenceUrls, type ReferenceAnchorState } from "@/lib/referenceAnchors";
 import { resolveLotteryChatPresentation } from "@/lib/lotteryChatUi";
 import { buildLearningChatState } from "@/lib/learningChatUi";
 import { readAnonymousLearning, rememberAnonymousLearning, type AnonymousLearningIdea } from "@/lib/anonymousLearning";
@@ -222,6 +225,8 @@ export default function Home() {
   const [processingProgress, setProcessingProgress] = useState(0);
   const [specReady, setSpecReady] = useState(false);
   const [savedZipUrl, setSavedZipUrl] = useState<string | null>(null);
+  const [referenceAnchors, setReferenceAnchors] = useState<ReferenceAnchorState>(() => emptyReferenceAnchors());
+  const [qualityByPosition, setQualityByPosition] = useState<Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string }>>({});
   const [packSize, setPackSize] = useState<number>(8);
   const [generated, setGenerated] = useState<RandomStickerCard[]>([]);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -237,6 +242,9 @@ export default function Home() {
   const uploadProjectAsset = trpc.projects.uploadAsset.useMutation();
   const prepareProjectExportUpload = trpc.projects.prepareExportUpload.useMutation();
   const registerProjectExport = trpc.projects.registerExport.useMutation();
+  const restoreProjectJobVersion = trpc.projects.restoreJobVersion.useMutation();
+  const qualityCheck = trpc.quality.check.useMutation();
+  const trpcUtils = trpc.useUtils();
   const analyzeCharacter = trpc.character.analyze.useMutation();
   const projectAccess = useMemo(() => projectId ? { projectId, guestKey: guestKey ?? undefined } : undefined, [guestKey, projectId]);
   const projectResume = trpc.projects.resume.useQuery(projectAccess ?? { projectId: 0, guestKey: guestKey ?? undefined }, { enabled: Boolean(projectAccess) });
@@ -280,7 +288,9 @@ export default function Home() {
     lotteryImageUrl,
     packSize: projectPackSize,
     learningEnabled,
-  }), [characterProfile, chatAttachmentNames, chatMessages, generated, imagePrompts, jobStates, learningEnabled, latestGeneratedLabel, lotteryConcept, lotteryImageUrl, mode, planItems, projectPackSize, prompt, sourceAssetIds, uploaded]);
+    referenceAnchors,
+    qualityByPosition,
+  }), [characterProfile, chatAttachmentNames, chatMessages, generated, imagePrompts, jobStates, learningEnabled, latestGeneratedLabel, lotteryConcept, lotteryImageUrl, mode, planItems, projectPackSize, prompt, qualityByPosition, referenceAnchors, sourceAssetIds, uploaded]);
 
   async function ensureProjectId() {
     if (projectIdRef.current) return projectIdRef.current;
@@ -374,6 +384,8 @@ export default function Home() {
     }
     if (typeof state.packSize === "number" && [8, 16, 24, 32, 40].includes(state.packSize)) setPackSize(state.packSize);
     if (typeof state.learningEnabled === "boolean") setLearningEnabled(state.learningEnabled);
+    if (state.referenceAnchors && typeof state.referenceAnchors === "object") setReferenceAnchors(state.referenceAnchors as ReferenceAnchorState);
+    if (state.qualityByPosition && typeof state.qualityByPosition === "object") setQualityByPosition(state.qualityByPosition as Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string }>);
     hasHydratedProject.current = true;
   }, [projectResume.data]);
 
@@ -442,6 +454,37 @@ export default function Home() {
     setChatMessages(nextMessages);
     setChatBusy(true);
     try {
+      const versionCommand = parseStickerVersionChatCommand(content);
+      if (versionCommand) {
+        const id = await ensureProjectId();
+        if (!id) throw new Error("目前無法建立版本查詢所需的專案。");
+        const access = { projectId: id, guestKey: guestKey ?? undefined, position: versionCommand.position };
+        const versions = await trpcUtils.projects.listJobVersions.fetch(access);
+        if (versionCommand.kind === "list") {
+          setChatMessages((current) => [...current, { role: "assistant", content: formatStickerVersionHistory(versionCommand.position, versions) }]);
+          return;
+        }
+        const targetVersion = versions.find((item) => item.version === versionCommand.version);
+        if (!targetVersion) {
+          setChatMessages((current) => [...current, { role: "assistant", content: `第 ${versionCommand.position} 張找不到 V${versionCommand.version}；${formatStickerVersionHistory(versionCommand.position, versions)}` }]);
+          return;
+        }
+        const restored = await restoreProjectJobVersion.mutateAsync({ ...access, versionId: targetVersion.id });
+        setGenerated((current) => replaceStickerAt(current, restored.position - 1, { url: restored.url, assetId: restored.assetId }));
+        setJobStates((current) => updateStickerJobState(current, restored.position, "completed"));
+        setLatestGeneratedLabel((current) => current || `第 ${restored.position} 張貼圖`);
+        setChatMessages((current) => [...current, { role: "assistant", content: `已回復第 ${restored.position} 張到 V${restored.version}；其他貼圖與版本都沒有變更。` }]);
+        return;
+      }
+      const anchorCommand = parseAnchorChatCommand(content);
+      if (anchorCommand && generated.length) {
+        const targetIndex = anchorCommand.position && anchorCommand.position <= generated.length ? anchorCommand.position - 1 : 0;
+        const target = generated[targetIndex];
+        if (!target) throw new Error("找不到要採用的貼圖參考。");
+        setReferenceAnchors((current) => anchorCommand.kind === "style" ? addStyleReference(current, target.src, anchorCommand.note) : addAcceptedReference(current, target.src));
+        setChatMessages((current) => [...current, { role: "assistant", content: anchorCommand.kind === "style" ? `已把第 ${targetIndex + 1} 張加入 Style Anchor。後續貼圖會優先延續這張的畫風、色彩與構圖感。` : `已把第 ${targetIndex + 1} 張加入已確認 Character Anchor。後續貼圖會在保留原始照片的前提下參考這張已接受結果。` }]);
+        return;
+      }
           const rawPlan = await withTimeout(stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length, attachmentNames: chatAttachmentNames, hasGeneratedResult: Boolean(latestGeneratedLabel), latestGeneratedLabel, learnedIdeas: chatLearnedIdeas, currentPackSize: projectPackSize, characterSummary: characterProfile ? JSON.stringify(characterProfile) : "", projectStatus: projectResume.data?.project.status ?? "draft", continueRequested: /繼續製作|繼續生成|接著做/.test(content) }), 25_000);
       const basePlan = normalizeStickerChatPlan(rawPlan);
       if (basePlan.packSize !== packSize) setPackSize(basePlan.packSize);
@@ -682,9 +725,35 @@ export default function Home() {
     toast.success("貼圖順序已更新", { description: "ZIP 匯出會依照目前編號排列。" });
   }
 
-  async function generateRandomWithRetry(source: string, action: string) {
-    const originalImage = await imageInputFromSource(source);
-    return generateWithRetry((input) => randomGenerate.mutateAsync(input), { prompt: action, originalImage }, 3, (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)));
+  async function generateRandomWithRetry(source: string, action: string, referenceUrls?: string[]) {
+    const references = await Promise.all((referenceUrls?.length ? referenceUrls : [source]).map((url) => imageInputFromSource(url)));
+    const originalImage = references[0]!;
+    return generateWithRetry((input) => randomGenerate.mutateAsync(input), { prompt: action, originalImage, referenceImages: references }, 3, (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)));
+  }
+
+  async function checkStickerQuality(position: number, sticker: RandomStickerCard, notify = false) {
+    if (!sticker.assetId) return;
+    setQualityByPosition((current) => ({ ...current, [position]: { state: "checking", summary: "正在檢查角色、構圖、肢體與文字" } }));
+    try {
+      const id = await ensureProjectId();
+      if (!id) throw new Error("無法建立品質檢查所需的專案。");
+      const result = await qualityCheck.mutateAsync({ projectId: id, guestKey: guestKey ?? undefined, assetId: sticker.assetId, expectedText: stickerTextFromLabel(sticker.label), expectedAction: sticker.action || "", characterSummary: characterProfile ? JSON.stringify(characterProfile) : "" });
+      const state = result.quality.decision === "pass" ? "pass" : result.quality.decision === "retry" ? "retry" : "review";
+      setQualityByPosition((current) => ({ ...current, [position]: { state, summary: result.quality.summary } }));
+      if (notify && state === "retry") setChatMessages((current) => [...current, { role: "assistant", content: `第 ${position} 張品質檢查發現可修正問題：${result.quality.issues.join("、")}。你可以說「修改第 ${position} 張」，我會只重做這一張。` }]);
+    } catch (error) {
+      setQualityByPosition((current) => ({ ...current, [position]: { state: "unavailable", summary: "品質服務暫時無法完成，LINE 規格檢查仍會在匯出時執行。" } }));
+      if (notify) toast.info("語義品質檢查暫時不可用", { description: error instanceof Error ? error.message : "可稍後再試。" });
+    }
+  }
+
+  async function checkAllGeneratedQuality() {
+    const targets = generated.map((sticker, index) => ({ sticker, position: index + 1 })).filter((item) => Boolean(item.sticker.assetId));
+    if (!targets.length) {
+      toast.info("目前沒有可檢查的已保存 AI 貼圖", { description: "先完成一張生成貼圖，系統才有可追蹤的品質版本。" });
+      return;
+    }
+    await Promise.all(targets.map(({ sticker, position }) => checkStickerQuality(position, sticker, true)));
   }
 
   async function retrySticker(index: number) {
@@ -696,7 +765,9 @@ export default function Home() {
     setRetryingIndex(index);
     setJobStates((current) => updateStickerJobState(current, index + 1, "retrying"));
     try {
-      const refreshed = await regenerateSingleSticker(sticker, imageInputFromSource, (input) => randomGenerate.mutateAsync(input), (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)));
+      const retryReferenceUrls = selectGenerationReferenceUrls({ sourceUrl: sticker.source, anchors: referenceAnchors, currentEditUrl: sticker.src });
+      const retryReferences = await Promise.all(retryReferenceUrls.map((url) => imageInputFromSource(url)));
+      const refreshed = await regenerateSingleSticker(sticker, imageInputFromSource, (input) => randomGenerate.mutateAsync(input), (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)), retryReferences);
       const stored = await persistGeneratedResult(refreshed.src, index + 1);
       setGenerated((current) => replaceStickerAt(current, index, { url: stored.url, assetId: stored.assetId ?? null }));
       setJobStates((current) => updateStickerJobState(current, index + 1, "completed"));
@@ -731,8 +802,8 @@ export default function Home() {
     if (modeForGeneration === "manual" && overrides?.revisionPrompt) {
       const revisionResults = await Promise.all(sources.map(async (source, index) => {
         try {
-          const originalImage = await imageInputFromSource(source);
-          const result = await randomGenerate.mutateAsync({ prompt: overrides.revisionPrompt!, originalImage });
+          const referenceUrls = selectGenerationReferenceUrls({ sourceUrl: source, anchors: referenceAnchors, currentEditUrl: overrides?.replaceIndex !== undefined ? generated[overrides.replaceIndex]?.src : undefined });
+          const result = await generateRandomWithRetry(source, overrides.revisionPrompt!, referenceUrls);
           const stored = await persistGeneratedResult(result.url, (overrides?.replaceIndex ?? index) + 1);
           return { src: stored.url, ...(stored.assetId !== undefined ? { assetId: stored.assetId } : {}), label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration}`, action: overrides.revisionPrompt ?? promptForGeneration, source, color: colors[index % colors.length] };
         } catch (error) {
@@ -744,6 +815,7 @@ export default function Home() {
       setJobStates(revisionResults.map((card, index) => ({ position: overrides?.replaceIndex !== undefined ? overrides.replaceIndex + 1 : index + 1, status: card ? "completed" : "failed", ...(card ? {} : { errorMessage: "文字微調生成失敗" }) })));
       if (cards.length) {
         setGenerated((current) => overrides?.replaceIndex !== undefined ? replaceStickerAt(current, overrides.replaceIndex, { url: cards[0]!.src, label: cards[0]!.label, action: cards[0]!.action, source: cards[0]!.source, color: cards[0]!.color, assetId: cards[0]!.assetId ?? null }) : mergeBatchResults(current, cards, packSize));
+        void Promise.all(cards.map((card, index) => checkStickerQuality(overrides?.replaceIndex !== undefined ? overrides.replaceIndex + 1 : index + 1, card, true)));
         setLatestGeneratedLabel(cards[0]?.label ?? "");
         setGenerationProgress(100);
         toast.success(`已完成 ${cards.length} 張文字微調`, { description: "已保留角色與構圖，只更新文字修改要求。" });
@@ -781,7 +853,8 @@ export default function Home() {
     const results = await Promise.all(jobs.map(async (job) => {
       try {
         const generationPrompt = [characterConsistencyPrompt, job.prompt || "", `動作與情境：${job.action}`].filter(Boolean).join("。 ");
-        const result = await generateRandomWithRetry(job.source, generationPrompt);
+        const referenceUrls = selectGenerationReferenceUrls({ sourceUrl: job.source, anchors: referenceAnchors, currentEditUrl: overrides?.replaceIndex !== undefined ? generated[overrides.replaceIndex]?.src : undefined });
+        const result = await generateRandomWithRetry(job.source, generationPrompt, referenceUrls);
         setGenerationProgress((current) => Math.min(96, current + Math.round(92 / jobs.length)));
         return { job, result };
       } catch (error) {
@@ -807,6 +880,7 @@ export default function Home() {
     const failedCount = collected.failedCount;
     if (cards.length) {
       setGenerated((current) => overrides?.replaceIndex !== undefined ? replaceStickerAt(current, overrides.replaceIndex, { url: cards[0]!.src, label: cards[0]!.label, action: cards[0]!.action, source: cards[0]!.source, color: cards[0]!.color, assetId: cards[0]!.assetId ?? null }) : mergeBatchResults(current, cards, packSize));
+      void Promise.all(cards.map((card, index) => checkStickerQuality(overrides?.replaceIndex !== undefined ? overrides.replaceIndex + 1 : collected.successful[index]?.job.position ?? index + 1, card, true)));
       setLatestGeneratedLabel(cards[0]?.label ?? "");
     }
     if (modeForGeneration === "agent" && learningEnabled) {
@@ -873,6 +947,7 @@ export default function Home() {
 
       <main className="workbench">
         <header className="topbar"><div className="breadcrumb"><span>工作台</span><ChevronRight size={13} /><b>我的 LINE 貼圖草稿</b></div><div className="top-actions"><span className="status-dot" /> {projectResume.isFetching ? "正在載入草稿" : saveProjectSnapshot.isPending || createProject.isPending ? "正在保存" : "草稿已自動保存"} <button className="save-project-button" onClick={() => void persistProject("manual-save")} disabled={saveProjectSnapshot.isPending || createProject.isPending}>立即保存</button><button className="avatar">S</button></div></header>
+        {(generated.length > 0 || planItems.length > 0 || referenceAnchors.acceptedUrls.length > 0 || referenceAnchors.styleUrls.length > 0) && <div className="mx-4 mt-3 md:mx-7"><AgentOperationsCard acceptedAnchorCount={referenceAnchors.acceptedUrls.length} styleAnchorCount={referenceAnchors.styleUrls.length} styleNote={referenceAnchors.styleNote} qualityByPosition={qualityByPosition} onCheckAll={() => void checkAllGeneratedQuality()} disabled={qualityCheck.isPending} /></div>}
         <section className="hero-strip">
           <div className="hero-copy"><div className="eyebrow"><span className="red-line" /> STICKER EDITOR / 001</div><h1>製作屬於你的<em>貼圖。</em></h1><p>從一張照片開始，把角色、日常對話與你的靈感，做成可以分享的 LINE 貼圖。</p><div className="hero-meta"><span>↳ 三種製作方式</span><span>↳ 即時預覽</span><span>↳ 可直接匯出</span></div></div>
           <div className="hero-image"><img src={asset.hero} alt="兔子、狗狗與老鼠的紙張拼貼" /><div className="hero-stamp">今日<br /><strong>有靈感</strong></div></div>

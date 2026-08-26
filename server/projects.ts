@@ -19,6 +19,10 @@ export function shouldCreateStickerJobVersion(existingAssetId: number | null | u
   return nextAssetId !== null && nextAssetId !== undefined && nextAssetId !== existingAssetId;
 }
 
+export function shouldRestoreStickerJobVersion(currentAssetId: number | null | undefined, versionAssetId: number) {
+  return Number.isInteger(versionAssetId) && versionAssetId > 0 && currentAssetId !== versionAssetId;
+}
+
 export function isProjectExportStorageKey(projectId: number, storageKey: string) {
   return storageKey.startsWith(`sticker-muse/projects/${projectId}/exports/`);
 }
@@ -229,6 +233,42 @@ export async function listProjectJobs(projectId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(stickerJobs).where(eq(stickerJobs.projectId, projectId)).orderBy(stickerJobs.position);
+}
+
+export async function listProjectJobVersions(projectId: number, position: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [job] = await db.select().from(stickerJobs).where(and(eq(stickerJobs.projectId, projectId), eq(stickerJobs.position, position))).limit(1);
+  if (!job) return [];
+  const versions = await db.select().from(stickerJobVersions).where(eq(stickerJobVersions.jobId, job.id)).orderBy(desc(stickerJobVersions.version));
+  return Promise.all(versions.map(async (version) => {
+    const [asset] = await db.select().from(projectAssets).where(and(eq(projectAssets.id, version.assetId), eq(projectAssets.projectId, projectId))).limit(1);
+    return {
+      id: version.id,
+      version: version.version,
+      assetId: version.assetId,
+      editPrompt: version.editPrompt,
+      changeSummary: version.changeSummary,
+      createdAt: version.createdAt,
+      url: asset ? `/manus-storage/${asset.storageKey}` : null,
+      isCurrent: job.currentAssetId === version.assetId,
+    };
+  }));
+}
+
+export async function restoreProjectJobVersion(args: { projectId: number; position: number; versionId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const [job] = await db.select().from(stickerJobs).where(and(eq(stickerJobs.projectId, args.projectId), eq(stickerJobs.position, args.position))).limit(1);
+  if (!job) throw new Error("找不到這張貼圖的工作紀錄。");
+  const [version] = await db.select().from(stickerJobVersions).where(and(eq(stickerJobVersions.id, args.versionId), eq(stickerJobVersions.jobId, job.id))).limit(1);
+  if (!version) throw new Error("找不到指定的貼圖版本。");
+  const [asset] = await db.select().from(projectAssets).where(and(eq(projectAssets.id, version.assetId), eq(projectAssets.projectId, args.projectId))).limit(1);
+  if (!asset) throw new Error("指定版本的圖片素材無法使用。");
+  if (shouldRestoreStickerJobVersion(job.currentAssetId, version.assetId)) {
+    await db.update(stickerJobs).set({ currentAssetId: version.assetId, status: "completed", errorCode: null, errorMessage: null, completedAt: new Date(), updatedAt: new Date() }).where(eq(stickerJobs.id, job.id));
+  }
+  return { position: args.position, assetId: version.assetId, url: `/manus-storage/${asset.storageKey}`, version: version.version, changeSummary: version.changeSummary };
 }
 
 export async function touchProject(projectId: number) {

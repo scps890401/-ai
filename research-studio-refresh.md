@@ -33,6 +33,19 @@ LINE Creators Market 的一般貼圖指南規定：貼圖組數為 8、16、24�
 
 因此，Sticker Muse 的 resume 應只挑選未完成、失敗或重試中的 position，已完成圖片與其 asset version 維持不變。聊天顯示應直接告知使用者：草稿已保存，額度恢復後輸入「繼續製作」即可從下一個未完成 position 再次提交。
 
+## 第二階段 Model Router 決策
+
+Model Router 不是讓使用者挑選供應者的下拉選單，而是將任務特徵映射為**能力需求**：例如「角色一致性」需要多張角色參考圖；「指定第 N 張修正」需要 image edit；「快速草稿」需要較低延遲；「LINE 最終輸出」需要透明背景、可後製文字與 deterministic preflight。Router 應先選擇健康且已配置的 provider，再由有限 retry／fallback policy 依錯誤類型決定下一步。
+
+| Router 能力需求 | 目前可用基線 | 外部候選與研究依據 | 落地決策 |
+| --- | --- | --- | --- |
+| 預設新圖／單張 edit | 內建 ImageService，預設 GPT Image 2 | OpenAI 文件支援 generation、edit、多圖參考與高保真 input；亦提供透明背景輸出選項 [9] | 內建 GPT Image 2 為第一條已可運作路徑 |
+| 多張角色＋風格參考 | 內建服務可帶 `originalImages`，但可用模型能力由 runtime list 決定 | Gemini 3.1 Flash Image 支援最多 4 張角色參考與 3 張風格參考；FLUX.2 主打多參考角色／姿勢組合 [10] [3] | 實作 provider-agnostic reference set；外部 Gemini／FLUX 僅在安全提供 key 後啟用 |
+| 複雜多輪 image edit | 目前以目前圖＋角色 prompt 重新生成 | OpenAI 與 Gemini 官方均支援多輪圖像 edit context [9] [10] | 建立 edit job／version history，不依賴特定 API 的 conversation ID |
+| 品質檢查 | deterministic PNG／alpha／尺寸／容量／組數檢查 | MultiBanana 研究指出多參考 generation 的失敗模式會隨參考數、風格／尺度差異而變化，不能只用「模型名稱」假設品質 [11] | 先提供嚴格 deterministic gate 與可插拔 vision judge；有測試額度才啟用語義 QC 自動重試 |
+
+供應者 fallback 的錯誤規則需保守：429 credit／quota／spend exhausted 應保存並暫停，不盲目切換以避免使用者被重複計費；短暫 rate limit、timeout、5xx 才可有限次退避或切換至另一個**已啟用且健康**的 provider。若沒有外部 API key，Router 仍以內建基線運作，不顯示虛假的 FLUX／Gemini 選項。
+
 ## 參考資料
 
 [1] [Black Forest Labs：Character & Style Consistency](https://docs.bfl.ai/guides/usecases_editing_character_consistency)
@@ -50,3 +63,9 @@ LINE Creators Market 的一般貼圖指南規定：貼圖組數為 8、16、24�
 [7] [OpenAI API：Error Codes](https://developers.openai.com/api/docs/guides/error-codes)
 
 [8] [Google AI for Developers：Gemini API Rate Limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+
+[9] [OpenAI API：Image Generation Guide](https://developers.openai.com/api/docs/guides/image-generation)
+
+[10] [Google AI for Developers：Gemini Image Generation](https://ai.google.dev/gemini-api/docs/image-generation)
+
+[11] [Oshima et al.：MultiBanana—A Challenging Benchmark for Multi-Reference Text-to-Image Generation（CVPR 2026）](https://openaccess.thecvf.com/content/CVPR2026/html/Oshima_MultiBanana_A_Challenging_Benchmark_for_Multi-Reference_Text-to-Image_Generation_CVPR_2026_paper.html)

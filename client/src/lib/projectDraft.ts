@@ -47,6 +47,8 @@ export type ProjectSnapshot = {
   lotteryImageUrl: string;
   packSize: number;
   learningEnabled: boolean;
+  referenceAnchors?: ReferenceAnchorState;
+  qualityByPosition?: Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string }>;
 };
 
 export function serializeProjectSnapshot(snapshot: ProjectSnapshot): string {
@@ -73,3 +75,4 @@ export function projectSnapshotStatus(snapshot: ProjectSnapshot): "draft" | "gen
   if (hasQuotaFailure) return "paused";
   return jobStates.some((job) => job.status === "generating" || job.status === "retrying") ? "generating" : "draft";
 }
+import type { ReferenceAnchorState } from "./referenceAnchors";

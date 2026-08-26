@@ -8,11 +8,13 @@ import {
   getProjectForActor,
   listProjectCheckpoints,
   listProjectExports,
+  listProjectJobVersions,
   listProjectJobs,
   listProjectsForUser,
   parseProjectState,
   prepareProjectExportUpload,
   registerProjectExport,
+  restoreProjectJobVersion,
   saveProjectSnapshot,
   type ProjectActor,
 } from "./projects";
@@ -120,6 +122,29 @@ export const projectRouter = router({
       return await registerProjectExport({ projectId: project.id, type: input.type, storageKey: input.storageKey, validationJson: input.validationJson });
     } catch (error) {
       throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "匯出檔案登記失敗。" });
+    }
+  }),
+
+  listJobVersions: publicProcedure.input(z.object({
+    ...projectAccessInput.shape,
+    position: z.number().int().min(1).max(40),
+  })).query(async ({ ctx, input }) => {
+    const project = await getProjectForActor(input.projectId, actorFromContext(ctx, input.guestKey));
+    if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個專案，或你沒有存取權限。" });
+    return listProjectJobVersions(project.id, input.position);
+  }),
+
+  restoreJobVersion: publicProcedure.input(z.object({
+    ...projectAccessInput.shape,
+    position: z.number().int().min(1).max(40),
+    versionId: z.number().int().positive(),
+  })).mutation(async ({ ctx, input }) => {
+    const project = await getProjectForActor(input.projectId, actorFromContext(ctx, input.guestKey));
+    if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個專案，或你沒有存取權限。" });
+    try {
+      return await restoreProjectJobVersion({ projectId: project.id, position: input.position, versionId: input.versionId });
+    } catch (error) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "貼圖版本回復失敗。" });
     }
   }),
 

@@ -1,17 +1,20 @@
 import type { RandomStickerCard } from "./randomStickerUi";
 
 export type RandomInput = { b64Json: string; mimeType: string };
-export type RandomGenerator = (input: { prompt: string; originalImage: RandomInput }) => Promise<{ url: string }>;
+export type RandomGenerationInput = { prompt: string; originalImage: RandomInput; referenceImages?: RandomInput[] };
+export type RandomGenerator = (input: RandomGenerationInput) => Promise<{ url: string }>;
 
 export async function regenerateSingleSticker(
   sticker: RandomStickerCard,
   toImageInput: (source: string) => Promise<RandomInput>,
   generator: RandomGenerator,
   wait?: (milliseconds: number) => Promise<void>,
+  referenceImages?: RandomInput[],
 ) {
   if (!sticker.source || !sticker.action) throw new Error("Sticker has no random source");
   const originalImage = await toImageInput(sticker.source);
-  const result = await generateWithRetry(generator, { prompt: sticker.action, originalImage }, 3, wait);
+  const references = referenceImages?.length ? referenceImages : [originalImage];
+  const result = await generateWithRetry(generator, { prompt: sticker.action, originalImage: references[0]!, referenceImages: references }, 3, wait);
   return { ...sticker, src: result.url };
 }
 
@@ -22,7 +25,7 @@ export function isNonRetryableGenerationError(error: unknown) {
 
 export async function generateWithRetry(
   generator: RandomGenerator,
-  input: { prompt: string; originalImage: { b64Json: string; mimeType: string } },
+  input: RandomGenerationInput,
   maxAttempts = 3,
   wait: (milliseconds: number) => Promise<void> = async () => undefined,
 ) {

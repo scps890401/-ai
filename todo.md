@@ -278,3 +278,17 @@
 - [x] 讓已通過 LINE 驗證的 ZIP 與驗證報告保存到專案 S3／project_exports，支援後續續作與重新下載
 - [x] 執行手機、上傳、多圖、AI 規劃、逐張重試、續作、指定修改、PNG／ZIP 的回歸驗證；TypeScript、production build、24 個測試檔共 110 項 Vitest、Android 390 × 844 與桌面 1280 × 720 通過，新的實圖 E2E 仍受 usage exhausted 限制
 - [x] 保存新版 checkpoint c1c34363，發布並交付清楚的能力邊界與外部額度限制
+
+### 上傳內容導向的網站修改
+
+- [x] 讀取 pasted_content.txt，萃取並列出可驗證的 Sticker Muse 修改需求
+- [x] 建立第二階段 Agent 功能落差矩陣，標示已具備、部分具備、待實作與受憑證／額度限制項目；見 phase2-agent-gap-matrix.md
+- [x] 建立 provider-agnostic Image Model Router 介面、模型健康度／錯誤分類、有限 retry 與 fallback 決策，不向一般使用者暴露模型清單
+- [x] 建立 Reference Priority 與 Style Anchor 狀態，支援原始角色照、已確認角色 anchor、最佳已接受生成圖、當前修改圖及風格／姿勢參考的任務選取
+- [x] 實作每張貼圖的版本歷史列表與「回復指定版本」動作，僅影響目標 job 並保存新快照
+- [x] 建立生成後品質檢查契約，涵蓋角色／構圖／多餘肢體／文字／LINE 規格，並將可重試與需人工確認結果寫回 job 狀態
+- [x] 在聊天中呈現精簡 Agent 工作階段與可操作快捷卡，顯示分析、規劃、生成、檢查、重試、保存與續作進度
+- [x] 補強聊天對姿勢參考、風格採納、下載作品與自然語言修改意圖的結構化分流
+- [x] 補齊第二階段 Vitest、桌面／Android 回歸；真實影像 E2E 應在可用服務額度時以相同 job／version 流程補驗
+- [x] 產出 README、架構、Model Router、Character／Style Anchor、Edit、Quality、Fallback、Quota Resume、安全與 GitHub 交接文件
+- [ ] 將完整可執行專案同步至 GitHub scps890401/-ai 的 chat-first-studio 分支並驗證遠端內容

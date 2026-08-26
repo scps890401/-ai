@@ -8,6 +8,7 @@ import { feedbackRouter } from "./feedbackRouter";
 import { stickerChatRouter } from "./stickerChatRouter";
 import { projectRouter } from "./projectRouter";
 import { characterRouter } from "./characterRouter";
+import { stickerQualityRouter } from "./stickerQualityRouter";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -18,6 +19,7 @@ export const appRouter = router({
   stickerChat: stickerChatRouter,
   projects: projectRouter,
   character: characterRouter,
+  quality: stickerQualityRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

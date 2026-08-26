@@ -59,9 +59,10 @@ export async function generateImage(
     baseUrl
   ).toString();
 
-  const model = options.model ?? DEFAULT_IMAGE_MODEL;
+  const useServiceDefault = options.model === "MODEL_SERVICE_DEFAULT";
+  const model = useServiceDefault ? undefined : options.model ?? DEFAULT_IMAGE_MODEL;
   const quality =
-    options.quality ?? (model === DEFAULT_IMAGE_MODEL ? DEFAULT_IMAGE_QUALITY : undefined);
+    useServiceDefault ? undefined : options.quality ?? (model === DEFAULT_IMAGE_MODEL ? DEFAULT_IMAGE_QUALITY : undefined);
 
   const response = await fetch(fullUrl, {
     method: "POST",
@@ -74,7 +75,7 @@ export async function generateImage(
     body: JSON.stringify({
       prompt: options.prompt,
       original_images: options.originalImages || [],
-      model,
+      ...(model ? { model } : {}),
       ...(quality ? { quality } : {}),
     }),
   });

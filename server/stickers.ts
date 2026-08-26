@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateImage } from "./_core/imageGeneration";
+import { routeStickerImage, type ImageGenerator } from "./imageRouter";
 import { publicProcedure, router } from "./_core/trpc";
 
 export const lotteryStickerInput = z.object({
@@ -9,12 +9,19 @@ export const lotteryStickerInput = z.object({
   creative: z.string().min(1).max(500),
 });
 
+const imageReferenceInput = z.object({
+  b64Json: z.string().min(20),
+  mimeType: z.string().min(3),
+});
+
 export const randomStickerInput = z.object({
   prompt: z.string().min(1).max(500),
-  originalImage: z.object({
-    b64Json: z.string().min(20),
-    mimeType: z.string().min(3),
-  }),
+  originalImage: imageReferenceInput.optional(),
+  referenceImages: z.array(imageReferenceInput).min(1).max(4).optional(),
+}).superRefine((input, context) => {
+  if (!input.originalImage && !input.referenceImages?.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["originalImage"], message: "至少需要一張角色或風格參考圖片。" });
+  }
 });
 
 export function buildLotteryStickerPrompt(input: z.infer<typeof lotteryStickerInput>) {
@@ -22,25 +29,24 @@ export function buildLotteryStickerPrompt(input: z.infer<typeof lotteryStickerIn
 }
 
 export function buildRandomStickerPrompt(prompt: string) {
-  return `Create a LINE sticker based on the exact character shown in the provided reference photo. Preserve the character's identity, species, colors, markings, face, proportions, and recognizable appearance. Do not replace the character with a generic illustration and do not create a text-only variation. Show the same character naturally performing this action or expression: ${prompt}. Clean sticker composition, expressive pose, leave a clean uncluttered area for the app to typeset Traditional Chinese, do not render words or letters inside the image, transparent background, no extra characters, no watermark, no unrelated objects.`;
+  return `Create a LINE sticker based on the exact character and style shown in the provided reference images. Preserve the character's identity, species, colors, markings, face, proportions, recognizable appearance, and confirmed visual style. Do not replace the character with a generic illustration and do not create a text-only variation. Show the same character naturally performing this action or expression: ${prompt}. Clean sticker composition, expressive pose, leave a clean uncluttered area for the app to typeset Traditional Chinese, do not render words or letters inside the image, transparent background, no extra characters, no watermark, no unrelated objects.`;
 }
 
-type ImageGenerator = typeof generateImage;
-
-export async function generateLotterySticker(input: z.infer<typeof lotteryStickerInput>, imageGenerator: ImageGenerator = generateImage) {
-  const result = await imageGenerator({ prompt: buildLotteryStickerPrompt(input) });
-  if (!result.url) throw new Error("AI image generation returned no image URL");
-  return { url: result.url };
+export async function generateLotterySticker(input: z.infer<typeof lotteryStickerInput>, imageGenerator?: ImageGenerator) {
+  const result = await routeStickerImage({ prompt: buildLotteryStickerPrompt(input), task: "generate", finalQuality: true }, imageGenerator);
+  return { url: result.url, provider: result.provider };
 }
 
-export async function generateRandomSticker(input: z.infer<typeof randomStickerInput>, imageGenerator: ImageGenerator = generateImage) {
-  const result = await imageGenerator({
+export async function generateRandomSticker(input: z.infer<typeof randomStickerInput>, imageGenerator?: ImageGenerator) {
+  const referenceImages = input.referenceImages?.length ? input.referenceImages : input.originalImage ? [input.originalImage] : [];
+  if (!referenceImages.length) throw new Error("At least one reference image is required");
+  const result = await routeStickerImage({
     prompt: buildRandomStickerPrompt(input.prompt),
-    originalImages: [input.originalImage],
-  });
-
-  if (!result.url) throw new Error("AI image generation returned no image URL");
-  return { url: result.url };
+    originalImages: referenceImages,
+    task: "edit",
+    finalQuality: true,
+  }, imageGenerator);
+  return { url: result.url, provider: result.provider };
 }
 
 export const stickerRouter = router({

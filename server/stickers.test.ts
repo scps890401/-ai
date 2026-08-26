@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { buildLotteryStickerPrompt, buildRandomStickerPrompt, generateLotterySticker, generateRandomSticker, lotteryStickerInput, randomStickerInput } from "./stickers";
+import { resetImageProviderHealth } from "./imageRouter";
 
 describe("random sticker generation", () => {
+  beforeEach(() => resetImageProviderHealth());
   it("builds a no-reference lottery prompt from an original concept", () => {
     const prompt = buildLotteryStickerPrompt({ text: "早安，今天也要亮晶晶", action: "從棉被探出頭伸懶腰", character: "圓滾滾的小兔子", creative: "晨光、吐司與小星星" });
     expect(prompt).toContain("with no reference photo");
@@ -18,7 +20,7 @@ describe("random sticker generation", () => {
   it("builds an image-edit prompt that preserves the supplied character", () => {
     const prompt = buildRandomStickerPrompt("趴下睡覺");
 
-    expect(prompt).toContain("exact character shown in the provided reference photo");
+    expect(prompt).toContain("exact character and style shown in the provided reference images");
     expect(prompt).toContain("Preserve the character's identity");
     expect(prompt).toContain("趴下睡覺");
     expect(prompt).toContain("Do not replace the character with a generic illustration");
@@ -46,6 +48,24 @@ describe("random sticker generation", () => {
     expect(received[2]?.prompt).toContain("探頭打招呼");
   });
 
+  it("prioritizes a supplied multi-reference set for consistent generation", async () => {
+    const received: Array<{ originalImages?: Array<{ b64Json?: string }> }> = [];
+    await generateRandomSticker({
+      prompt: "閉眼揮手說早安",
+      referenceImages: [
+        { b64Json: "rabbit-primary-reference-123456", mimeType: "image/png" },
+        { b64Json: "rabbit-accepted-style-123456", mimeType: "image/png" },
+      ],
+    }, async (input) => {
+      received.push(input);
+      return { url: "https://generated.test/consistent.png" };
+    });
+    expect(received[0]?.originalImages?.map((image) => image.b64Json)).toEqual([
+      "rabbit-primary-reference-123456",
+      "rabbit-accepted-style-123456",
+    ]);
+  });
+
   it("validates lottery concept fields", () => {
     expect(() => lotteryStickerInput.parse({ text: "", action: "動作", character: "角色", creative: "創意" })).toThrow();
     expect(lotteryStickerInput.parse({ text: "早安", action: "揮手", character: "小兔子", creative: "暖色手繪" })).toEqual({ text: "早安", action: "揮手", character: "小兔子", creative: "暖色手繪" });
@@ -53,9 +73,11 @@ describe("random sticker generation", () => {
 
   it("surfaces generator failures and rejects empty or underspecified inputs", async () => {
     await expect(generateRandomSticker({ prompt: "早安", originalImage: { b64Json: "a".repeat(24), mimeType: "image/png" } }, async () => { throw new Error("service unavailable"); })).rejects.toThrow("service unavailable");
+    resetImageProviderHealth();
     await expect(generateRandomSticker({ prompt: "早安", originalImage: { b64Json: "a".repeat(24), mimeType: "image/png" } }, async () => ({ url: undefined }))).rejects.toThrow("no image URL");
     expect(() => randomStickerInput.parse({ prompt: "", originalImage: { b64Json: "abc", mimeType: "image/png" } })).toThrow();
     expect(() => randomStickerInput.parse({ prompt: "早安", originalImage: { b64Json: "short", mimeType: "image/png" } })).toThrow();
+    expect(() => randomStickerInput.parse({ prompt: "早安" })).toThrow();
     expect(randomStickerInput.parse({ prompt: "早安", originalImage: { b64Json: "a".repeat(24), mimeType: "image/png" } })).toEqual({ prompt: "早安", originalImage: { b64Json: "a".repeat(24), mimeType: "image/png" } });
   });
 });
