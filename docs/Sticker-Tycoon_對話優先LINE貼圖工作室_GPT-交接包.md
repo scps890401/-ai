@@ -3,7 +3,7 @@
 **建立日期：** 2026-08-26（GMT+8）
 **專案目錄：** `sticker-tycoon-replica`
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
-**GitHub 安全分支基線：** `phase2-agent-router`（不改動既有 `chat-first-studio` 與 `main`；第三階段推送前必須重新確認遠端是否分岔。）
+**GitHub 同步狀態：** 第三階段完整來源已安全推送至 `phase3-provider-preview`。使用者指定的 `chat-first-studio` 曾與本機基線分岔；第四階段同步前必須比較遠端差異並取得使用者選擇，絕不 force push。
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
@@ -18,7 +18,7 @@
 | Anchor 與一致性 | 角色、已確認角色、姿勢、場景、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
 | 圖像修改、品質與版本 | 品質 Agent 會檢查透明覆蓋、尺寸、邊界與文字長度，回傳 pass／fail／reason／suggestedFix；僅安全 Fix 一次再重檢。生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
 | 整套自然語言修改 | 「全部變可愛一點」與「全部去背」會建立每張獨立 edit job／版本，跳過已合格圖片與 queued／retrying／paused 生成工作。 |
-| 公開驗收 | Preview／Inspection 使用固定原創示範資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API；回歸腳本驗證此邊界。 |
+| 公開驗收 | Preview／Inspection 使用固定非個資兔子資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API 或影像 Provider。它們直接共用正式的 Topbar、Message、Composer、Agent Workspace、Sticker Task 與 Preflight 元件及 `chat-studio.css`，不是平行假 UI；Inspection 額外提供 Desktop／Mobile 檢視與 Router 摘要。 |
 | 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
 | 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
 
@@ -28,12 +28,13 @@
 
 受控測試模式 `STICKER_E2E_TEST_MODE=1` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
-## 3. 第二、三階段研究、設計與驗證
+## 3. 第二至四階段研究、設計與驗證
 
 - `research/phase-2-model-router-research.md`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
 - `docs/phase-2-agent-design.md`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
 - `drizzle/0003_grey_sentinel.sql`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
 - `docs/phase-3-capability-audit.md`、`docs/phase-3-delivery.md`：Provider 可用性、Adapter、Quality Fix、Preview、已知限制與交付驗收。
+- `docs/phase-4-preview-component-audit.md`、`docs/phase-4-preview-delivery.md`：首頁與 Preview 的共用元件決策、固定 Demo 流程、匿名安全邊界、桌面／Android 驗收與公開 URL。
 - 第三階段未變更 Drizzle schema；Router／品質／pack scope／scene role 使用既有文字與 JSON 欄位、Agent events 保存，故不需 migration。
 
 | 驗證 | 結果 |
@@ -41,7 +42,7 @@
 | `pnpm check` | 通過。 |
 | `pnpm test` | 通過；33 項單元／整合測試，覆蓋 Provider Adapter、FLUX disabled、health／quota fallback、Quality Fix、角色／姿勢／場景／風格 Anchor、整套修改、queued／retrying／paused 保留、版本與 LINE PNG／ZIP。 |
 | `pnpm build` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
-| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC 示範與零 Studio API 呼叫。 |
+| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC、八張任務、V2、品質、quota、Desktop／Mobile View，以及零 Studio API／影像 Provider 呼叫。 |
 | 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
 
 ## 4. 給下一位 AI／工程師的優先事項
@@ -54,7 +55,7 @@
 
 ## 5. 可分享原始碼與設定
 
-本章收錄 167 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 170 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -212,8 +213,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787736792512,
-  "version": "abb9cebb"
+  "timestamp": 1787748079851,
+  "version": "25e8c0c5"
 }
 ````
 
@@ -384,7 +385,7 @@ export default App;
 
 ````css
 .chat-studio-shell{min-height:100svh;background:radial-gradient(circle at 90% 0,rgba(31,126,181,.27),transparent 32rem),linear-gradient(135deg,#061325,#0a2542 52%,#071527);color:#edf8ff}
-.chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;padding:0 clamp(18px,4vw,58px);border-bottom:1px solid rgba(130,195,229,.14);background:rgba(6,18,35,.74);backdrop-filter:blur(16px);position:sticky;top:0;z-index:20}.chat-brand{display:flex;gap:10px;align-items:center}.brand-spark{display:grid;place-items:center;width:35px;height:35px;color:#071426;border-radius:11px;background:linear-gradient(135deg,var(--cyan),var(--violet))}.chat-brand div{display:grid;gap:2px}.chat-brand strong{font-size:15px}.chat-brand small{color:#91abc0;font-size:10px;letter-spacing:.04em}.topbar-actions{display:flex;align-items:center;gap:8px;min-width:0}.preview-link{padding:6px 8px;color:#91eafb;border:1px solid rgba(93,218,240,.22);border-radius:8px;background:rgba(55,163,190,.1);font:10px 'Space Grotesk',sans-serif;text-decoration:none}.project-chip{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 9px 7px 12px;border:1px solid rgba(106,197,237,.2);border-radius:12px;background:rgba(10,39,66,.56);font-size:11px}.project-chip span{color:#7c9cb3}.project-chip strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-chip button{color:#91e6f8;background:rgba(57,178,211,.13);border-radius:7px;padding:4px 6px;cursor:pointer;font:10px 'Space Grotesk',sans-serif}
+.chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;padding:0 clamp(18px,4vw,58px);border-bottom:1px solid rgba(130,195,229,.14);background:rgba(6,18,35,.74);backdrop-filter:blur(16px);position:sticky;top:0;z-index:20}.chat-brand{display:flex;gap:10px;align-items:center}.brand-spark{display:grid;place-items:center;width:35px;height:35px;color:#071426;border-radius:11px;background:linear-gradient(135deg,var(--cyan),var(--violet))}.chat-brand div{display:grid;gap:2px}.chat-brand strong{font-size:15px}.chat-brand small{color:#91abc0;font-size:10px;letter-spacing:.04em}.topbar-actions{display:flex;align-items:center;gap:8px;min-width:0}.preview-link{padding:6px 8px;color:#91eafb;border:1px solid rgba(93,218,240,.22);border-radius:8px;background:rgba(55,163,190,.1);font:10px 'Space Grotesk',sans-serif;text-decoration:none}.project-chip{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 9px 7px 12px;border:1px solid rgba(106,197,237,.2);border-radius:12px;background:rgba(10,39,66,.56);font-size:11px}.project-chip span{color:#7c9cb3}.project-chip strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-chip button{color:#91e6f8;background:rgba(57,178,211,.13);border-radius:7px;padding:4px 6px;cursor:pointer;font:10px 'Space Grotesk',sans-serif}.visually-hidden{position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;white-space:nowrap!important;border:0!important}
 .chat-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(310px,390px);width:min(1320px,100%);min-height:calc(100svh - 68px);margin:0 auto}.conversation-column{display:flex;flex-direction:column;min-width:0;padding:clamp(22px,4vw,54px) clamp(18px,5vw,72px) 26px;border-right:1px solid rgba(128,191,224,.12)}.chat-welcome{max-width:780px;margin:auto 0}.chat-welcome h1{max-width:650px;margin:14px 0;color:#f5fbff;font-size:clamp(40px,5.6vw,72px);line-height:1.07;letter-spacing:-.065em}.chat-welcome p{max-width:620px;margin:0;color:#adc2d5;font-size:15px;line-height:1.9}.eyebrow{color:#7fe4f7;font-size:10px;letter-spacing:.11em}.suggestion-list{display:grid;gap:9px;max-width:590px;margin-top:32px}.suggestion-list button{display:flex;align-items:center;gap:10px;padding:13px 15px;color:#c9dce9;text-align:left;border:1px solid rgba(111,185,222,.18);border-radius:15px;background:rgba(12,42,70,.45);cursor:pointer;transition:transform .18s ease,border-color .18s ease}.suggestion-list button svg{color:var(--cyan)}.suggestion-list button:hover{border-color:rgba(51,212,246,.6);transform:translateX(3px)}
 .message-list{display:grid;gap:20px;max-width:820px;width:100%;margin:0 auto auto}.chat-message{display:flex;gap:10px;align-items:flex-start}.chat-message.user{flex-direction:row-reverse}.message-avatar{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;border-radius:10px;color:#072039;background:linear-gradient(135deg,#82e8f9,#987cff);font-size:11px;font-weight:800}.chat-message.user .message-avatar{color:#d8e9f4;background:#1a3d60}.message-content{max-width:min(88%,650px);padding:12px 14px;border:1px solid rgba(120,188,224,.16);border-radius:5px 16px 16px;background:rgba(12,42,71,.6);color:#e6f2fb;font-size:13px;line-height:1.7}.chat-message.user .message-content{border-radius:16px 5px 16px 16px;background:linear-gradient(135deg,rgba(33,124,156,.78),rgba(45,69,137,.77))}.message-content p{margin:0}.message-content .prose{color:inherit}.message-attachments{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.message-attachments img{width:66px;height:66px;object-fit:cover;border:1px solid rgba(166,226,249,.28);border-radius:9px}.message-attachments span{display:inline-flex;align-items:center;gap:5px;padding:6px 8px;color:#aeeaf7;background:rgba(6,20,38,.4);border-radius:8px;font-size:10px}
 .agent-inline-card{width:100%;max-width:820px;margin:18px auto 0;padding:14px;border:1px solid rgba(95,206,240,.2);border-radius:17px;background:linear-gradient(135deg,rgba(16,57,87,.64),rgba(37,28,94,.4));box-shadow:0 14px 32px rgba(0,0,0,.14)}.agent-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.agent-card-head>div{display:grid;gap:4px}.agent-card-head strong{font-size:14px;letter-spacing:-.02em}.agent-card-head>svg{color:#89e9fb}.agent-card-copy{margin:11px 0 0;color:#a9c0d0;font-size:12px;line-height:1.6}.agent-events{display:grid;gap:6px;margin-top:11px}.agent-event{display:flex;align-items:flex-start;gap:8px;color:#b7ccda;font-size:11px;line-height:1.45}.agent-event i{width:7px;height:7px;flex:0 0 7px;margin-top:5px;border-radius:50%;background:#7996a8}.agent-event.working i{background:#7fe6fa;box-shadow:0 0 0 4px rgba(91,221,246,.11)}.agent-event.completed i{background:#87dfad}.agent-event.paused_quota i,.agent-event.failed i{background:#ffcb78}.agent-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.agent-quick-actions button{display:inline-flex;align-items:center;gap:5px;padding:7px 8px;color:#c5edf5;border:1px solid rgba(118,211,236,.2);border-radius:8px;background:rgba(5,25,45,.3);cursor:pointer;font-size:10px}.agent-quick-actions button:hover{border-color:rgba(112,231,251,.55);background:rgba(58,153,194,.13)}.agent-quick-actions button:disabled{opacity:.4;cursor:not-allowed}
@@ -1383,6 +1384,47 @@ export function MapView({
   return (
     <div ref={mapContainer} className={cn("w-full h-[500px]", className)} />
   );
+}
+
+````
+
+### `client/src/components/StudioSharedUI.tsx`
+
+````tsx
+import { Check, Download, FileArchive, History, ImagePlus, Loader2, Paperclip, Play, RefreshCw, Send, Sparkles, WandSparkles, X } from "lucide-react";
+import { type ReactNode, type RefObject } from "react";
+import { Link } from "wouter";
+
+export type SharedAttachment = { id: string | number; name: string; mimeType?: string; url?: string; preview?: string; role?: string };
+export type SharedHealth = { label: string; status: "healthy" | "checking" | "quota_exhausted" | "disabled" };
+
+export function StudioTopbar({ projectName, onCopyProject, demo = false }: { projectName?: string; onCopyProject?: () => void; demo?: boolean }) {
+  return <header className="chat-topbar"><div className="chat-brand"><span className="brand-spark"><Sparkles size={17} /></span><div><strong>貼圖大亨</strong><small>{demo ? "AI Inspection Preview" : "AI LINE 貼圖工作室"}</small></div></div><div className="topbar-actions">{demo ? <><span className="preview-mode-badge">DEMO / PREVIEW</span><Link href="/preview/inspection" className="preview-link">Inspection</Link></> : <><Link href="/preview" className="preview-link">Preview</Link>{projectName && <div className="project-chip"><span>專案</span><strong>{projectName}</strong><button onClick={onCopyProject}>專案代碼</button></div>}</>}</div></header>;
+}
+
+export function StudioMessage({ role, children, attachments = [] }: { role: "user" | "assistant"; children: ReactNode; attachments?: SharedAttachment[] }) {
+  return <article className={`chat-message ${role}`}><div className="message-avatar">{role === "assistant" ? <Sparkles size={15} /> : "你"}</div><div className="message-content">{children}{attachments.length > 0 && <div className="message-attachments">{attachments.map((attachment) => attachment.preview || attachment.url ? <img key={attachment.id} src={attachment.preview ?? attachment.url} alt={attachment.name} /> : <span key={attachment.id}><Paperclip size={13} />{attachment.name}</span>)}</div>}</div></article>;
+}
+
+export function StudioAgentWorkspace({ title, copy, health, onAttach, onPlan, onPackEdit, onResume, events = [], results = [], onResultEdit, onResultDownload, disabled = false, demo = false }: { title: string; copy: ReactNode; health: SharedHealth[]; onAttach?: () => void; onPlan: (count: number) => void; onPackEdit?: () => void; onResume?: () => void; events?: Array<{ id: string | number; message: string; status: string }>; results?: Array<{ id: string | number; url: string; position: number; phrase: string }>; onResultEdit?: (position: number) => void; onResultDownload?: (position: number) => void; disabled?: boolean; demo?: boolean }) {
+  return <section className="agent-inline-card" aria-label="AI 製作狀態與快捷操作"><div className="agent-card-head"><div><span className="eyebrow">AGENT WORKSPACE</span><strong>{title}</strong></div><WandSparkles size={18} /></div><div className="provider-health" aria-label="圖像 Provider 狀態">{health.map((item) => <span className={item.status} key={item.label}>{item.label} · {item.status === "healthy" ? "可用" : item.status === "quota_exhausted" ? "額度暫停" : item.status === "disabled" ? "未設定" : "檢查中"}</span>)}</div>{events.length > 0 ? <div className="agent-events">{events.map((event) => <div className={`agent-event ${event.status}`} key={event.id}><i /><span>{event.message}</span></div>)}</div> : <div className="agent-card-copy">{copy}</div>}{results.length > 0 && <div className="agent-result-strip">{results.map((result) => <article key={result.id}><img src={result.url} alt={`第 ${result.position} 張 ${result.phrase}`} /><div><strong>第 {result.position} 張 · {result.phrase}</strong><span>{onResultEdit && <button onClick={() => onResultEdit(result.position)} disabled={disabled}>修改</button>}{onResultDownload && <button onClick={() => onResultDownload(result.position)} disabled={disabled}>下載</button>}</span></div></article>)}</div>}<div className="agent-quick-actions">{onAttach && <button onClick={onAttach} disabled={disabled}><ImagePlus size={14} />{demo ? "上傳角色（示範）" : "上傳角色照"}</button>}{[8, 16, 24, 32, 40].map((count) => <button key={count} onClick={() => onPlan(count)} disabled={disabled}><Sparkles size={14} />{count} 張</button>)}{onPackEdit && <button onClick={onPackEdit} disabled={disabled}><WandSparkles size={14} />整套修改</button>}{onResume && <button onClick={onResume} disabled={disabled}><Play size={14} />繼續製作</button>}</div></section>;
+}
+
+export function StudioComposer({ value, onChange, onSend, onAttach, attachments = [], onRemove, inputRef, disabled = false, demo = false, allowEmpty = false, ariaLabel }: { value: string; onChange: (value: string) => void; onSend: () => void; onAttach?: () => void; attachments?: SharedAttachment[]; onRemove?: (id: SharedAttachment["id"]) => void; inputRef?: RefObject<HTMLTextAreaElement | null>; disabled?: boolean; demo?: boolean; allowEmpty?: boolean; ariaLabel?: string }) {
+  return <div className="composer-wrap"><div className="queued-files">{attachments.map((attachment) => <div className="queued-file" key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt="" /> : <Paperclip size={15} />}<span>{attachment.name}</span>{attachment.role && <small>{attachment.role}</small>}{onRemove && <button aria-label={`移除 ${attachment.name}`} onClick={() => onRemove(attachment.id)}><X size={14} /></button>}</div>)}</div><div className="composer">{onAttach && <button type="button" className="attach-button" aria-label="上傳圖片或檔案" onClick={onAttach}><ImagePlus size={19} /></button>}<textarea aria-label={ariaLabel} ref={inputRef} value={value} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSend(); } }} placeholder="例如：幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。" rows={1} disabled={disabled} /><button className="send-button" onClick={onSend} disabled={disabled || (!allowEmpty && !value.trim())}>{disabled ? <Loader2 className="spin" size={18} /> : <Send size={18} />}</button></div><small>{demo ? "唯讀示範：按鈕只改變本頁固定流程，不上傳、不連線，也不建立專案。" : "可上傳多張角色照片；HEIC 會在手機／瀏覽器端轉檔。輸入「用這張做姿勢參考」或「後續全部照這個風格」即可調整 Anchor。"}</small></div>;
+}
+
+export function StudioPreflight({ total, completed, transparent, safeMargin, exportReady, demo = false }: { total: number; completed: number; transparent: number; safeMargin: number; exportReady: boolean; demo?: boolean }) {
+  return <section className="main-preflight" aria-label="LINE Preflight"><div><span className="eyebrow">LINE PREFLIGHT</span><strong>{exportReady ? "可建立 LINE ZIP" : `${completed} / ${total} 張可輸出`}</strong></div><p><Check size={13} />PNG 370 × 320（輸出時）</p><p className={transparent === completed ? "passed" : "pending"}><Check size={13} />透明背景 {transparent} / {completed}</p><p className={safeMargin === completed ? "passed" : "pending"}><Check size={13} />10 px 安全邊距 {safeMargin} / {completed}</p><p><Check size={13} />繁中以伺服器 SVG 後製</p>{demo && <p><Check size={13} />Demo 輸出僅展示，不建立檔案</p>}</section>;
+}
+
+export function StudioStickerTask({ position, phrase, emotion, imageUrl, status, router, quality, versionLabel = "V1", onEdit, onRetry, onDownload, onVersion, versionRail, demo = false }: { position: number; phrase: string; emotion: string; imageUrl?: string; status: string; router: string; quality: string; versionLabel?: string; onEdit?: () => void; onRetry?: () => void; onDownload?: () => void; onVersion?: () => void; versionRail?: ReactNode; demo?: boolean }) {
+  const label = status === "completed" || status === "ready" ? "已完成" : status === "paused_quota" ? "額度暫停" : status === "generating" ? "正在生成" : status === "failed" ? "需要重試" : "等待中";
+  return <article className="sticker-task"><div className="task-image">{imageUrl ? <img src={imageUrl} alt={`第 ${position} 張 ${phrase}`} /> : <span>{position}</span>}<em className={`task-status ${status}`}>{label}</em></div><div className="task-meta"><small>第 {position} 張 · {emotion}</small><strong>{phrase}</strong><span className="task-router">{router} · {quality}</span><div className="task-actions">{imageUrl && <button onClick={onDownload} aria-label={`匯出第 ${position} 張 LINE PNG`}><Download size={14} /></button>}<button onClick={onEdit} disabled={!imageUrl}>告訴 AI 修改</button><button onClick={onVersion}><History size={13} />{versionLabel}</button>{["failed", "error", "paused_quota"].includes(status) && <button onClick={onRetry}><RefreshCw size={13} />{demo ? "重試" : "重試"}</button>}</div>{versionRail}</div></article>;
+}
+
+export function StudioDemoExport({ onPng, onZip }: { onPng: () => void; onZip: () => void }) {
+  return <div className="panel-buttons"><button className="line-export-button" onClick={onZip}><FileArchive size={14} />LINE ZIP</button><button className="continue-button" onClick={onPng}><Download size={14} />PNG</button></div>;
 }
 
 ````
@@ -9728,6 +9770,7 @@ import { Check, Download, History, ImagePlus, Loader2, Paperclip, Play, RefreshC
 import { Streamdown } from "streamdown";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
+import { StudioAgentWorkspace, StudioComposer, StudioMessage, StudioPreflight, StudioStickerTask, StudioTopbar } from "@/components/StudioSharedUI";
 import "../chat-studio.css";
 import "../line-export.css";
 
@@ -9911,23 +9954,18 @@ export default function Home() {
 
   return <main className="chat-studio-shell">
     {notice && <div className="toast"><Sparkles size={15} />{notice}</div>}
-    <header className="chat-topbar"><div className="chat-brand"><span className="brand-spark"><Sparkles size={17} /></span><div><strong>貼圖大亨</strong><small>AI LINE 貼圖工作室</small></div></div><div className="topbar-actions"><Link href="/preview" className="preview-link">Preview</Link>{project && <div className="project-chip"><span>專案</span><strong>{project.title}</strong><button onClick={() => { navigator.clipboard.writeText(project.projectKey); toast("專案代碼已複製，可在其他裝置續作"); }}>{project.projectKey}</button></div>}</div></header>
+    <StudioTopbar projectName={project?.title} onCopyProject={() => { if (project) { navigator.clipboard.writeText(project.projectKey); toast("專案代碼已複製，可在其他裝置續作"); } }} />
     <section className="chat-layout">
       <div className="conversation-column">
-        {messages.length === 0 ? <div className="chat-welcome"><span className="eyebrow">AI STICKER AGENT</span><h1>像聊天一樣，完成一整套貼圖。</h1><p>傳照片、描述角色，或直接告訴我你想做幾張 LINE 貼圖。Agent 會理解角色、規劃、生成、檢查與保存，並在額度中斷時安全續作。</p><div className="suggestion-list">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setInput(suggestion); composerRef.current?.focus(); }}><Sparkles size={14} />{suggestion}</button>)}</div></div> : <div className="message-list">{messages.map((message) => <article key={message.id} className={`chat-message ${message.role}`}><div className="message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "你"}</div><div className="message-content">{message.role === "assistant" ? <Streamdown>{message.content}</Streamdown> : <p>{message.content}</p>}{(attachmentsByMessage.get(message.id) ?? []).length > 0 && <div className="message-attachments">{attachmentsByMessage.get(message.id)!.map((attachment) => attachment.mimeType.startsWith("image/") ? <img key={attachment.id} src={attachment.url} alt={attachment.fileName} /> : <span key={attachment.id}><Paperclip size={13} />{attachment.fileName}</span>)}</div>}</div></article>)}</div>}
-        <section className="agent-inline-card" aria-label="AI 製作狀態與快捷操作">
-          <div className="agent-card-head"><div><span className="eyebrow">AGENT WORKSPACE</span><strong>{project ? `${completedCount} / ${studio.data?.scripts.length ?? 0} 張完成` : "從一句話或幾張照片開始"}</strong></div><WandSparkles size={18} /></div>
-          <div className="provider-health" aria-label="圖像 Provider 狀態">{(["gemini-3.1-flash-image", "gpt-image-2", "flux-2"] as const).map((provider) => { const item = providerHealth.data?.[provider]; const status = item?.status ?? "checking"; return <span className={status} key={provider}>{providerLabel(provider)} · {status === "healthy" ? "可用" : status === "quota_exhausted" ? "額度暫停" : status === "disabled" ? "未設定" : "檢查中"}</span>; })}</div>
-          {events.length > 0 ? <div className="agent-events">{events.map((event) => <div className={`agent-event ${event.status}`} key={event.id}><i /><span>{event.message}</span></div>)}</div> : <p className="agent-card-copy">上傳角色照後，可在這裡確認角色、挑選姿勢或風格，再交給 Agent 自動規劃。</p>}
-          {recentResults.length > 0 && <div className="agent-result-strip">{recentResults.map((script) => <article key={script.id}><img src={script.resultUrl!} alt={`第 ${script.position} 張 ${script.phrase}`} /><div><strong>第 {script.position} 張 · {script.phrase}</strong><span><button onClick={() => requestEdit(script.position)} disabled={busy}>修改</button><button onClick={() => void exportSingle(script.position)} disabled={busy}>下載</button></span></div></article>)}</div>}
-          <div className="agent-quick-actions"><button onClick={() => fileInputRef.current?.click()} disabled={busy}><ImagePlus size={14} />上傳角色照</button>{[8, 16, 24, 32, 40].map((count) => <button key={count} onClick={() => quickPlan(count)} disabled={busy}><Sparkles size={14} />{count} 張</button>)}{project && <><button onClick={() => void submit("全部變可愛一點")} disabled={busy}><WandSparkles size={14} />整套修改</button><button onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button></>}</div>
-        </section>
-        <div className="composer-wrap"><div className="queued-files">{attachments.map((attachment) => <div className="queued-file" key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt="" /> : <Paperclip size={15} />}<span>{attachment.fileName}</span><button aria-label={`移除 ${attachment.fileName}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}><X size={14} /></button></div>)}</div><div className="composer"><label className="attach-button" aria-label="上傳圖片或檔案"><ImagePlus size={19} /><input ref={fileInputRef} type="file" accept="image/*,.heic,.heif,.pdf" multiple onChange={handleFiles} /></label><textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder="例如：幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。" rows={1} disabled={busy} /><button className="send-button" onClick={() => void submit()} disabled={busy || (!input.trim() && !attachments.length)}>{busy ? <Loader2 className="spin" size={18} /> : <Send size={18} />}</button></div><small>可上傳多張角色照片；HEIC 會在手機／瀏覽器端轉檔。輸入「用這張做姿勢參考」或「後續全部照這個風格」即可調整 Anchor。</small></div>
+        {messages.length === 0 ? <div className="chat-welcome"><span className="eyebrow">AI STICKER AGENT</span><h1>像聊天一樣，完成一整套貼圖。</h1><p>傳照片、描述角色，或直接告訴我你想做幾張 LINE 貼圖。Agent 會理解角色、規劃、生成、檢查與保存，並在額度中斷時安全續作。</p><div className="suggestion-list">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setInput(suggestion); composerRef.current?.focus(); }}><Sparkles size={14} />{suggestion}</button>)}</div></div> : <div className="message-list">{messages.map((message) => <StudioMessage key={message.id} role={message.role === "assistant" ? "assistant" : "user"} attachments={(attachmentsByMessage.get(message.id) ?? []).map((attachment) => ({ id: attachment.id, name: attachment.fileName, mimeType: attachment.mimeType, url: attachment.mimeType.startsWith("image/") ? attachment.url : undefined }))}>{message.role === "assistant" ? <Streamdown>{message.content}</Streamdown> : <p>{message.content}</p>}</StudioMessage>)}</div>}
+        <StudioAgentWorkspace title={project ? `${completedCount} / ${studio.data?.scripts.length ?? 0} 張完成` : "從一句話或幾張照片開始"} copy={<p>上傳角色照後，可在這裡確認角色、挑選姿勢或風格，再交給 Agent 自動規劃。</p>} health={(["gemini-3.1-flash-image", "gpt-image-2", "flux-2"] as const).map((provider) => { const status = providerHealth.data?.[provider]?.status ?? "checking"; return { label: providerLabel(provider), status: status === "healthy" || status === "quota_exhausted" || status === "disabled" ? status : "checking" }; })} events={events.map((event) => ({ id: event.id, message: event.message, status: event.status }))} results={recentResults.map((script) => ({ id: script.id, url: script.resultUrl!, position: script.position, phrase: script.phrase }))} onResultEdit={requestEdit} onResultDownload={(position) => void exportSingle(position)} onAttach={() => fileInputRef.current?.click()} onPlan={quickPlan} onPackEdit={project ? () => void submit("全部變可愛一點") : undefined} onResume={project ? () => void submit("繼續製作") : undefined} disabled={busy} />
+        <input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*,.heic,.heif,.pdf" multiple onChange={handleFiles} />
+        <StudioComposer value={input} onChange={setInput} onSend={() => void submit()} onAttach={() => fileInputRef.current?.click()} attachments={attachments.map((attachment) => ({ id: attachment.id, name: attachment.fileName, mimeType: attachment.mimeType, preview: attachment.preview }))} onRemove={(id) => setAttachments((items) => items.filter((item) => item.id !== id))} inputRef={composerRef} disabled={busy} allowEmpty={attachments.length > 0} />
       </div>
       <aside className="task-panel"><div className="task-panel-head"><div><span className="eyebrow">STICKER TASKS</span><h2>{project ? "製作進度" : "等待你的需求"}</h2></div>{project && <div className="panel-buttons"><button className="line-export-button" onClick={() => void exportPack()} disabled={busy || (studio.data?.scripts.some((script) => !script.resultUrl) ?? true)}><Download size={14} />LINE ZIP</button><button className="continue-button" onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button></div>}</div>
-        {project && <section className="main-preflight" aria-label="LINE Preflight"><div><span className="eyebrow">LINE PREFLIGHT</span><strong>{preflight.exportReady ? "可建立 LINE ZIP" : `${preflight.completed} / ${preflight.total} 張可輸出`}</strong></div><p><Check size={13} />PNG 370 × 320（輸出時）</p><p className={preflight.transparentPassed === preflight.completed ? "passed" : "pending"}><Check size={13} />透明背景 {preflight.transparentPassed} / {preflight.completed}</p><p className={preflight.safeMarginPassed === preflight.completed ? "passed" : "pending"}><Check size={13} />10 px 安全邊距 {preflight.safeMarginPassed} / {preflight.completed}</p><p><Check size={13} />繁中以伺服器 SVG 後製</p></section>}
+        {project && <StudioPreflight total={preflight.total} completed={preflight.completed} transparent={preflight.transparentPassed} safeMargin={preflight.safeMarginPassed} exportReady={preflight.exportReady} />}
         {(studio.data?.references.length ?? 0) > 0 && <section className="reference-tray"><div className="reference-tray-head"><span>參考圖錨點</span><small>角色／姿勢／場景／風格</small></div><div className="reference-list">{studio.data!.references.slice(0, 6).map((reference) => <article key={reference.id} className={`reference-card ${reference.role}`}><img src={reference.url} alt={reference.fileName} /><div><strong>{reference.role === "accepted_character" ? "已確認角色" : reference.role === "pose" ? "姿勢" : reference.role === "scene" ? "場景" : reference.role === "style" || reference.role === "accepted_style" ? "風格" : "角色"}</strong><div className="reference-actions"><button onClick={() => void classifyReference(reference.id, "accepted_character")} disabled={busy}><Check size={11} />角色</button><button onClick={() => void classifyReference(reference.id, "pose")} disabled={busy}>姿勢</button><button onClick={() => void classifyReference(reference.id, "scene")} disabled={busy}>場景</button><button onClick={() => void classifyReference(reference.id, "style")} disabled={busy}>風格</button></div></div></article>)}</div></section>}
-        {studio.isLoading ? <div className="panel-loading"><Loader2 className="spin" />正在載入專案…</div> : (studio.data?.scripts.length ?? 0) === 0 ? <div className="task-empty"><ImagePlus size={24} /><strong>從一段對話開始</strong><span>AI 會自動建立角色設定與貼圖清單。</span></div> : <div className="task-grid">{studio.data!.scripts.map((script) => { const job = studio.data!.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1); const taskStatus = job?.status ?? script.status; const router = parseJson(job?.routerJson); const quality = parseJson(script.qualityReport); const versions = versionsByScript.get(script.id) ?? []; return <article className="sticker-task" key={script.id}><div className="task-image">{script.resultUrl ? <img src={script.resultUrl} alt={`第 ${script.position} 張 ${script.phrase}`} /> : <span>{script.position}</span>}<em className={`task-status ${taskStatus}`}>{statusLabel(taskStatus)}</em></div><div className="task-meta"><small>第 {script.position} 張 · {script.emotion}</small><strong>{script.phrase}</strong><span className="task-router">{providerLabel(router.selectedProvider)} · {quality.alphaVerified ? "透明已檢查" : "待品質檢查"}</span><div className="task-actions">{script.resultUrl && <button onClick={() => void exportSingle(script.position)} aria-label={`匯出第 ${script.position} 張 LINE PNG`} disabled={busy}><Download size={14} /></button>}<button onClick={() => requestEdit(script.position)} disabled={!script.resultUrl || busy}>告訴 AI 修改</button>{versions.length > 0 && <button onClick={() => setVersionInspector(versionInspector === script.id ? null : script.id)} disabled={busy}><History size={13} />V{versions.length}</button>}{["failed", "error", "paused_quota"].includes(taskStatus) && <button onClick={() => void retry(script.position)} disabled={busy}><RefreshCw size={13} />重試</button>}</div>{versionInspector === script.id && <div className="version-rail">{versions.map((version) => <button key={version.id} className={version.isActive ? "active" : ""} onClick={() => !version.isActive && void restore(script.position, version.id)} disabled={busy || version.isActive}>V{version.version}{version.isActive ? " · 使用中" : " · 回復"}</button>)}</div>}</div></article>; })}</div>}
+        {studio.isLoading ? <div className="panel-loading"><Loader2 className="spin" />正在載入專案…</div> : (studio.data?.scripts.length ?? 0) === 0 ? <div className="task-empty"><ImagePlus size={24} /><strong>從一段對話開始</strong><span>AI 會自動建立角色設定與貼圖清單。</span></div> : <div className="task-grid">{studio.data!.scripts.map((script) => { const job = studio.data!.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1); const taskStatus = job?.status ?? script.status; const router = parseJson(job?.routerJson); const quality = parseJson(script.qualityReport); const versions = versionsByScript.get(script.id) ?? []; return <StudioStickerTask key={script.id} position={script.position} phrase={script.phrase} emotion={script.emotion} imageUrl={script.resultUrl ?? undefined} status={taskStatus} router={providerLabel(router.selectedProvider)} quality={quality.alphaVerified ? "透明已檢查" : "待品質檢查"} versionLabel={`V${versions.length}`} onDownload={() => void exportSingle(script.position)} onEdit={() => requestEdit(script.position)} onVersion={() => setVersionInspector(versionInspector === script.id ? null : script.id)} onRetry={() => void retry(script.position)} versionRail={versionInspector === script.id ? <div className="version-rail">{versions.map((version) => <button key={version.id} className={version.isActive ? "active" : ""} onClick={() => !version.isActive && void restore(script.position, version.id)} disabled={busy || version.isActive}>V{version.version}{version.isActive ? " · 使用中" : " · 回復"}</button>)}</div> : undefined} />; })}</div>}
       </aside>
     </section>
   </main>;
@@ -9996,86 +10034,81 @@ export default function NotFound() {
 ### `client/src/pages/Preview.tsx`
 
 ````tsx
-import { ArrowLeft, CheckCircle2, ChevronRight, Download, Eye, FileArchive, ImageIcon, Images, LoaderCircle, MessageSquareText, Paperclip, Play, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, ChevronRight, Eye, FileWarning, Gauge, ImagePlus, Info, Play, RotateCcw, ShieldCheck, Sparkles, WandSparkles } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
+import { StudioAgentWorkspace, StudioComposer, StudioDemoExport, StudioMessage, StudioPreflight, StudioStickerTask, StudioTopbar, type SharedAttachment } from "@/components/StudioSharedUI";
+import "../chat-studio.css";
 import "../preview-demo.css";
 
 const demoRabbit = "/manus-storage/preview-demo-rabbit_4aabab59.png";
+const phrases = ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"];
+const scenes = ["元氣揮手", "雙手合十", "修正為正常四肢", "握拳鼓勵", "小跑揮手", "抱枕打呵欠", "開心跳起來", "抱著月亮"];
+const previewAttachments: SharedAttachment[] = [
+  { id: "character", name: "兔兔角色.png", preview: demoRabbit, role: "Character Reference · 已接受" },
+  { id: "pose", name: "跳躍姿勢.heic", preview: demoRabbit, role: "Pose Reference · HEIC → JPEG" },
+  { id: "style", name: "粉彩畫風.webp", preview: demoRabbit, role: "Style Reference · 已更新" },
+];
+type DemoStage = "request" | "analysis" | "generating" | "edited" | "anchors" | "quality" | "quota" | "export";
 
-const demoScripts = [
-  ["早安", "元氣揮手"], ["謝謝", "雙手合十"], ["收到", "俐落點頭"], ["加油", "握拳鼓勵"],
-  ["等等我", "小跑揮手"], ["好累喔", "抱枕打呵欠"], ["太好了", "開心跳起來"], ["晚安", "抱著月亮"],
+const stageSteps: Array<{ id: DemoStage; label: string }> = [
+  { id: "request", label: "對話需求" }, { id: "analysis", label: "理解與 Anchor" }, { id: "generating", label: "生成 8 張" }, { id: "edited", label: "修改 V2" }, { id: "anchors", label: "姿勢與風格" }, { id: "quality", label: "品質修正" }, { id: "quota", label: "Quota／續作" }, { id: "export", label: "LINE 輸出" },
 ];
 
-const demoEvents = [
-  ["分析 3 張參考圖", "已完成", "done"],
-  ["建立 Character Anchor", "已確認", "done"],
-  ["規劃 8 張日常貼圖", "已完成", "done"],
-  ["生成與品質檢查", "7 / 8 完成", "working"],
-] as const;
+function Notice({ text }: { text: string }) {
+  return <div className="preview-notice" role="status"><Info size={15} />{text}</div>;
+}
+
+function DemoConversation({ stage }: { stage: DemoStage }) {
+  const index = stageSteps.findIndex((item) => item.id === stage);
+  return <div className="message-list preview-message-list">
+    <StudioMessage role="user"><p>我想製作 LINE 貼圖</p></StudioMessage>
+    <StudioMessage role="assistant"><p>可以！請告訴我角色、想要的動作與文字。如果你沒有特別想法，我也可以直接幫你規劃。</p></StudioMessage>
+    {index >= 1 && <><StudioMessage role="user" attachments={previewAttachments.slice(0, 2)}><p>這是我的兔子，請做成可愛日常貼圖。</p></StudioMessage><StudioMessage role="assistant"><p>我已分析示範角色：白色兔子、粉彩比例與圓潤輪廓。已建立 <b>Character Anchor</b>，並把姿勢參考分開保存。</p></StudioMessage></>}
+    {index >= 2 && <StudioMessage role="assistant"><p>我已規劃 8 張貼圖，正在逐張生成、透明化與檢查。每一張都有獨立狀態與版本。</p></StudioMessage>}
+    {index >= 3 && <><StudioMessage role="user"><p>第3張多一隻腳</p></StudioMessage><StudioMessage role="assistant"><p>已只修改第 3 張，保留其他貼圖不變。第 3 張現在是 <b>V2</b>。</p></StudioMessage></>}
+    {index >= 4 && <><StudioMessage role="user"><p>用這張圖片的姿勢，但保留我的兔子。</p></StudioMessage><StudioMessage role="assistant"><p>已套用 <b>Character Reference + Pose Reference</b>，角色與姿勢會分別傳入下一張貼圖。</p></StudioMessage><StudioMessage role="user"><p>我喜歡這個風格，以後全部照這個。</p></StudioMessage><StudioMessage role="assistant"><p><b>Style Anchor 已更新</b>，後續計畫會優先沿用這個風格。</p></StudioMessage></>}
+    {index >= 5 && <StudioMessage role="assistant"><p>Quality Check：第 6 張安全邊距未通過 → Auto Fix 一次 → Regenerate → <b>Pass</b>。語意肢體檢查只有在實際視覺模型執行時才會標示結果。</p></StudioMessage>}
+    {index >= 6 && <StudioMessage role="assistant"><p>Quota exhausted → <b>Checkpoint saved</b>。已完成圖、Anchor、版本與未完成工作均已保存；輸入「繼續製作」會從未完成項目續跑。</p></StudioMessage>}
+    {index >= 7 && <StudioMessage role="assistant"><p>LINE Preflight Check 已完成：PNG、透明背景、安全邊距與繁中後製均已檢查。可下載單張 PNG 或整套 ZIP。</p></StudioMessage>}
+  </div>;
+}
+
+function DemoWorkspace({ embedded = false }: { embedded?: boolean }) {
+  const [stage, setStage] = useState<DemoStage>("export");
+  const [input, setInput] = useState("我想製作 LINE 貼圖");
+  const [notice, setNotice] = useState("");
+  const [selected, setSelected] = useState(2);
+  const stageIndex = stageSteps.findIndex((item) => item.id === stage);
+  const completed = stageIndex < 2 ? 0 : stageIndex === 2 ? 5 : 8;
+  const scriptRows = useMemo(() => phrases.map((phrase, index) => ({ position: index + 1, phrase, emotion: phrase, imageUrl: completed > index ? demoRabbit : undefined, status: completed > index ? "completed" : index === completed ? "generating" : "queued", version: index === 2 && stageIndex >= 3 ? "V2" : "V1" })), [completed, stageIndex]);
+  const pushStage = (next: DemoStage, message: string) => { setStage(next); setNotice(message); };
+  const sendDemo = () => {
+    if (input.includes("第3") || input.includes("第 3")) pushStage("edited", "Demo 已將第 3 張切換為 V2，未呼叫影像 API。");
+    else if (input.includes("姿勢")) pushStage("anchors", "Demo 已展示 Character + Pose Reference 的語意分工。");
+    else if (input.includes("風格")) pushStage("anchors", "Demo 已更新固定 Style Anchor 顯示。");
+    else if (input.includes("繼續")) pushStage("export", "Demo 已展示 checkpoint resume 後的完成狀態。");
+    else pushStage("analysis", "Demo 已進入角色分析與貼圖規劃；不會建立真實專案。");
+  };
+  const workspace = <section className="chat-layout preview-chat-layout"><div className="conversation-column"><DemoConversation stage={stage} /><StudioAgentWorkspace demo title={stageIndex >= 2 ? `${completed} / 8 張完成` : "從一句話、圖片或檔案開始"} copy={<p>固定 Demo 資料展示角色理解、貼圖規劃與可續作任務；所有操作只更新這個頁面的記憶體狀態。</p>} health={[{ label: "Gemini", status: "healthy" }, { label: "GPT Image", status: "healthy" }, { label: "FLUX.2", status: "disabled" }]} onAttach={() => pushStage("analysis", "已顯示唯讀角色／姿勢／風格附件，不會上傳。") } onPlan={(count) => pushStage("generating", `Demo 已規劃 ${count} 張；畫面固定展示前 8 張任務。`)} onPackEdit={() => { setInput("全部變可愛一點"); pushStage("edited", "Demo 已建立每張獨立 edit job 與版本。") }} onResume={() => pushStage("export", "Demo 已從 checkpoint 續作剩餘項目。")} />
+      <div className="demo-workflow-actions" aria-label="Demo 工作流程操作"><button onClick={() => pushStage("analysis", "AI 自動規劃：已建立 Character Anchor、Style Anchor 與 Sticker Plan。") }><WandSparkles size={14} />AI 自動規劃</button><button onClick={() => pushStage("generating", "開始製作：正在生成 8 張獨立貼圖。") }><Play size={14} />開始製作</button><button onClick={() => pushStage("quality", "Quality Check：第 6 張 Fail → Auto Fix → Regenerate → Pass。") }><RotateCcw size={14} />查看品質循環</button><button onClick={() => pushStage("quota", "Quota exhausted：Checkpoint saved，可點擊繼續製作。") }><FileWarning size={14} />Quota checkpoint</button></div>
+      <StudioComposer demo ariaLabel="示範聊天輸入" value={input} onChange={setInput} onSend={sendDemo} onAttach={() => pushStage("analysis", "示範附件已展開；不會開啟檔案選擇器或傳送檔案。")} attachments={previewAttachments} />
+    </div><aside className="task-panel"><div className="task-panel-head"><div><span className="eyebrow">STICKER TASKS</span><h2>Demo 製作進度</h2></div><StudioDemoExport onPng={() => setNotice("Demo PNG：僅展示下載操作，未建立檔案。")} onZip={() => pushStage("export", "Demo LINE ZIP：僅展示 Preflight 與匯出操作，未建立檔案。")} /></div><StudioPreflight demo total={8} completed={completed} transparent={completed} safeMargin={stageIndex >= 5 ? completed : Math.max(0, completed - 1)} exportReady={stageIndex >= 7} />
+      {stageIndex >= 1 && <section className="reference-tray"><div className="reference-tray-head"><span>參考圖錨點</span><small>Character／Pose／Style</small></div><div className="reference-list">{previewAttachments.map((attachment) => <article className="reference-card accepted_character" key={attachment.id}><img src={attachment.preview} alt="固定示範兔子" /><div><strong>{attachment.role}</strong><div className="reference-actions"><button onClick={() => pushStage("anchors", "Character Reference 已固定為兔子。")}>角色</button><button onClick={() => pushStage("anchors", "Pose Reference 已獨立套用。")}>姿勢</button><button onClick={() => pushStage("anchors", "Style Anchor 已更新。")}>風格</button></div></div></article>)}</div></section>}
+      <div className="task-grid">{scriptRows.map((script) => <StudioStickerTask key={script.position} position={script.position} phrase={script.phrase} emotion={scenes[script.position - 1]} imageUrl={script.imageUrl} status={script.status} router={script.position === 3 && stageIndex >= 3 ? "GPT Image edit" : "Gemini → GPT Image"} quality={script.position === 6 && stageIndex >= 5 ? "Fix → Pass" : "透明已檢查"} versionLabel={script.version} demo onEdit={() => { setSelected(script.position - 1); setInput(`第 ${script.position} 張請修改：`); pushStage("edited", `Demo 已開啟第 ${script.position} 張的 V2 修改。`); }} onRetry={() => pushStage("generating", `Demo 正在重試第 ${script.position} 張。`)} onDownload={() => setNotice(`Demo 第 ${script.position} 張 PNG：僅展示下載操作。`)} onVersion={() => { setSelected(script.position - 1); pushStage("edited", `Demo 已切換第 ${script.position} 張版本列。`); }} />)}</div>
+      <div className="preview-selected-note"><Gauge size={14} />目前聚焦：第 {selected + 1} 張「{phrases[selected]}」；{selected === 2 && stageIndex >= 3 ? "V2 已修正多餘肢體。" : "可由修改、重新生成、下載與版本按鈕操作。"}</div>
+    </aside></section>;
+  if (embedded) return <div className="embedded-demo">{workspace}</div>;
+  return <main className="chat-studio-shell preview-shell"><StudioTopbar demo /><Notice text="DEMO / PREVIEW · 這是 AI Inspection Preview，不代表真實 AI API 生成結果。固定 Demo 資料不登入、不上傳、不呼叫 Provider。" />{workspace}{notice && <Notice text={notice} />}<footer className="preview-footer"><span><ShieldCheck size={15} />公開唯讀 UI 驗收：所有操作皆為本機示範狀態</span><Link href="/preview/inspection">開啟 Inspection <ChevronRight size={15} /></Link></footer></main>;
+}
+
+function Inspection() {
+  const [view, setView] = useState<"desktop" | "mobile">("desktop");
+  return <main className="chat-studio-shell inspection-shell"><StudioTopbar demo /><Notice text="DEMO / PREVIEW · 這是 AI Inspection Preview，不代表真實 AI API 生成結果。Inspection 不讀取登入、專案、API Key 或真實 Provider。" /><section className="inspection-intro"><span className="eyebrow">AI / DEVELOPER INSPECTION</span><h1>以正式工作室元件檢查完整流程。</h1><p>切換 Desktop 或 Android 容器，即可直接檢視同一套 Chat、Composer、任務、版本、品質、配額與 LINE Preflight UI。所有資料皆固定且本機渲染。</p><div className="inspection-switch" role="group" aria-label="Inspection 視圖"><button className={view === "desktop" ? "active" : ""} onClick={() => setView("desktop")}>Desktop View</button><button className={view === "mobile" ? "active" : ""} onClick={() => setView("mobile")}>Mobile View</button></div></section><section className={`inspection-device ${view}`} aria-label={`${view} demo workspace`}><DemoWorkspace embedded /></section><section className="inspection-details"><article><h2>Selected Model／Fallback</h2><p>固定展示：Gemini 生成 → GPT Image 去背／修改；FLUX.2 因憑證未設定而 disabled。真實 health 僅在主工作室的安全查詢中取得。</p></article><article><h2>Quality Check／Retry</h2><p>固定流程：Fail → Auto Fix（一次上限）→ Regenerate → Pass。未執行視覺分析時不宣稱臉部或肢體語意已通過。</p></article><article><h2>Quota／Resume／Export</h2><p>固定流程：Quota exhausted → Checkpoint saved → Resume；LINE Preflight 顯示 PNG、透明背景、安全邊距、繁中後製與 ZIP。</p></article></section><div className="inspection-footer"><Link href="/preview">回到互動 Preview</Link><Link href="/">主工作室</Link></div></main>;
+}
 
 export default function Preview({ inspection = false }: { inspection?: boolean }) {
-  const [step, setStep] = useState(3);
-  const [selected, setSelected] = useState(2);
-  const [version, setVersion] = useState<1 | 2>(2);
-  const [showRepair, setShowRepair] = useState(false);
-  const [message, setMessage] = useState("幫我把這隻兔子做成 8 張可愛的繁體中文 LINE 貼圖");
-  const activeStep = Math.min(step, 3);
-
-  if (inspection) {
-    return (
-      <main className="preview-shell inspection-shell">
-        <header className="preview-header">
-          <Link href="/preview" className="preview-back"><ArrowLeft size={16} /> 回到 Preview</Link>
-          <span className="preview-mode"><ShieldCheck size={15} /> 唯讀 Inspection</span>
-        </header>
-        <section className="inspection-hero">
-          <span className="eyebrow">驗收展示，不連線外部模型</span>
-          <h1>貼圖 Agent 的可檢查工作鏈</h1>
-          <p>此頁只呈現固定示範狀態，用於檢視路由、Anchor、品質結果及 LINE 輸出前置檢查；不讀取登入資料、專案資料或 API 金鑰。</p>
-        </section>
-        <section className="inspection-grid">
-          <article className="inspect-card"><h2>Provider Router</h2><dl><div><dt>Gemini 3.1 Flash Image</dt><dd className="state-good">可用於多參考生成</dd></div><div><dt>GPT Image 2</dt><dd className="state-good">可用於修改／去背</dd></div><div><dt>FLUX.2</dt><dd className="state-off">未設定，保持 disabled</dd></div></dl><small>真實狀態會由主工作室的安全 health query 取得；本頁為示範快照。</small></article>
-          <article className="inspect-card"><h2>Quality Agent</h2><dl><div><dt>透明背景</dt><dd className="state-good">通過</dd></div><div><dt>安全邊距</dt><dd className="state-good">通過</dd></div><div><dt>繁中後製</dt><dd className="state-good">由伺服器 SVG 疊字</dd></div><div><dt>臉部／肢體語意</dt><dd className="state-warn">需要視覺模型時才自動判定</dd></div></dl><small>不會將尚未執行的語意視覺檢查誤標示為通過。</small></article>
-          <article className="inspect-card wide"><h2>Demo 流程覆蓋</h2><div className="inspect-flow">{["聊天需求", "參考圖語意角色", "Character／Style Anchor", "8 張計畫", "獨立工作", "品質修正", "版本回復", "LINE ZIP"].map((item, index) => <span key={item}><b>{index + 1}</b>{item}</span>)}</div><p>按「開啟互動 Demo」可回到公開 Preview，切換每個固定流程狀態。</p><Link href="/preview" className="preview-primary">開啟互動 Demo <ChevronRight size={16} /></Link></article>
-        </section>
-      </main>
-    );
-  }
-
-  return (
-    <main className="preview-shell">
-      <header className="preview-header">
-        <Link href="/" className="preview-back"><ArrowLeft size={16} /> 主工作室</Link>
-        <div className="preview-brand"><Sparkles size={17} /> Sticker Tycoon <span>Preview</span></div>
-        <Link href="/preview/inspection" className="preview-inspection"><Eye size={16} /> Inspection</Link>
-      </header>
-      <section className="preview-hero">
-        <div><span className="eyebrow"><ShieldCheck size={14} /> 公開唯讀示範</span><h1>像和 AI 對話一樣，完成一套貼圖。</h1><p>這是固定示範流程。可以點擊查看每一步，但不會上傳照片、不呼叫生成 API，也不會存取你的私人專案。</p></div>
-        <div className="demo-safety"><ImageIcon size={20} /><span><b>原創示範角色</b><br />非使用者照片／非生成結果</span></div>
-      </section>
-      <section className="preview-workspace">
-        <aside className="preview-timeline"><p className="panel-label">Demo Mode</p>{["描述需求", "理解角色", "規劃貼圖", "生成與檢查"].map((label, index) => <button key={label} className={index === activeStep ? "active" : index < activeStep ? "complete" : ""} onClick={() => setStep(index)}><span>{index < activeStep ? <CheckCircle2 size={16} /> : index + 1}</span>{label}</button>)}<div className="timeline-note"><ShieldCheck size={16} /> 所有資料均為固定 Demo 資料</div></aside>
-        <section className="preview-chat">
-          <div className="chat-note agent"><span className="agent-mark"><Sparkles size={15} /></span><div><b>貼圖 Agent</b><p>{activeStep === 0 ? "告訴我角色、張數與想要的感覺。我會先建立可調整的規劃。" : activeStep === 1 ? "我已讀取 3 張示範參考圖，將角色、姿勢與風格分開保存。" : activeStep === 2 ? "我規劃了 8 張日常情境，每張都有獨立狀態與版本。" : "我會逐張生成、做透明背景與邊界檢查；不合格只會安全修正一次。"}</p></div></div>
-          {activeStep >= 1 && <div className="reference-row"><span className="panel-label">參考圖語意</span>{[["角色", "accepted_character"], ["姿勢", "pose"], ["風格", "accepted_style"]].map(([label, role]) => <button key={label} className="reference-chip" onClick={() => setSelected(label === "角色" ? 0 : label === "姿勢" ? 1 : 2)}><img src={demoRabbit} alt="示範兔子角色" /><span>{label}</span><small>{role}</small></button>)}</div>}
-          <div className="demo-upload" aria-label="唯讀上傳示範">
-            <button type="button" onClick={() => setStep(Math.max(1, step))}><Paperclip size={16} /> 示範附件</button>
-            <div><Images size={15} /><span>兔兔角色.png</span><small>角色 · 已接受</small></div>
-            <div><ImageIcon size={15} /><span>跳躍姿勢.heic</span><small>HEIC → JPEG（裝置端）</small></div>
-            <div><Sparkles size={15} /><span>粉彩畫風.webp</span><small>風格參考</small></div>
-            <em>唯讀，不會實際上傳</em>
-          </div>
-          {activeStep >= 2 && <div className="demo-plan"><div className="plan-title"><div><span className="panel-label">貼圖計畫</span><b>兔兔的日常對話</b></div><span className="count-pill">8 張</span></div><div className="plan-list">{demoScripts.map(([phrase, scene], index) => <button key={phrase} className={selected === index ? "selected" : ""} onClick={() => setSelected(index)}><span>{String(index + 1).padStart(2, "0")}</span><b>{phrase}</b><small>{scene}</small></button>)}</div></div>}
-          {activeStep >= 3 && <div className="demo-result"><div className="result-visual"><img src={demoRabbit} alt="原創兔子貼圖示範" /><span className="demo-caption">{demoScripts[selected]?.[0]}</span></div><div className="result-copy"><span className="panel-label">第 {selected + 1} 張 · 可回復版本</span><h2>{demoScripts[selected]?.[1]}</h2><p>Router：Gemini → GPT Image 去背<br />品質：透明背景、邊界、尺寸已檢查；繁中由後製疊字。</p><div className="version-row"><button className={version === 1 ? "active" : ""} onClick={() => setVersion(1)}>V1 原始</button><button className={version === 2 ? "active" : ""} onClick={() => setVersion(2)}>V2 修改</button><button onClick={() => setShowRepair(!showRepair)}><RotateCcw size={14} /> {showRepair ? "已顯示修正紀錄" : "查看修正"}</button></div>{showRepair && <p className="repair-note">品質 Agent 曾發現安全邊距不足，僅執行一次修正；兩個版本都保留。</p>}</div></div>}
-          <div className="demo-composer"><input value={message} onChange={(event) => setMessage(event.target.value)} aria-label="示範聊天輸入" /><button onClick={() => setStep(Math.min(3, step + 1))} aria-label="推進示範流程"><Play size={16} /></button></div>
-        </section>
-        <aside className="preview-status"><p className="panel-label">Agent 工作狀態</p>{demoEvents.map(([label, status, tone]) => <div className="status-event" key={label}><span className={tone === "done" ? "status-done" : "status-working"}>{tone === "done" ? <CheckCircle2 size={15} /> : <LoaderCircle size={15} />}</span><div><b>{label}</b><small>{status}</small></div></div>)}<div className="preflight"><span className="panel-label">LINE Preflight</span><p><CheckCircle2 size={15} /> 370 × 320 PNG</p><p><CheckCircle2 size={15} /> 透明背景</p><p><CheckCircle2 size={15} /> 10 px 安全邊距</p><button><Download size={15} /> 單張 PNG</button><button><FileArchive size={15} /> LINE ZIP</button></div></aside>
-      </section>
-      <footer className="preview-footer"><span><MessageSquareText size={15} /> Demo 只展示 UI 與流程狀態</span><Link href="/preview/inspection">查看驗收說明 <ChevronRight size={15} /></Link></footer>
-    </main>
-  );
+  return inspection ? <Inspection /> : <DemoWorkspace />;
 }
 
 ````
@@ -10083,20 +10116,12 @@ export default function Preview({ inspection = false }: { inspection?: boolean }
 ### `client/src/preview-demo.css`
 
 ````css
-@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700&display=swap");
+.preview-shell{min-height:100vh}.preview-mode-badge{padding:5px 7px;color:#0a2535;border-radius:7px;background:linear-gradient(135deg,#79f0f9,#a78bfa);font:700 9px 'DM Mono',monospace;letter-spacing:.07em}.preview-notice{display:flex;align-items:flex-start;gap:7px;max-width:1320px;margin:13px auto 0;padding:10px 14px;color:#b8dceb;border:1px solid rgba(109,213,240,.2);border-radius:12px;background:rgba(9,47,68,.46);font-size:11px;line-height:1.55}.preview-notice svg{flex:0 0 auto;margin-top:1px;color:#82edf8}.preview-chat-layout{margin-top:14px;border-top:1px solid rgba(128,191,224,.12)}.preview-message-list{margin-bottom:4px}.demo-workflow-actions{display:flex;flex-wrap:wrap;gap:7px;width:100%;max-width:820px;margin:12px auto 0}.demo-workflow-actions button{display:inline-flex;align-items:center;gap:6px;padding:7px 9px;color:#bfebf4;border:1px solid rgba(113,218,243,.19);border-radius:9px;background:rgba(10,43,71,.45);cursor:pointer;font-size:10px}.demo-workflow-actions button:hover{border-color:rgba(119,231,251,.58);background:rgba(53,153,195,.16)}.preview-selected-note{display:flex;align-items:flex-start;gap:7px;margin:12px 6px 0;padding:9px;color:#91b6c8;border:1px solid rgba(119,193,224,.15);border-radius:10px;background:rgba(6,25,44,.4);font-size:10px;line-height:1.5}.preview-selected-note svg{flex:0 0 auto;color:#84e8f7}.preview-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1320px;margin:0 auto;padding:17px 4vw 26px;color:#7f9fb2;font-size:11px}.preview-footer span,.preview-footer a{display:flex;align-items:center;gap:6px}.preview-footer a{color:#82e7f5;text-decoration:none}.preview-footer a:hover{text-decoration:underline}
 
-.preview-shell { min-height: 100vh; color: #e9f6ff; background: radial-gradient(circle at 80% -5%, rgba(96, 94, 255, .24), transparent 30rem), radial-gradient(circle at 10% 0%, rgba(0, 212, 255, .18), transparent 24rem), #061423; font-family: "Noto Sans TC", sans-serif; padding: 0 5vw 32px; }
-.preview-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid rgba(160, 218, 255, .13); }
-.preview-back,.preview-inspection { display: inline-flex; align-items: center; gap: 7px; color: #a8c5d8; font-size: 13px; text-decoration: none; transition: color .18s ease; }.preview-back:hover,.preview-inspection:hover { color: #fff; }
-.preview-brand { display: flex; gap: 7px; align-items: center; font-weight: 700; letter-spacing: -.02em; }.preview-brand svg { color: #74f1ff; }.preview-brand span { font: 11px "DM Mono", monospace; padding: 3px 7px; border-radius: 999px; color: #85f3ff; background: rgba(19, 196, 231, .14); }
-.preview-hero { max-width: 1050px; padding: 52px 0 28px; display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }.eyebrow,.panel-label { display: inline-flex; align-items: center; gap: 6px; color: #71e9f5; font: 11px "DM Mono", monospace; text-transform: uppercase; letter-spacing: .08em; }.preview-hero h1,.inspection-hero h1 { margin: 10px 0 8px; font-size: clamp(28px, 4.5vw, 48px); line-height: 1.12; letter-spacing: -.055em; }.preview-hero p,.inspection-hero p { max-width: 690px; color: #9cb9cb; line-height: 1.75; font-size: 14px; }.demo-safety { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 1px solid rgba(113,233,245,.22); background: rgba(20,64,90,.28); border-radius: 16px; color: #a9c8d9; font-size: 12px; line-height: 1.55; }.demo-safety svg { color: #76f0fb; }.demo-safety b { color: #fff; }
-.preview-workspace { max-width: 1400px; display: grid; grid-template-columns: 185px minmax(0, 1fr) 235px; min-height: 610px; border: 1px solid rgba(152,211,250,.15); border-radius: 24px; overflow: hidden; background: linear-gradient(135deg, rgba(9,39,62,.83), rgba(8,21,38,.92)); box-shadow: 0 24px 70px rgba(0,0,0,.25); }.preview-timeline,.preview-status { padding: 22px 15px; background: rgba(3,15,27,.38); }.preview-timeline { border-right: 1px solid rgba(152,211,250,.12); }.preview-status { border-left: 1px solid rgba(152,211,250,.12); }.preview-timeline button { width: 100%; border: 0; color: #9eb9ca; background: transparent; padding: 13px 8px; margin: 5px 0; border-radius: 11px; display: flex; align-items: center; gap: 9px; text-align: left; font: 13px inherit; cursor: pointer; }.preview-timeline button span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(159,199,224,.35); color: #87abc0; font: 11px "DM Mono", monospace; }.preview-timeline button.active { color: #fff; background: rgba(59,178,238,.16); }.preview-timeline button.active span { color: #062034; border-color: #76effb; background: #76effb; }.preview-timeline button.complete span { color: #7bf0bc; border-color: transparent; }.timeline-note { margin: 20px 5px; border-top: 1px solid rgba(152,211,250,.12); padding-top: 17px; display: flex; gap: 7px; color: #7695aa; font-size: 11px; line-height: 1.5; }
-.preview-chat { min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px; }.chat-note { max-width: 680px; display: flex; gap: 10px; padding: 14px; border: 1px solid rgba(113,233,245,.18); border-radius: 16px 16px 16px 4px; background: rgba(11,62,85,.25); }.agent-mark { height: 26px; width: 26px; display: grid; place-items: center; border-radius: 9px; color: #082036; background: linear-gradient(135deg,#75f0fb,#8a9aff); }.chat-note b,.result-copy h2 { color: #fff; }.chat-note p { margin: 3px 0 0; color: #9ebacc; font-size: 13px; line-height: 1.6; }.reference-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }.reference-row > .panel-label { width: 100%; }.reference-chip { display: flex; align-items: center; gap: 7px; border: 1px solid rgba(155,210,240,.2); background: rgba(3,22,39,.5); color: #d7ecf6; padding: 5px 8px 5px 5px; border-radius: 11px; cursor: pointer; font: 12px inherit; }.reference-chip img { height: 26px; width: 26px; border-radius: 7px; object-fit: cover; background: #0d3045; }.reference-chip small { color: #6c9db8; font: 10px "DM Mono", monospace; }.demo-plan { border: 1px solid rgba(150,210,240,.16); border-radius: 16px; background: rgba(1,17,30,.26); overflow: hidden; }.plan-title { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(150,210,240,.12); }.plan-title b { display: block; margin-top: 3px; font-size: 14px; }.count-pill { padding: 4px 8px; border-radius: 999px; color: #92f6c8; font: 11px "DM Mono",monospace; background: rgba(89,234,165,.1); }.plan-list { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); }.plan-list button { min-height: 70px; padding: 10px; text-align: left; border: 0; border-right: 1px solid rgba(150,210,240,.1); border-bottom: 1px solid rgba(150,210,240,.1); background: transparent; color: #bdd2df; cursor: pointer; }.plan-list button.selected { background: rgba(39,156,219,.16); }.plan-list button span { display: block; color: #6091ab; font: 10px "DM Mono",monospace; }.plan-list button b { display:block; padding: 4px 0 1px; color:#effaff; font-size:13px; }.plan-list button small { color:#86a9ba; font-size:10px; }.demo-result { display: grid; grid-template-columns: 170px 1fr; gap: 16px; align-items: center; padding: 14px; border: 1px solid rgba(118,240,251,.17); background: linear-gradient(110deg, rgba(8,44,70,.54), rgba(9,24,43,.42)); border-radius: 17px; }.result-visual { position: relative; min-height: 148px; display:grid; place-items:center; border-radius: 13px; background: conic-gradient(from 45deg,rgba(64,151,197,.12),rgba(138,154,255,.14),rgba(64,151,197,.12)); overflow: hidden; }.result-visual img { width: 134px; height: 134px; object-fit: contain; }.demo-caption { position:absolute; bottom:10px; right:10px; padding:3px 7px; background:#fff; color:#144256; font-weight:700; border-radius:7px; font-size:12px; }.result-copy h2 { margin: 4px 0; font-size:18px; }.result-copy p { margin:0; color:#a2bdcd; line-height:1.65; font-size:12px; }.version-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.version-row button,.preflight button { border: 1px solid rgba(156,218,245,.2); padding: 6px 9px; border-radius: 8px; color:#b9dae9; background:rgba(2,17,29,.35); cursor:pointer; font:11px inherit; }.version-row button.active { color:#052334; background:#75effa; border-color:#75effa; }.repair-note { margin-top:8px !important; color:#f4d18b !important; }.demo-composer { margin-top:auto; padding-top:8px; display:flex; gap:8px; }.demo-composer input { min-width:0; flex:1; border:1px solid rgba(156,218,245,.18); padding:12px 14px; border-radius:12px; background:rgba(2,15,28,.65); color:#dceff8; outline:none; font:13px inherit; }.demo-composer button { width:42px; border:0; border-radius:12px; color:#062233; background:#74effa; cursor:pointer; }.status-event { display:flex; gap:8px; padding:12px 1px; border-bottom:1px solid rgba(152,211,250,.1); }.status-event b,.status-event small { display:block; font-size:11px; }.status-event small { color:#7899ac; margin-top:3px; }.status-done,.status-working { margin-top:2px; color:#7cf0b9; }.status-working { color:#71e9f5; animation: preview-pulse 1.5s ease-in-out infinite; }.preflight { margin-top:20px; padding:13px; border-radius:14px; background:rgba(11,79,80,.17); }.preflight .panel-label { margin-bottom:7px; }.preflight p { margin:7px 0; display:flex; gap:6px; align-items:center; color:#a4c6d4; font-size:11px; }.preflight p svg { color:#75efbd; }.preflight button { width:100%; margin-top:7px; display:flex; justify-content:center; align-items:center; gap:6px; }
-.demo-upload { display:flex; align-items:center; flex-wrap:wrap; gap:7px; padding:9px; border:1px dashed rgba(113,233,245,.24); border-radius:13px; background:rgba(3,34,53,.22); }.demo-upload button { display:inline-flex; align-items:center; gap:6px; border:0; border-radius:8px; color:#75effa; background:rgba(49,193,229,.13); padding:7px 9px; cursor:pointer; font:11px inherit; }.demo-upload div { display:flex; align-items:center; gap:5px; padding:5px 7px; color:#bdd7e5; border-radius:8px; background:rgba(2,17,29,.42); font-size:10px; }.demo-upload div svg { color:#90eaf2; }.demo-upload small { color:#779db2; }.demo-upload em { margin-left:auto; color:#6e94a8; font-size:10px; font-style:normal; }
-.preview-footer { max-width:1400px; display:flex; justify-content:space-between; padding:16px 2px; color:#7898aa; font-size:12px; }.preview-footer span,.preview-footer a { display:flex; align-items:center; gap:6px; }.preview-footer a { color:#86eaf3; text-decoration:none; }.inspection-hero { max-width:760px; padding:65px 0 25px; }.inspection-grid { max-width:1100px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }.inspect-card { padding:22px; border-radius:18px; border:1px solid rgba(150,210,240,.15); background:rgba(8,33,53,.6); }.inspect-card.wide { grid-column:span 2; }.inspect-card h2 { margin:0 0 16px; font-size:16px; }.inspect-card dl { margin:0; }.inspect-card dl div { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 0; border-top:1px solid rgba(150,210,240,.1); font-size:12px; }.inspect-card dt { color:#bfd5e1; }.inspect-card dd { margin:0; font-size:11px; }.state-good{color:#7ef0bc}.state-off{color:#7997aa}.state-warn{color:#f2cd86}.inspect-card small,.inspect-card p { color:#86a4b5; line-height:1.65; font-size:11px; }.inspect-flow { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }.inspect-flow span { padding:10px; border:1px solid rgba(150,210,240,.13); border-radius:10px; color:#b8d2de; font-size:12px; }.inspect-flow b { display:block; color:#74eef8; font:11px "DM Mono",monospace; margin-bottom:6px; }.preview-primary { display:inline-flex; align-items:center; gap:7px; margin-top:4px; color:#062433; background:#75effa; padding:9px 12px; border-radius:10px; text-decoration:none; font-size:12px; font-weight:700; }
-@keyframes preview-pulse { 50% { opacity:.35; } }
-@media (max-width: 980px) { .preview-workspace { grid-template-columns: 1fr; }.preview-timeline { border-right:0; border-bottom:1px solid rgba(152,211,250,.12); display:flex; align-items:center; gap:4px; overflow:auto; }.preview-timeline .panel-label,.timeline-note { display:none; }.preview-timeline button { min-width:126px; margin:0; }.preview-status { border-left:0; border-top:1px solid rgba(152,211,250,.12); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; }.preview-status>.panel-label { grid-column:span 2; }.preflight { margin-top:0; }.status-event { padding:10px 0; }.preview-hero { padding-top:34px; }.demo-safety { display:none; } }
-@media (max-width: 620px) { .preview-shell { padding:0 14px 22px; }.preview-header { min-height:62px; }.preview-brand { font-size:13px; }.preview-inspection { font-size:0; }.preview-inspection svg { width:19px; height:19px; }.preview-hero h1 { font-size:32px; }.preview-workspace { border-radius:17px; }.preview-chat { padding:14px; }.plan-list { grid-template-columns:repeat(2,minmax(0,1fr)); }.demo-result { grid-template-columns:105px 1fr; gap:10px; padding:10px; }.result-visual { min-height:105px; }.result-visual img { width:91px; height:91px; }.result-copy h2 { font-size:15px; }.result-copy p { font-size:10px; }.version-row button { padding:5px 6px; font-size:10px; }.preview-status { display:block; padding:14px; }.inspect-grid,.inspection-grid { grid-template-columns:1fr; }.inspect-card.wide { grid-column:auto; }.inspect-flow { grid-template-columns:repeat(2,1fr); }.preview-footer { gap:8px; font-size:11px; }.preview-footer a { white-space:nowrap; } }
+.inspection-shell{padding-bottom:36px}.inspection-intro{max-width:1050px;margin:0 auto;padding:42px clamp(18px,4vw,58px) 20px}.inspection-intro h1{max-width:700px;margin:10px 0;color:#f2fbff;font-size:clamp(29px,4.3vw,52px);letter-spacing:-.055em;line-height:1.12}.inspection-intro p{max-width:780px;margin:0;color:#a3bdcf;font-size:14px;line-height:1.75}.inspection-switch{display:flex;gap:7px;margin-top:18px}.inspection-switch button{padding:8px 11px;color:#b7d8e6;border:1px solid rgba(114,201,233,.22);border-radius:9px;background:rgba(9,34,56,.55);cursor:pointer;font-size:11px}.inspection-switch button.active{color:#062233;border-color:#7deef8;background:#7deef8}.inspection-device{width:min(1280px,calc(100% - 36px));margin:0 auto;overflow:hidden;border:1px solid rgba(120,207,241,.24);border-radius:18px;background:#06172a;box-shadow:0 22px 60px rgba(0,0,0,.28);transition:width .24s ease}.inspection-device.mobile{width:min(390px,calc(100% - 30px));border-radius:24px}.embedded-demo .chat-layout{min-height:auto}.embedded-demo .conversation-column{padding-top:28px}.embedded-demo .task-panel{min-height:100%}.inspection-details{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:min(1280px,calc(100% - 36px));margin:18px auto 0}.inspection-details article{padding:14px;border:1px solid rgba(113,196,228,.16);border-radius:14px;background:rgba(9,39,65,.58)}.inspection-details h2{margin:0 0 8px;color:#dff6ff;font-size:13px}.inspection-details p{margin:0;color:#93b3c5;font-size:11px;line-height:1.6}.inspection-footer{display:flex;justify-content:center;gap:16px;margin-top:18px}.inspection-footer a{color:#82e8f6;font-size:12px;text-decoration:none}.inspection-footer a:hover{text-decoration:underline}
+
+@media(max-width:900px){.preview-chat-layout{margin-top:12px}.embedded-demo .conversation-column{padding-top:28px}.inspection-details{grid-template-columns:1fr}.inspection-device.desktop{width:min(760px,calc(100% - 30px))}}
+@media(max-width:560px){.preview-mode-badge{display:none}.preview-notice{margin:9px 12px 0;padding:9px 10px;font-size:10px}.demo-workflow-actions{gap:5px}.demo-workflow-actions button{padding:6px 7px;font-size:9px}.preview-footer{align-items:flex-start;padding:15px 14px 22px;font-size:10px}.preview-footer span{max-width:210px}.inspection-intro{padding:29px 15px 16px}.inspection-intro h1{font-size:31px}.inspection-intro p{font-size:12px}.inspection-device{width:calc(100% - 20px)}.inspection-details{width:calc(100% - 20px)}}
 
 ````
 
@@ -10265,6 +10290,82 @@ Router 只挑選「目前已設定且符合任務能力」的 Provider：具備�
 ## 已知限制與後續驗收
 
 外部 Gemini／Forge API 的真實呼叫仍可能因帳戶額度回傳 `429`、`412` 或其他可恢復錯誤。這不會被受控 E2E 或 Preview 成功路徑誤稱為真實生成成功；系統會保存 checkpoint。要驗收真實視覺品質、角色一致性、臉部／肢體與模型內中文字，必須在有可用外部額度及取得使用者授權測試素材時，執行獨立的真實多圖 E2E。
+
+````
+
+### `docs/phase-4-preview-component-audit.md`
+
+````markdown
+# 第四階段：公開 AI Inspection Preview 元件盤點
+
+## 結論
+
+既有 `/preview` 已具備固定資料、匿名路由與零 Studio API 回歸，但使用獨立 `preview-demo.css` 與平行卡片結構，未能充分反映正式 `/` 工作室的聊天、任務、版本與 Preflight 視覺。第四階段將 Preview 改為以正式 `chat-studio.css` 的版面類別和抽出的共用視覺元件渲染，僅替換資料供應層與事件處理。
+
+| 正式工作室面向 | 原 Preview 狀態 | 第四階段處置 |
+| --- | --- | --- |
+| Topbar、品牌、Preview 導覽 | 視覺相近但為獨立 markup | 抽出共用 `StudioTopbar`，正式頁與 Preview 使用同一元件。 |
+| Chat message 與附件 | 獨立 `.chat-note` | 抽出共用 `StudioMessage`；Demo 以固定 user／assistant 內容、附件列與 Anchor 事件填入。 |
+| Composer | 獨立單行 input | 抽出共用 `StudioComposer`；Demo 使用相同上傳按鈕、textarea、送出按鈕，但事件只更新本機狀態。 |
+| Agent Workspace | 獨立 timeline | 抽出共用 `StudioAgentWorkspace`；顯示 8／16／24／32／40、上傳角色、AI 規劃、開始製作與 Router health。 |
+| Sticker task、版本、編輯、下載 | 僅聚焦單張結果 | 抽出共用 `StudioStickerTask`，Preview 呈現八張任務與 V2、重試、下載、版本本機互動。 |
+| LINE Preflight | 獨立 Preview 版卡片 | 抽出共用 `StudioPreflight`，正式工作室與 Demo 呈現同一摘要。 |
+| Inspection | 純資訊卡 | 嵌入同一 Demo 工作室，以 Desktop／Mobile 容器切換，同時顯示 Router、Retry、Quality、quota checkpoint 觀測資料。 |
+
+## 安全不變量
+
+Preview 與 Inspection 不引入 tRPC hook、fetch、檔案 input 或 Provider 呼叫。所有按鈕只更新 React 記憶體狀態；示範兔子是固定原創素材，所有訊息、品質、版本、Router 與 checkpoint 都是預先定義的非個資資料。每次回歸都必須攔截並拒絕 `/api/trpc`、外部影像端點與未預期網路請求。
+
+````
+
+### `docs/phase-4-preview-delivery.md`
+
+````markdown
+# 第四階段交付：公開 AI Inspection Preview
+
+## 交付目的
+
+`/preview` 與 `/preview/inspection` 是供外部 AI、開發者與測試人員匿名讀取的固定流程檢查頁，不是供使用者建立真實貼圖專案的替代入口。
+
+> **這是 AI Inspection Preview，不代表真實 AI API 生成結果。**
+
+| 公開頁面 | URL | 檢查重點 |
+| --- | --- | --- |
+| Preview | `https://stickertyco-wsz8yoes.manus.space/preview` | 完整 Demo 對話、附件、Anchor、八張任務、品質、quota 與 LINE 匯出流程。 |
+| Inspection | `https://stickertyco-wsz8yoes.manus.space/preview/inspection` | 同一流程的 Desktop View／Mobile View 與僅供開發檢查的 Router 摘要。 |
+
+## 正式 UI 共用方式
+
+Preview 不複製或另寫平行假 UI。正式首頁與公開頁面共同使用 `client/src/components/StudioSharedUI.tsx`：`StudioTopbar`、`StudioMessage`、`StudioAgentWorkspace`、`StudioComposer`、`StudioStickerTask`、`StudioPreflight` 與 `StudioDemoExport`。兩者共用 `client/src/chat-studio.css` 的版型、訊息、Composer、任務卡、Preflight 和匯出樣式；`preview-demo.css` 僅補充 Demo notice、流程控制與 Inspection 裝置框。
+
+正式首頁保留真實 tRPC、檔案選擇、HEIC 裝置端轉檔、專案保存、Provider 路由、版本回復與 PNG／ZIP 匯出。公開頁則明確將所有控制限制為本頁 React state，避免示範頁誤成真實製作入口。
+
+## 固定流程覆蓋
+
+| 流程 | Preview 中的固定示範 |
+| --- | --- |
+| Chat-first 起點 | 「我想製作 LINE 貼圖」與助理引導；8／16／24／32／40 張、上傳角色、AI 自動規劃、開始製作按鈕。 |
+| 附件與 Anchor | 固定兔子角色圖、HEIC → JPEG 姿勢附件、Character／Pose／Style Reference 與 Style Anchor 已更新。 |
+| 任務與版本 | 八張獨立 Sticker Cards、每張修改／重新生成／下載／版本；第 3 張為 V2。 |
+| 對話修改 | 「第3張多一隻腳」只切換 Demo 的第 3 張 V2；「保留我的兔子」展示 Character + Pose Reference。 |
+| 品質與 Router | Quality Fail → Auto Fix → Regenerate → Pass；Inspection 才呈現 Selected Model／Fallback、Quality Check／Retry。 |
+| 中斷與輸出 | Quota exhausted → Checkpoint saved → Resume；LINE Preflight、PNG、ZIP 與下載示範控制。 |
+
+## 安全與匿名邊界
+
+固定 Demo 僅含非個資兔子圖，沒有使用者照片、真實 projectKey、cookie 狀態、預簽 S3 URL、API Key、token 或其他秘密。頁面不讀取 `localStorage`，不開啟真實檔案選擇、不上傳檔案、不呼叫 `/api/trpc`，也不呼叫 Gemini、GPT Image、Forge、FLUX 或其他外部影像 Provider。所有按鈕僅改變本頁的示範狀態並顯示 DEMO／PREVIEW notice。
+
+## 驗收紀錄
+
+| 驗收項目 | 結果 |
+| --- | --- |
+| Preview 桌面 1280px | 通過；八張任務、V2、品質、quota、Preflight、PNG／ZIP 與零 API 斷言成功。 |
+| Preview Android 390px | 通過；垂直閱讀順序與任務卡無水平溢位，零 API 斷言成功。 |
+| Inspection Desktop／Mobile View | 通過；切換可在同一正式元件流程中運作，Router 摘要只出現在 Inspection。 |
+| 正式首頁桌面／Android 回歸 | 通過；共享元件後仍完成八張工作、修改、續作、參考圖更新、版本回復與 ZIP 匯出。 |
+| 型別與敏感資訊檢查 | 第四階段變更完成後執行 `pnpm check` 與提交前秘密掃描。 |
+
+真實外部模型是否能完成生成仍取決於伺服器端設定、服務可用性與帳戶額度。Demo 的所有成功結果均為固定流程資料，不應被解讀為實際 Gemini、GPT Image 或 FLUX 生成已成功。
 
 ````
 
@@ -22513,6 +22614,17 @@ snapshots:
 | 中文文字可靠性 | 圖像模型不負責最終中文字；伺服器端用 `Noto Sans CJK TC` SVG 後製，避免亂碼、錯字與文字截斷。 |
 | LINE 輸出 | 產生透明 PNG、主圖、聊天室縮圖與 ZIP；檢查 370×320、透明 alpha、偶數尺寸、單圖 1 MB、套組 60 MB 等規格。 |
 
+## 公開 AI Inspection Preview
+
+> **這是 AI Inspection Preview，不代表真實 AI API 生成結果。**
+
+| 頁面 | 可直接開啟的 URL | 用途 |
+| --- | --- | --- |
+| Preview | [https://stickertyco-wsz8yoes.manus.space/preview](https://stickertyco-wsz8yoes.manus.space/preview) | 不登入即可查看固定 Demo 的完整 Chat-first 工作流程。 |
+| Inspection | [https://stickertyco-wsz8yoes.manus.space/preview/inspection](https://stickertyco-wsz8yoes.manus.space/preview/inspection) | 提供 Desktop View 與 Mobile View，供外部 AI、開發者與測試人員檢查完整介面。 |
+
+兩頁皆**不需要登入、API Key 或私人資料**。它們僅使用固定且非個資的兔子 Demo 圖與 React 本頁狀態；不讀取 `localStorage`、不建立專案、不上傳檔案、不呼叫 `/api/trpc` 或任何外部影像 Provider。Preview 直接復用正式工作室的 `StudioTopbar`、`StudioMessage`、`StudioComposer`、`StudioAgentWorkspace`、`StudioStickerTask`、`StudioPreflight` 與相同 `chat-studio.css`，因此不是另一套平行展示 UI。
+
 ## 技術架構
 
 - **前端：** React 19、Tailwind 4、tRPC React、手機優先 CSS。
@@ -22557,9 +22669,9 @@ pnpm test
 pnpm build
 
 # 瀏覽器回歸
-node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
-node scripts/verify-preview-demo.mjs
+VIEWPORT=mobile node scripts/verify-chat-studio-flow.mjs
+VIEWPORT=desktop node scripts/verify-preview-demo.mjs
 VIEWPORT=mobile node scripts/verify-preview-demo.mjs
 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
@@ -22612,6 +22724,8 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`docs/phase-2-agent-design.md`](docs/phase-2-agent-design.md)：Agent 資料模型、錯誤／fallback、品質、Anchor、版本與聊天室設計。
 - [`docs/phase-3-capability-audit.md`](docs/phase-3-capability-audit.md)：第三階段 Provider、Agent、品質、Preview 與安全驗收基線。
 - [`docs/phase-3-delivery.md`](docs/phase-3-delivery.md)：第三階段已交付能力、不可宣稱能力、無 migration 判斷、測試紀錄與真實 API 限制。
+- [`docs/phase-4-preview-component-audit.md`](docs/phase-4-preview-component-audit.md)：正式工作室與公開 Preview 的共用元件盤點及去除平行 UI 的決策。
+- [`docs/phase-4-preview-delivery.md`](docs/phase-4-preview-delivery.md)：公開 Preview／Inspection 的流程覆蓋、安全邊界與驗收紀錄。
 
 ## 重要限制
 
@@ -23024,6 +23138,10 @@ const excludedDirs = new Set(["node_modules", "dist", ".git", ".manus-logs", "co
 const excludedFiles = new Set(["generated-10-stickers.json", "chat-studio-flow-desktop.json", "chat-studio-flow-mobile.json", "chat-heic-upload-result.json", "chat-quota-resume-result.json", "android-real-server-quota-result.json", "android-controlled-success-result.json", "gemini-image-connection-result.json", "research-gemini-video.txt"]);
 const extensions = new Set([".ts", ".tsx", ".css", ".html", ".json", ".mjs", ".sql", ".md", ".patch"]);
 const language = (filename) => ({ ".ts": "typescript", ".tsx": "tsx", ".css": "css", ".html": "html", ".json": "json", ".mjs": "javascript", ".sql": "sql", ".md": "markdown", ".patch": "diff" }[path.extname(filename)] ?? "text");
+const amzSignaturePattern = new RegExp("X-Amz-Signature" + "=[^&\\s)]+", "g");
+const googSignaturePattern = new RegExp("X-Goog-Signature" + "=[^&\\s)]+", "g");
+const redactedAmzSignature = "X-Amz-Signature" + "=<已遮蔽>";
+const redactedGoogSignature = "X-Goog-Signature" + "=<已遮蔽>";
 
 async function collect(directory) {
   const output = [];
@@ -23045,7 +23163,7 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 **建立日期：** 2026-08-26（GMT+8）
 **專案目錄：** \`sticker-tycoon-replica\`
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
-**GitHub 安全分支基線：** \`phase2-agent-router\`（不改動既有 \`chat-first-studio\` 與 \`main\`；第三階段推送前必須重新確認遠端是否分岔。）
+**GitHub 同步狀態：** 第三階段完整來源已安全推送至 \`phase3-provider-preview\`。使用者指定的 \`chat-first-studio\` 曾與本機基線分岔；第四階段同步前必須比較遠端差異並取得使用者選擇，絕不 force push。
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
@@ -23060,7 +23178,7 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 | Anchor 與一致性 | 角色、已確認角色、姿勢、場景、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
 | 圖像修改、品質與版本 | 品質 Agent 會檢查透明覆蓋、尺寸、邊界與文字長度，回傳 pass／fail／reason／suggestedFix；僅安全 Fix 一次再重檢。生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
 | 整套自然語言修改 | 「全部變可愛一點」與「全部去背」會建立每張獨立 edit job／版本，跳過已合格圖片與 queued／retrying／paused 生成工作。 |
-| 公開驗收 | Preview／Inspection 使用固定原創示範資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API；回歸腳本驗證此邊界。 |
+| 公開驗收 | Preview／Inspection 使用固定非個資兔子資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API 或影像 Provider。它們直接共用正式的 Topbar、Message、Composer、Agent Workspace、Sticker Task 與 Preflight 元件及 \`chat-studio.css\`，不是平行假 UI；Inspection 額外提供 Desktop／Mobile 檢視與 Router 摘要。 |
 | 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
 | 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
 
@@ -23070,12 +23188,13 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 
 受控測試模式 \`STICKER_E2E_TEST_MODE=1\` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
-## 3. 第二、三階段研究、設計與驗證
+## 3. 第二至四階段研究、設計與驗證
 
 - \`research/phase-2-model-router-research.md\`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
 - \`docs/phase-2-agent-design.md\`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
 - \`drizzle/0003_grey_sentinel.sql\`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
 - \`docs/phase-3-capability-audit.md\`、\`docs/phase-3-delivery.md\`：Provider 可用性、Adapter、Quality Fix、Preview、已知限制與交付驗收。
+- \`docs/phase-4-preview-component-audit.md\`、\`docs/phase-4-preview-delivery.md\`：首頁與 Preview 的共用元件決策、固定 Demo 流程、匿名安全邊界、桌面／Android 驗收與公開 URL。
 - 第三階段未變更 Drizzle schema；Router／品質／pack scope／scene role 使用既有文字與 JSON 欄位、Agent events 保存，故不需 migration。
 
 | 驗證 | 結果 |
@@ -23083,7 +23202,7 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 | \`pnpm check\` | 通過。 |
 | \`pnpm test\` | 通過；33 項單元／整合測試，覆蓋 Provider Adapter、FLUX disabled、health／quota fallback、Quality Fix、角色／姿勢／場景／風格 Anchor、整套修改、queued／retrying／paused 保留、版本與 LINE PNG／ZIP。 |
 | \`pnpm build\` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
-| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC 示範與零 Studio API 呼叫。 |
+| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC、八張任務、V2、品質、quota、Desktop／Mobile View，以及零 Studio API／影像 Provider 呼叫。 |
 | 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
 
 ## 4. 給下一位 AI／工程師的優先事項
@@ -23114,14 +23233,14 @@ for (const relative of unique) {
   const content = await readFile(path.join(projectRoot, relative), "utf8");
   const safeContent = content
     .replace(/\/home\/ubuntu\/upload\/[^'"\s)]+/g, "<已遮蔽使用者測試素材路徑>")
-    .replace(/X-Amz-Signature=<已遮蔽>&\s)]+/g, "X-Amz-Signature=<已遮蔽>)
-    .replace(/X-Goog-Signature=<已遮蔽>&\s)]+/g, "X-Goog-Signature=<已遮蔽>);
+    .replace(amzSignaturePattern, redactedAmzSignature)
+    .replace(googSignaturePattern, redactedGoogSignature);
   sources += `### \`${relative}\`\n\n${fence}${language(relative)}\n${safeContent}\n${fence}\n\n`;
 }
 
 const footer = `## 6. 交接結論
 
-此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環、主工作室 LINE Preflight，以及無 API／無私人資料的 Preview／Inspection。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、\`docs/phase-3-delivery.md\`、測試與原始碼作為後續實作依據。\n`;
+此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環與主工作室 LINE Preflight；第四階段讓公開 Preview／Inspection 直接共用正式 Chat-first Studio UI，以固定 Demo 展示完整流程，並保持無登入、無 API、無秘密與無私人資料。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、\`docs/phase-3-delivery.md\`、\`docs/phase-4-preview-delivery.md\`、測試與原始碼作為後續實作依據。\n`;
 
 await writeFile(outputPath, `${overview}${sources}${footer}`, "utf8");
 console.log(JSON.stringify({ outputPath, sourceFileCount: unique.length }));
@@ -23764,35 +23883,63 @@ try {
 import { chromium } from "playwright-core";
 
 const baseUrl = process.env.PREVIEW_BASE_URL ?? "http://localhost:3000";
-const viewport = process.env.VIEWPORT === "mobile" ? { width: 390, height: 844 } : { width: 1280, height: 720 };
+const viewportName = process.env.VIEWPORT === "mobile" ? "mobile" : "desktop";
+const viewport = viewportName === "mobile" ? { width: 390, height: 844 } : { width: 1280, height: 900 };
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport });
 const apiCalls = [];
+const providerCalls = [];
+const consoleErrors = [];
+page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
+page.on("pageerror", (error) => consoleErrors.push(error.message));
 page.on("request", (request) => {
-  if (request.url().includes("/api/trpc")) apiCalls.push(request.url());
+  const url = request.url();
+  if (url.includes("/api/trpc")) apiCalls.push(url);
+  if (/generativelanguage|openai|forge|blackforestlabs|fal\.ai/i.test(url)) providerCalls.push(url);
 });
 
-await page.goto(`${baseUrl}/preview`, { waitUntil: "networkidle" });
-await page.getByText("公開唯讀示範").waitFor();
-await page.getByText("兔兔的日常對話").waitFor();
-await page.getByRole("button", { name: "示範附件" }).waitFor();
-await page.getByText("跳躍姿勢.heic").waitFor();
-await page.getByText("HEIC → JPEG（裝置端）").waitFor();
-await page.getByText("唯讀，不會實際上傳").waitFor();
-await page.getByRole("button", { name: "V1 原始" }).click();
-await page.getByRole("button", { name: /查看修正|已顯示修正紀錄/ }).click();
-await page.getByRole("button", { name: "描述需求" }).click();
-await page.getByRole("button", { name: "生成與檢查" }).click();
-if (apiCalls.length) throw new Error(`Preview 不應呼叫 Studio API：${apiCalls.join(", ")}`);
+try {
+  await page.goto(`${baseUrl}/preview`, { waitUntil: "networkidle" });
+  if (!page.url().endsWith("/preview")) throw new Error(`Preview 不應要求登入或重新導向：${page.url()}`);
+  await page.getByText("AI Inspection Preview，不代表真實 AI API 生成結果").waitFor();
+  await page.getByText("我想製作 LINE 貼圖").first().waitFor();
+  await page.getByText("可以！請告訴我角色、想要的動作與文字").waitFor();
+  await page.getByText("Character Anchor").waitFor();
+  await page.getByText("Style Anchor 已更新").waitFor();
+  await page.getByText("Quota exhausted").waitFor();
+  await page.getByText("Checkpoint saved").waitFor();
+  await page.getByText("LINE Preflight Check 已完成").waitFor();
+  await page.getByRole("button", { name: "8 張", exact: true }).waitFor();
+  await page.getByRole("button", { name: "16 張", exact: true }).waitFor();
+  await page.getByRole("button", { name: "24 張", exact: true }).waitFor();
+  await page.getByRole("button", { name: "32 張", exact: true }).waitFor();
+  await page.getByRole("button", { name: "40 張", exact: true }).waitFor();
+  if (await page.locator(".sticker-task").count() !== 8) throw new Error("Preview 應完整顯示 8 張獨立貼圖任務");
+  await page.getByText("V2").first().waitFor();
+  await page.getByText("Fix → Pass").waitFor();
+  await page.getByText("370 × 320").waitFor();
+  await page.getByRole("button", { name: "AI 自動規劃" }).click();
+  await page.getByRole("button", { name: "Quota checkpoint" }).click();
+  await page.getByLabel("示範聊天輸入").fill("第3張多一隻腳");
+  await page.locator(".composer-wrap .send-button").click();
+  await page.getByText("Demo 已將第 3 張切換為 V2").waitFor();
 
-await page.goto(`${baseUrl}/preview/inspection`, { waitUntil: "networkidle" });
-await page.getByText("貼圖 Agent 的可檢查工作鏈").waitFor();
-await page.getByText("FLUX.2").waitFor();
-await page.getByText("未設定，保持 disabled").waitFor();
-if (apiCalls.length) throw new Error(`Inspection 不應呼叫 Studio API：${apiCalls.join(", ")}`);
-
-console.log(JSON.stringify({ viewport, previewApiCalls: apiCalls.length, inspection: "ok" }));
-await browser.close();
+  await page.goto(`${baseUrl}/preview/inspection`, { waitUntil: "networkidle" });
+  if (!page.url().endsWith("/preview/inspection")) throw new Error(`Inspection 不應要求登入或重新導向：${page.url()}`);
+  await page.getByText("以正式工作室元件檢查完整流程").waitFor();
+  await page.getByRole("button", { name: "Desktop View" }).waitFor();
+  await page.getByRole("button", { name: "Mobile View" }).click();
+  await page.locator(".inspection-device.mobile").waitFor();
+  await page.getByText("Selected Model／Fallback").waitFor();
+  await page.getByText("Quality Check／Retry").waitFor();
+  await page.getByText("Quota／Resume／Export").waitFor();
+  if (apiCalls.length) throw new Error(`Preview 不應呼叫 Studio API：${apiCalls.join(", ")}`);
+  if (providerCalls.length) throw new Error(`Preview 不應呼叫影像 Provider：${providerCalls.join(", ")}`);
+  if (consoleErrors.length) throw new Error(`Preview 出現 console error：${consoleErrors.join(" | ")}`);
+  console.log(JSON.stringify({ ok: true, viewport: viewportName, apiCalls: apiCalls.length, providerCalls: providerCalls.length, taskCount: 8, inspectionMobile: true }));
+} finally {
+  await browser.close();
+}
 
 ````
 
@@ -29111,7 +29258,17 @@ export * from "./_core/errors";
 - [x] 在主 Chat-first／Android 工作室加入明確 LINE Preflight 摘要，顯示 PNG 尺寸、透明背景、安全邊距、繁中後製與可匯出狀態。
 - [x] 擴充主工作室桌面／Android 回歸，明確驗證 24／32／40 張快捷規劃、Provider health 與 LINE Preflight 區塊均可見且可操作。
 - [x] 確認第三階段未變更資料 schema、無需 migration；增加 Provider／fallback／品質修正／Preview／Demo／秘密掃描的自動測試，並完成全套測試、production build、桌面與 Android 回歸。
-- [ ] 更新 README、Provider／Anchor／品質／Preview 文件、安全交接包與 GitHub 同步紀錄；若 `chat-first-studio` 再次分岔，先徵求使用者選擇安全整合方式。
+- [x] 更新 README、Provider／Anchor／品質／Preview 文件、安全交接包與 GitHub 同步紀錄；因 `chat-first-studio` 已分岔，依使用者選擇同步至新安全分支 `phase3-provider-preview`，未改動既有分支。
+
+# 第四階段：公開 AI Inspection Preview
+
+- [x] 盤點正式 Chat-first 工作室與現有 `/preview`、`/preview/inspection` 的元件、CSS、資料流及展示差距。
+- [x] 抽取或復用正式 Chat、Composer、訊息、貼圖卡、進度、版本、修改、匯出與 LINE Preflight 視覺元件，使 Preview 不再維護不同風格的假 UI。
+- [x] 建立固定、非個資、零 API 的完整 Demo 對話流程：需求、角色／風格／姿勢 Anchor、8 張生成、單張 V2 修改、品質 Fail→Fix→Pass、Router、quota checkpoint 與 LINE 輸出。
+- [x] 完善 `/preview/inspection` 的 Desktop／Mobile 視圖、開發者檢查資訊與完整流程導航，同時不外露使用者資料、憑證或實際 Provider 請求。
+- [x] 在 Preview 與 README 明確標示「AI Inspection Preview，不代表真實 AI API 生成結果」，列出可匿名開啟的 Preview／Inspection URL 與安全限制。
+- [ ] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
+- [ ] 安全整合完整修改至 GitHub `chat-first-studio`；若遠端分岔，先檢視差異並徵求使用者同意採用合併或新分支，絕不 force push。
 
 ````
 
@@ -29367,4 +29524,4 @@ export default defineConfig({
 
 ## 6. 交接結論
 
-此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環、主工作室 LINE Preflight，以及無 API／無私人資料的 Preview／Inspection。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、`docs/phase-3-delivery.md`、測試與原始碼作為後續實作依據。
+此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環與主工作室 LINE Preflight；第四階段讓公開 Preview／Inspection 直接共用正式 Chat-first Studio UI，以固定 Demo 展示完整流程，並保持無登入、無 API、無秘密與無私人資料。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、`docs/phase-3-delivery.md`、`docs/phase-4-preview-delivery.md`、測試與原始碼作為後續實作依據。

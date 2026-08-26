@@ -23,6 +23,17 @@
 | 中文文字可靠性 | 圖像模型不負責最終中文字；伺服器端用 `Noto Sans CJK TC` SVG 後製，避免亂碼、錯字與文字截斷。 |
 | LINE 輸出 | 產生透明 PNG、主圖、聊天室縮圖與 ZIP；檢查 370×320、透明 alpha、偶數尺寸、單圖 1 MB、套組 60 MB 等規格。 |
 
+## 公開 AI Inspection Preview
+
+> **這是 AI Inspection Preview，不代表真實 AI API 生成結果。**
+
+| 頁面 | 可直接開啟的 URL | 用途 |
+| --- | --- | --- |
+| Preview | [https://stickertyco-wsz8yoes.manus.space/preview](https://stickertyco-wsz8yoes.manus.space/preview) | 不登入即可查看固定 Demo 的完整 Chat-first 工作流程。 |
+| Inspection | [https://stickertyco-wsz8yoes.manus.space/preview/inspection](https://stickertyco-wsz8yoes.manus.space/preview/inspection) | 提供 Desktop View 與 Mobile View，供外部 AI、開發者與測試人員檢查完整介面。 |
+
+兩頁皆**不需要登入、API Key 或私人資料**。它們僅使用固定且非個資的兔子 Demo 圖與 React 本頁狀態；不讀取 `localStorage`、不建立專案、不上傳檔案、不呼叫 `/api/trpc` 或任何外部影像 Provider。Preview 直接復用正式工作室的 `StudioTopbar`、`StudioMessage`、`StudioComposer`、`StudioAgentWorkspace`、`StudioStickerTask`、`StudioPreflight` 與相同 `chat-studio.css`，因此不是另一套平行展示 UI。
+
 ## 技術架構
 
 - **前端：** React 19、Tailwind 4、tRPC React、手機優先 CSS。
@@ -67,9 +78,9 @@ pnpm test
 pnpm build
 
 # 瀏覽器回歸
-node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
-node scripts/verify-preview-demo.mjs
+VIEWPORT=mobile node scripts/verify-chat-studio-flow.mjs
+VIEWPORT=desktop node scripts/verify-preview-demo.mjs
 VIEWPORT=mobile node scripts/verify-preview-demo.mjs
 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
@@ -122,6 +133,8 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`docs/phase-2-agent-design.md`](docs/phase-2-agent-design.md)：Agent 資料模型、錯誤／fallback、品質、Anchor、版本與聊天室設計。
 - [`docs/phase-3-capability-audit.md`](docs/phase-3-capability-audit.md)：第三階段 Provider、Agent、品質、Preview 與安全驗收基線。
 - [`docs/phase-3-delivery.md`](docs/phase-3-delivery.md)：第三階段已交付能力、不可宣稱能力、無 migration 判斷、測試紀錄與真實 API 限制。
+- [`docs/phase-4-preview-component-audit.md`](docs/phase-4-preview-component-audit.md)：正式工作室與公開 Preview 的共用元件盤點及去除平行 UI 的決策。
+- [`docs/phase-4-preview-delivery.md`](docs/phase-4-preview-delivery.md)：公開 Preview／Inspection 的流程覆蓋、安全邊界與驗收紀錄。
 
 ## 重要限制
 

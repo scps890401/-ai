@@ -128,3 +128,13 @@
 - [x] 擴充主工作室桌面／Android 回歸，明確驗證 24／32／40 張快捷規劃、Provider health 與 LINE Preflight 區塊均可見且可操作。
 - [x] 確認第三階段未變更資料 schema、無需 migration；增加 Provider／fallback／品質修正／Preview／Demo／秘密掃描的自動測試，並完成全套測試、production build、桌面與 Android 回歸。
 - [x] 更新 README、Provider／Anchor／品質／Preview 文件、安全交接包與 GitHub 同步紀錄；因 `chat-first-studio` 已分岔，依使用者選擇同步至新安全分支 `phase3-provider-preview`，未改動既有分支。
+
+# 第四階段：公開 AI Inspection Preview
+
+- [x] 盤點正式 Chat-first 工作室與現有 `/preview`、`/preview/inspection` 的元件、CSS、資料流及展示差距。
+- [x] 抽取或復用正式 Chat、Composer、訊息、貼圖卡、進度、版本、修改、匯出與 LINE Preflight 視覺元件，使 Preview 不再維護不同風格的假 UI。
+- [x] 建立固定、非個資、零 API 的完整 Demo 對話流程：需求、角色／風格／姿勢 Anchor、8 張生成、單張 V2 修改、品質 Fail→Fix→Pass、Router、quota checkpoint 與 LINE 輸出。
+- [x] 完善 `/preview/inspection` 的 Desktop／Mobile 視圖、開發者檢查資訊與完整流程導航，同時不外露使用者資料、憑證或實際 Provider 請求。
+- [x] 在 Preview 與 README 明確標示「AI Inspection Preview，不代表真實 AI API 生成結果」，列出可匿名開啟的 Preview／Inspection URL 與安全限制。
+- [ ] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
+- [ ] 安全整合完整修改至 GitHub `chat-first-studio`；若遠端分岔，先檢視差異並徵求使用者同意採用合併或新分支，絕不 force push。

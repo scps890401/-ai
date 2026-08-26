@@ -9,6 +9,10 @@ const excludedDirs = new Set(["node_modules", "dist", ".git", ".manus-logs", "co
 const excludedFiles = new Set(["generated-10-stickers.json", "chat-studio-flow-desktop.json", "chat-studio-flow-mobile.json", "chat-heic-upload-result.json", "chat-quota-resume-result.json", "android-real-server-quota-result.json", "android-controlled-success-result.json", "gemini-image-connection-result.json", "research-gemini-video.txt"]);
 const extensions = new Set([".ts", ".tsx", ".css", ".html", ".json", ".mjs", ".sql", ".md", ".patch"]);
 const language = (filename) => ({ ".ts": "typescript", ".tsx": "tsx", ".css": "css", ".html": "html", ".json": "json", ".mjs": "javascript", ".sql": "sql", ".md": "markdown", ".patch": "diff" }[path.extname(filename)] ?? "text");
+const amzSignaturePattern = new RegExp("X-Amz-Signature" + "=[^&\\s)]+", "g");
+const googSignaturePattern = new RegExp("X-Goog-Signature" + "=[^&\\s)]+", "g");
+const redactedAmzSignature = "X-Amz-Signature" + "=<已遮蔽>";
+const redactedGoogSignature = "X-Goog-Signature" + "=<已遮蔽>";
 
 async function collect(directory) {
   const output = [];
@@ -30,7 +34,7 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 **建立日期：** 2026-08-26（GMT+8）
 **專案目錄：** \`sticker-tycoon-replica\`
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
-**GitHub 安全分支基線：** \`phase2-agent-router\`（不改動既有 \`chat-first-studio\` 與 \`main\`；第三階段推送前必須重新確認遠端是否分岔。）
+**GitHub 同步狀態：** 第三階段完整來源已安全推送至 \`phase3-provider-preview\`。使用者指定的 \`chat-first-studio\` 曾與本機基線分岔；第四階段同步前必須比較遠端差異並取得使用者選擇，絕不 force push。
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
@@ -45,7 +49,7 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 | Anchor 與一致性 | 角色、已確認角色、姿勢、場景、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
 | 圖像修改、品質與版本 | 品質 Agent 會檢查透明覆蓋、尺寸、邊界與文字長度，回傳 pass／fail／reason／suggestedFix；僅安全 Fix 一次再重檢。生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
 | 整套自然語言修改 | 「全部變可愛一點」與「全部去背」會建立每張獨立 edit job／版本，跳過已合格圖片與 queued／retrying／paused 生成工作。 |
-| 公開驗收 | Preview／Inspection 使用固定原創示範資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API；回歸腳本驗證此邊界。 |
+| 公開驗收 | Preview／Inspection 使用固定非個資兔子資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API 或影像 Provider。它們直接共用正式的 Topbar、Message、Composer、Agent Workspace、Sticker Task 與 Preflight 元件及 \`chat-studio.css\`，不是平行假 UI；Inspection 額外提供 Desktop／Mobile 檢視與 Router 摘要。 |
 | 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
 | 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
 
@@ -55,12 +59,13 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 
 受控測試模式 \`STICKER_E2E_TEST_MODE=1\` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
-## 3. 第二、三階段研究、設計與驗證
+## 3. 第二至四階段研究、設計與驗證
 
 - \`research/phase-2-model-router-research.md\`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
 - \`docs/phase-2-agent-design.md\`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
 - \`drizzle/0003_grey_sentinel.sql\`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
 - \`docs/phase-3-capability-audit.md\`、\`docs/phase-3-delivery.md\`：Provider 可用性、Adapter、Quality Fix、Preview、已知限制與交付驗收。
+- \`docs/phase-4-preview-component-audit.md\`、\`docs/phase-4-preview-delivery.md\`：首頁與 Preview 的共用元件決策、固定 Demo 流程、匿名安全邊界、桌面／Android 驗收與公開 URL。
 - 第三階段未變更 Drizzle schema；Router／品質／pack scope／scene role 使用既有文字與 JSON 欄位、Agent events 保存，故不需 migration。
 
 | 驗證 | 結果 |
@@ -68,7 +73,7 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 | \`pnpm check\` | 通過。 |
 | \`pnpm test\` | 通過；33 項單元／整合測試，覆蓋 Provider Adapter、FLUX disabled、health／quota fallback、Quality Fix、角色／姿勢／場景／風格 Anchor、整套修改、queued／retrying／paused 保留、版本與 LINE PNG／ZIP。 |
 | \`pnpm build\` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
-| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC 示範與零 Studio API 呼叫。 |
+| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC、八張任務、V2、品質、quota、Desktop／Mobile View，以及零 Studio API／影像 Provider 呼叫。 |
 | 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
 
 ## 4. 給下一位 AI／工程師的優先事項
@@ -99,14 +104,14 @@ for (const relative of unique) {
   const content = await readFile(path.join(projectRoot, relative), "utf8");
   const safeContent = content
     .replace(/\/home\/ubuntu\/upload\/[^'"\s)]+/g, "<已遮蔽使用者測試素材路徑>")
-    .replace(/X-Amz-Signature=[^&\s)]+/g, "X-Amz-Signature=<已遮蔽>")
-    .replace(/X-Goog-Signature=[^&\s)]+/g, "X-Goog-Signature=<已遮蔽>");
+    .replace(amzSignaturePattern, redactedAmzSignature)
+    .replace(googSignaturePattern, redactedGoogSignature);
   sources += `### \`${relative}\`\n\n${fence}${language(relative)}\n${safeContent}\n${fence}\n\n`;
 }
 
 const footer = `## 6. 交接結論
 
-此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環、主工作室 LINE Preflight，以及無 API／無私人資料的 Preview／Inspection。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、\`docs/phase-3-delivery.md\`、測試與原始碼作為後續實作依據。\n`;
+此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環與主工作室 LINE Preflight；第四階段讓公開 Preview／Inspection 直接共用正式 Chat-first Studio UI，以固定 Demo 展示完整流程，並保持無登入、無 API、無秘密與無私人資料。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、\`docs/phase-3-delivery.md\`、\`docs/phase-4-preview-delivery.md\`、測試與原始碼作為後續實作依據。\n`;
 
 await writeFile(outputPath, `${overview}${sources}${footer}`, "utf8");
 console.log(JSON.stringify({ outputPath, sourceFileCount: unique.length }));
