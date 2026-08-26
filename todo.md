@@ -148,3 +148,10 @@
 - [x] 更新 README 加入 Preview URL、Inspection URL 與 Preview Inspection Report 路徑，並驗證所有檢查包檔案、截圖、JSON 與公開頁內容一致。
 - [x] 比較 GitHub `chat-first-studio` 的最新分岔；在不 force push 前提下取得使用者對合併或新安全分支的選擇，依選項 3 推送專用分支並完成同步驗證。
 - [x] 依使用者選項 3 推送 `preview-inspection-package`，驗證遠端含完整檢查文件、18 張 PNG、manifest、README 路徑與擷取腳本，且 `chat-first-studio` 保持不變。
+
+# Preview 檢查包正式整合
+
+- [x] 以既有 18 張真實瀏覽器 PNG、Preview 文件與 `chat-first-studio` 最新遠端為依據，盤點僅文件／截圖整合所需的安全變更與衝突風險。
+- [x] 建立 `UI-VISUAL-AUDIT.md` 與 `SCREENSHOT-INDEX.md`，以實際 PNG 客觀稽核 ChatGPT／Gemini／Manus 的相似性、差異與可改善處。
+- [ ] 將完整 `docs/preview-inspection/` 安全整合至 GitHub `chat-first-studio`，保留該分支既有提交與正式網站程式，不 force push。
+- [ ] 驗證目標分支可正常顯示 18 張 PNG、全部報告、manifest、README 路徑及最新 commit，並回歸公開 Preview／Inspection 不受文件整合影響。

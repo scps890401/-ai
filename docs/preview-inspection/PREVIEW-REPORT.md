@@ -51,8 +51,19 @@
 | 點 Quota checkpoint | 進入 `quota` stage，顯示 checkpoint 文案。 | **DEMO_ONLY** |
 | 點 Inspection 的 Mobile View | 同頁切換 `.inspection-device.mobile` 容器。 | **IMPLEMENTED** |
 
+## Preview 中未實作的真實功能
+
+| 功能 | Preview 狀態 | 實際原因 |
+| --- | --- | --- |
+| 檔案選擇與上傳 | **NOT_IMPLEMENTED** | Preview 沒有檔案 input，也不把固定附件送往伺服器。 |
+| 使用者登入與專案資料 | **NOT_IMPLEMENTED** | 路由不讀取登入、個人專案、對話或私有素材。 |
+| tRPC／外部 AI Provider 請求 | **NOT_IMPLEMENTED** | 公開頁的資源清單未出現 Studio tRPC、Gemini、GPT Image、Forge 或 FLUX 請求。 |
+| 真實貼圖生成、單張修改與重試 | **NOT_IMPLEMENTED** | 生成、V2、Quality 與 retry 只改變本頁記憶體中的固定 stage。 |
+| 真實版本還原 | **NOT_IMPLEMENTED** | Preview 顯示 V1／V2 標籤但不保存檔案或渲染回復版本列。 |
+| 真實 LINE 檢查與 PNG／ZIP 下載 | **NOT_IMPLEMENTED** | Preflight、PNG、LINE ZIP 按鈕只顯示 Demo notice，不檢驗或建檔。 |
+
 ## 已知畫面觀察
 
 桌面截圖使用 1280×900，預設為兩欄：左側對話與 Composer、右側任務面板。768px 平板在實際擷取時轉為單列工作區，但八張任務仍是兩欄；390px Android 則為一欄任務卡，所檢視的結果與匯出區沒有水平捲動。Inspection 的窄欄 Mobile View 截圖在容器轉換範圍有對話文字與任務區重疊／裁切感，這是目前應保留給後續修正的真實發現，而不是已通過的視覺品質結論。
 
-完整畫面索引位於 [`PREVIEW-MANIFEST.json`](PREVIEW-MANIFEST.json)，人工檢視註記位於 [`CAPTURE-NOTES.md`](CAPTURE-NOTES.md)。
+完整畫面索引位於 [`PREVIEW-MANIFEST.json`](PREVIEW-MANIFEST.json) 與 [`SCREENSHOT-INDEX.md`](SCREENSHOT-INDEX.md)，人工檢視註記位於 [`CAPTURE-NOTES.md`](CAPTURE-NOTES.md)，客觀視覺稽核位於 [`UI-VISUAL-AUDIT.md`](UI-VISUAL-AUDIT.md)。
