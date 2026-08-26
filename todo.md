@@ -277,4 +277,4 @@
 - [x] 依稽核結果補強最高優先級的可用性缺口，不以展示型 UI 取代真實流程；完成 project_exports ZIP 持久化與重新下載
 - [x] 讓已通過 LINE 驗證的 ZIP 與驗證報告保存到專案 S3／project_exports，支援後續續作與重新下載
 - [x] 執行手機、上傳、多圖、AI 規劃、逐張重試、續作、指定修改、PNG／ZIP 的回歸驗證；TypeScript、production build、24 個測試檔共 110 項 Vitest、Android 390 × 844 與桌面 1280 × 720 通過，新的實圖 E2E 仍受 usage exhausted 限制
-- [ ] 保存新版 checkpoint，發布並交付清楚的能力邊界與外部額度限制
+- [x] 保存新版 checkpoint c1c34363，發布並交付清楚的能力邊界與外部額度限制
