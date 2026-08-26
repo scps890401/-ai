@@ -5,6 +5,7 @@ export type RandomStickerCard = {
   source?: string;
   action?: string;
   assetId?: number;
+  routing?: { provider?: string; model?: string; selectedReason?: string; attempts?: Array<{ provider?: string; model?: string; reason?: string; errorKind?: string; message?: string }> };
 };
 
 export type StickerJobState = { position: number; status: string; errorMessage?: string };
@@ -19,7 +20,7 @@ export function addRandomSticker(current: RandomStickerCard[], result: { url: st
   return [{ src: result.url, label: result.label, color: "gold", source: result.source, action: result.action, ...(result.assetId !== undefined ? { assetId: result.assetId } : {}) }, ...current].slice(0, packSize);
 }
 
-export function replaceStickerAt(current: RandomStickerCard[], index: number, result: { url: string; label?: string; action?: string; source?: string; color?: string; assetId?: number | null }) {
+export function replaceStickerAt(current: RandomStickerCard[], index: number, result: { url: string; label?: string; action?: string; source?: string; color?: string; assetId?: number | null; routing?: RandomStickerCard["routing"] }) {
   return current.map((sticker, stickerIndex) => stickerIndex === index ? {
     ...sticker,
     src: result.url,
@@ -28,6 +29,7 @@ export function replaceStickerAt(current: RandomStickerCard[], index: number, re
     ...(result.source !== undefined ? { source: result.source } : {}),
     ...(result.color !== undefined ? { color: result.color } : {}),
     ...(result.assetId !== undefined ? { assetId: result.assetId ?? undefined } : {}),
+    ...(result.routing !== undefined ? { routing: result.routing } : {}),
   } : sticker);
 }
 

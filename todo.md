@@ -292,3 +292,22 @@
 - [x] 補齊第二階段 Vitest、桌面／Android 回歸；真實影像 E2E 應在可用服務額度時以相同 job／version 流程補驗
 - [x] 產出 README、架構、Model Router、Character／Style Anchor、Edit、Quality、Fallback、Quota Resume、安全與 GitHub 交接文件
 - [x] 將完整可執行專案同步至 GitHub scps890401/-ai 的 chat-first-studio 分支並驗證遠端內容；已安全保留原分支歷史並推送／驗證 commit 34b5830184867c3599e7c7dd96794a5ace2c06e4
+
+### 最新上傳規格功能實作
+
+- [x] 讀取最新 pasted_content.txt，萃取並列出可驗證的 Sticker Muse 功能需求
+
+### 第三階段：AI 核心能力升級
+
+- [x] 建立第三階段能力矩陣，將既有實作、可立即接通能力、外部憑證限制與不可宣稱完成項目清楚分開；見 phase3-capability-matrix.md
+- [x] 將 Image Router 升級為統一 Provider Adapter：`generate`、`edit`、`analyze`、`healthCheck`，並記錄每次 job 的 provider、模型與 fallback 原因
+- [x] 依角色、姿勢、風格、文字、edit、批次大小、品質與健康度，讓 Router 以能力條件選擇 provider，不對一般使用者顯示模型設定；未配置的 Gemini／FLUX 不列入候選
+- [x] 將 Character／Style／Pose／Scene／Current Image 建立為有語義角色的 reference context，讓「用 B 的姿勢做 A 的兔子」實際選對輸入與 prompt
+- [x] 將品質檢查結果接到有限自動修正循環：針對可確定修正的錯誤產生 fix prompt、只重試目標 job、再次檢查並保存結果與 retry 原因
+- [x] 完善版本 metadata，保存 prompt、reference context、provider／model、時間與品質結果，並保留原有版本回復能力
+- [x] 建立安全的 `/preview` Demo Mode 與 `/preview/inspection`：不需登入、不讀取私有資料、不呼叫真實 API、清楚標示 DEMO／PREVIEW
+- [x] 建立 preview 所需的固定安全測試資料、聊天／上傳／計畫／生成／修改／版本／下載 UI 狀態，以及 Android 版檢查入口
+- [x] 建立本地 secret scanning 與測試，避免 API key、私有 S3 URL 或使用者個資出現在公開 preview、GitHub 或前端 bundle
+- [x] 補齊第三階段單元／流程／Preview／手機測試；TypeScript、126 項 Vitest、production build、secret scan、Preview 桌面與 Android 390 × 844 已通過。實圖 Generate → Check → Fix → Check 受上游 usage exhausted／外部憑證限制，待可用額度下以同一 job 流程補驗
+- [x] 更新 README、架構、Adapter、Reference、Edit、Quality、Fallback、Preview／Demo 與安全交接文件
+- [ ] 將第三階段完整原始碼與測試同步至 GitHub `scps890401/-ai` 的 `chat-first-studio` 並驗證遠端 commit

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { classifyImageRouteError, resetImageProviderHealth, routeStickerImage, selectImageProviderCandidates, shouldFallbackImageRoute } from "./imageRouter";
+import { classifyImageRouteError, createImageProviderAdapters, describeImageRouteSelection, inspectImageProviderHealth, resetImageProviderHealth, routeStickerImage, selectImageProviderCandidates, shouldFallbackImageRoute } from "./imageRouter";
 
 describe("image model router", () => {
   beforeEach(() => resetImageProviderHealth());
@@ -23,5 +23,24 @@ describe("image model router", () => {
 
   it("does not include unconfigured external providers in automatic candidates", () => {
     expect(selectImageProviderCandidates({ prompt: "test", task: "generate" })).toEqual(["internal-gpt-image-2", "internal-service-default"]);
+  });
+
+  it("exposes the same replaceable adapter interface for every provider", async () => {
+    const adapters = createImageProviderAdapters();
+    expect(adapters).toHaveLength(4);
+    for (const adapter of adapters) {
+      expect(adapter.generate).toBeTypeOf("function");
+      expect(adapter.edit).toBeTypeOf("function");
+      expect(adapter.analyze).toBeTypeOf("function");
+      expect(adapter.healthCheck).toBeTypeOf("function");
+    }
+    const health = await inspectImageProviderHealth(adapters);
+    expect(health.find((item) => item.provider === "gemini")).toMatchObject({ configured: false, healthy: false });
+  });
+
+  it("routes semantic character and pose references before a generic image task", () => {
+    const candidates = selectImageProviderCandidates({ prompt: "角色做指定姿勢", task: "generate", references: [{ role: "character", image: { b64Json: "a".repeat(24), mimeType: "image/png" }, priority: 100 }, { role: "pose", image: { b64Json: "b".repeat(24), mimeType: "image/png" }, priority: 80 }] });
+    expect(candidates).toEqual(["internal-gpt-image-2", "internal-service-default"]);
+    expect(describeImageRouteSelection({ prompt: "角色做指定姿勢", task: "generate", highCharacterConsistency: true }, "internal-gpt-image-2")).toContain("角色");
   });
 });

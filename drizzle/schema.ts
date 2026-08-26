@@ -188,6 +188,9 @@ export const stickerJobs = mysqlTable("sticker_jobs", {
   status: mysqlEnum("status", ["pending", "generating", "completed", "failed", "retrying"]).default("pending").notNull(),
   attemptCount: int("attemptCount").default(0).notNull(),
   provider: varchar("provider", { length: 80 }),
+  model: varchar("model", { length: 120 }),
+  routingJson: text("routingJson"),
+  qualityJson: text("qualityJson"),
   errorCode: varchar("errorCode", { length: 80 }),
   errorMessage: text("errorMessage"),
   currentAssetId: int("currentAssetId"),
@@ -209,6 +212,7 @@ export const stickerJobVersions = mysqlTable("sticker_job_versions", {
   assetId: int("assetId").notNull(),
   editPrompt: text("editPrompt"),
   changeSummary: text("changeSummary"),
+  metadataJson: text("metadataJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   jobVersionUnique: uniqueIndex("sticker_job_versions_job_version_unique").on(table.jobId, table.version),

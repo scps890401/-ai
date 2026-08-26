@@ -31,5 +31,12 @@ pnpm build
 | [Quality／Fallback](docs/quality-fallback.md) | deterministic gate、vision review 與人工確認 |
 | [Quota／Resume／Safety](docs/quota-resume-safety.md) | 中斷保存、續作與資料安全 |
 | [GitHub 交接](docs/github-handover.md) | `scps890401/-ai`／`chat-first-studio` 同步流程 |
+| [Provider Adapter](docs/provider-adapters.md) | 第三階段多模型介面、路由 audit 與 fallback 邊界 |
+| [語義 Reference／Edit](docs/reference-and-edit.md) | Character／Style／Pose／Scene／Current 的輸入角色 |
+| [Preview／Demo](docs/preview-demo.md) | 公開唯讀 `/preview`、`/preview/inspection` 與 secret scan |
 
 > 外部 Gemini／FLUX adapter 已保留於 Model Router 設計，但不會在沒有專案擁有的 API 憑證時假裝可用。內建 ImageService 是目前可用基線；影像額度耗盡時系統會保存而非盲目重試。
+
+## 公開 UI 檢查
+
+`/preview` 與 `/preview/inspection` 是不登入、不讀取使用者專案、不呼叫 AI 的固定展示頁，供 UI 檢查、截圖與 Android 回歸使用。提交前可執行 `pnpm security:scan`，檢查可提交原始碼與文件是否含常見憑證模式。

@@ -18,7 +18,7 @@ import { buildLotteryAgentState } from "@/lib/lotteryAgentUi";
 import { getFeedbackStatusLabel, getFeedbackVoterToken, setFeedbackSort as normalizeFeedbackSort, shouldOpenFeedbackFromHash, validateFeedbackMessage } from "@/lib/feedbackUi";
 import { buildTextRevisionPrompt, isExplicitStickerBrief, isNoIdeaRequest, isRevisionRequest, isTextRevisionRequest, normalizeStickerChatPlan, resolveStickerChatAction, type CharacterUpdate, type StickerPlanItem } from "@/lib/stickerChatFlow";
 import { formatStickerVersionHistory, parseStickerVersionChatCommand } from "@/lib/stickerVersionChat";
-import { addAcceptedReference, addStyleReference, emptyReferenceAnchors, parseAnchorChatCommand, selectGenerationReferenceUrls, type ReferenceAnchorState } from "@/lib/referenceAnchors";
+import { addAcceptedReference, addPoseReference, addSceneReference, addStyleReference, emptyReferenceAnchors, parseAnchorChatCommand, selectGenerationReferenceUrls, type ReferenceAnchorState } from "@/lib/referenceAnchors";
 import { resolveLotteryChatPresentation } from "@/lib/lotteryChatUi";
 import { buildLearningChatState } from "@/lib/learningChatUi";
 import { readAnonymousLearning, rememberAnonymousLearning, type AnonymousLearningIdea } from "@/lib/anonymousLearning";
@@ -226,7 +226,7 @@ export default function Home() {
   const [specReady, setSpecReady] = useState(false);
   const [savedZipUrl, setSavedZipUrl] = useState<string | null>(null);
   const [referenceAnchors, setReferenceAnchors] = useState<ReferenceAnchorState>(() => emptyReferenceAnchors());
-  const [qualityByPosition, setQualityByPosition] = useState<Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string }>>({});
+  const [qualityByPosition, setQualityByPosition] = useState<Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string; autoFixCount?: number }>>({});
   const [packSize, setPackSize] = useState<number>(8);
   const [generated, setGenerated] = useState<RandomStickerCard[]>([]);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -384,8 +384,8 @@ export default function Home() {
     }
     if (typeof state.packSize === "number" && [8, 16, 24, 32, 40].includes(state.packSize)) setPackSize(state.packSize);
     if (typeof state.learningEnabled === "boolean") setLearningEnabled(state.learningEnabled);
-    if (state.referenceAnchors && typeof state.referenceAnchors === "object") setReferenceAnchors(state.referenceAnchors as ReferenceAnchorState);
-    if (state.qualityByPosition && typeof state.qualityByPosition === "object") setQualityByPosition(state.qualityByPosition as Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string }>);
+    if (state.referenceAnchors && typeof state.referenceAnchors === "object") setReferenceAnchors({ ...emptyReferenceAnchors(), ...(state.referenceAnchors as Partial<ReferenceAnchorState>) });
+    if (state.qualityByPosition && typeof state.qualityByPosition === "object") setQualityByPosition(state.qualityByPosition as Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string; autoFixCount?: number }>);
     hasHydratedProject.current = true;
   }, [projectResume.data]);
 
@@ -477,12 +477,14 @@ export default function Home() {
         return;
       }
       const anchorCommand = parseAnchorChatCommand(content);
-      if (anchorCommand && generated.length) {
-        const targetIndex = anchorCommand.position && anchorCommand.position <= generated.length ? anchorCommand.position - 1 : 0;
-        const target = generated[targetIndex];
-        if (!target) throw new Error("找不到要採用的貼圖參考。");
-        setReferenceAnchors((current) => anchorCommand.kind === "style" ? addStyleReference(current, target.src, anchorCommand.note) : addAcceptedReference(current, target.src));
-        setChatMessages((current) => [...current, { role: "assistant", content: anchorCommand.kind === "style" ? `已把第 ${targetIndex + 1} 張加入 Style Anchor。後續貼圖會優先延續這張的畫風、色彩與構圖感。` : `已把第 ${targetIndex + 1} 張加入已確認 Character Anchor。後續貼圖會在保留原始照片的前提下參考這張已接受結果。` }]);
+      if (anchorCommand && (generated.length || uploaded.length)) {
+        const collection = anchorCommand.source === "uploaded" ? uploaded : generated.map((item) => item.src);
+        const targetIndex = anchorCommand.position && anchorCommand.position <= collection.length ? anchorCommand.position - 1 : 0;
+        const targetUrl = collection[targetIndex];
+        if (!targetUrl) throw new Error("找不到要採用的圖片參考。");
+        setReferenceAnchors((current) => anchorCommand.kind === "style" ? addStyleReference(current, targetUrl, anchorCommand.note) : anchorCommand.kind === "pose" ? addPoseReference(current, targetUrl) : anchorCommand.kind === "scene" ? addSceneReference(current, targetUrl) : addAcceptedReference(current, targetUrl));
+        const label = anchorCommand.kind === "style" ? "Style Anchor（畫風、色彩與構圖感）" : anchorCommand.kind === "pose" ? "Pose Reference（只控制姿勢）" : anchorCommand.kind === "scene" ? "Scene Reference（只控制場景與構圖）" : "Character Anchor（保留角色身份）";
+        setChatMessages((current) => [...current, { role: "assistant", content: `已把第 ${targetIndex + 1} 張${anchorCommand.source === "uploaded" ? "素材" : "貼圖"}加入 ${label}。後續生成會依照圖片角色分工，不會混合不同角色身份。` }]);
         return;
       }
           const rawPlan = await withTimeout(stickerChatPlan.mutateAsync({ messages: nextMessages.map(({ role, content: messageContent }) => ({ role: role === "user" ? "user" : "assistant", content: messageContent })), uploadedCount: uploaded.length, attachmentNames: chatAttachmentNames, hasGeneratedResult: Boolean(latestGeneratedLabel), latestGeneratedLabel, learnedIdeas: chatLearnedIdeas, currentPackSize: projectPackSize, characterSummary: characterProfile ? JSON.stringify(characterProfile) : "", projectStatus: projectResume.data?.project.status ?? "draft", continueRequested: /繼續製作|繼續生成|接著做/.test(content) }), 25_000);
@@ -739,8 +741,13 @@ export default function Home() {
       if (!id) throw new Error("無法建立品質檢查所需的專案。");
       const result = await qualityCheck.mutateAsync({ projectId: id, guestKey: guestKey ?? undefined, assetId: sticker.assetId, expectedText: stickerTextFromLabel(sticker.label), expectedAction: sticker.action || "", characterSummary: characterProfile ? JSON.stringify(characterProfile) : "" });
       const state = result.quality.decision === "pass" ? "pass" : result.quality.decision === "retry" ? "retry" : "review";
-      setQualityByPosition((current) => ({ ...current, [position]: { state, summary: result.quality.summary } }));
-      if (notify && state === "retry") setChatMessages((current) => [...current, { role: "assistant", content: `第 ${position} 張品質檢查發現可修正問題：${result.quality.issues.join("、")}。你可以說「修改第 ${position} 張」，我會只重做這一張。` }]);
+      const priorAutoFixCount = qualityByPosition[position]?.autoFixCount ?? 0;
+      setQualityByPosition((current) => ({ ...current, [position]: { state, summary: result.quality.summary, autoFixCount: priorAutoFixCount } }));
+      if (state === "retry" && result.quality.retryPrompt && priorAutoFixCount < 1 && generated[position - 1]?.source && generated[position - 1]?.action) {
+        setQualityByPosition((current) => ({ ...current, [position]: { state: "checking", summary: "發現可修正問題，正在限額自動重做第 1 次", autoFixCount: priorAutoFixCount + 1 } }));
+        setChatMessages((current) => [...current, { role: "assistant", content: `第 ${position} 張品質檢查發現「${result.quality.issues.join("、")}」。我會只自動修正這一張一次，然後再次檢查。` }]);
+        void retrySticker(position - 1, result.quality.retryPrompt, true);
+      } else if (notify && state === "retry") setChatMessages((current) => [...current, { role: "assistant", content: `第 ${position} 張品質檢查發現可修正問題：${result.quality.issues.join("、")}。自動修正已達上限或需要你確認；你可以說「修改第 ${position} 張」。` }]);
     } catch (error) {
       setQualityByPosition((current) => ({ ...current, [position]: { state: "unavailable", summary: "品質服務暫時無法完成，LINE 規格檢查仍會在匯出時執行。" } }));
       if (notify) toast.info("語義品質檢查暫時不可用", { description: error instanceof Error ? error.message : "可稍後再試。" });
@@ -756,7 +763,7 @@ export default function Home() {
     await Promise.all(targets.map(({ sticker, position }) => checkStickerQuality(position, sticker, true)));
   }
 
-  async function retrySticker(index: number) {
+  async function retrySticker(index: number, qualityFixPrompt = "", automatic = false) {
     const sticker = generated[index];
     if (!sticker?.source || !sticker.action) {
       toast.info("這張貼圖沒有可重試的隨機來源", { description: "請重新使用隨機生成建立一張可重試貼圖。" });
@@ -767,11 +774,13 @@ export default function Home() {
     try {
       const retryReferenceUrls = selectGenerationReferenceUrls({ sourceUrl: sticker.source, anchors: referenceAnchors, currentEditUrl: sticker.src });
       const retryReferences = await Promise.all(retryReferenceUrls.map((url) => imageInputFromSource(url)));
-      const refreshed = await regenerateSingleSticker(sticker, imageInputFromSource, (input) => randomGenerate.mutateAsync(input), (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)), retryReferences);
+      const correctedSticker = qualityFixPrompt ? { ...sticker, action: `${sticker.action}。品質修正要求：${qualityFixPrompt}` } : sticker;
+      const refreshed = await regenerateSingleSticker(correctedSticker, imageInputFromSource, (input) => randomGenerate.mutateAsync(input), (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds)), retryReferences);
       const stored = await persistGeneratedResult(refreshed.src, index + 1);
       setGenerated((current) => replaceStickerAt(current, index, { url: stored.url, assetId: stored.assetId ?? null }));
       setJobStates((current) => updateStickerJobState(current, index + 1, "completed"));
-      toast.success(`第 ${String(index + 1).padStart(2, "0")} 張已重新生成`, { description: "原本的角色照片與動作需求已保留。" });
+      if (stored.assetId) void checkStickerQuality(index + 1, { ...sticker, src: stored.url, assetId: stored.assetId }, true);
+      toast.success(`第 ${String(index + 1).padStart(2, "0")} 張已重新生成`, { description: automatic ? "品質修正已套用並正在再次檢查。" : "原本的角色照片與動作需求已保留。" });
     } catch (error) {
       console.error("Single sticker retry failed", error);
       const failure = randomGenerationError();
@@ -805,16 +814,16 @@ export default function Home() {
           const referenceUrls = selectGenerationReferenceUrls({ sourceUrl: source, anchors: referenceAnchors, currentEditUrl: overrides?.replaceIndex !== undefined ? generated[overrides.replaceIndex]?.src : undefined });
           const result = await generateRandomWithRetry(source, overrides.revisionPrompt!, referenceUrls);
           const stored = await persistGeneratedResult(result.url, (overrides?.replaceIndex ?? index) + 1);
-          return { src: stored.url, ...(stored.assetId !== undefined ? { assetId: stored.assetId } : {}), label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration}`, action: overrides.revisionPrompt ?? promptForGeneration, source, color: colors[index % colors.length] };
+          return { src: stored.url, ...(stored.assetId !== undefined ? { assetId: stored.assetId } : {}), routing: { provider: result.provider, model: result.model, selectedReason: result.selectedReason, attempts: result.attempts }, label: `${sourceName(source, index)}／${imagePromptsForGeneration[index]?.trim() || promptForGeneration}`, action: overrides.revisionPrompt ?? promptForGeneration, source, color: colors[index % colors.length] };
         } catch (error) {
           console.error("Manual text revision failed", error);
           return null;
         }
       }));
-      const cards = revisionResults.filter((card): card is { src: string; assetId?: number; label: string; action: string; source: string; color: typeof colors[number] } => Boolean(card));
+      const cards = revisionResults.filter((card) => card !== null) as RandomStickerCard[];
       setJobStates(revisionResults.map((card, index) => ({ position: overrides?.replaceIndex !== undefined ? overrides.replaceIndex + 1 : index + 1, status: card ? "completed" : "failed", ...(card ? {} : { errorMessage: "文字微調生成失敗" }) })));
       if (cards.length) {
-        setGenerated((current) => overrides?.replaceIndex !== undefined ? replaceStickerAt(current, overrides.replaceIndex, { url: cards[0]!.src, label: cards[0]!.label, action: cards[0]!.action, source: cards[0]!.source, color: cards[0]!.color, assetId: cards[0]!.assetId ?? null }) : mergeBatchResults(current, cards, packSize));
+        setGenerated((current) => overrides?.replaceIndex !== undefined ? replaceStickerAt(current, overrides.replaceIndex, { url: cards[0]!.src, label: cards[0]!.label, action: cards[0]!.action, source: cards[0]!.source, color: cards[0]!.color, assetId: cards[0]!.assetId ?? null, routing: cards[0]!.routing }) : mergeBatchResults(current, cards, packSize));
         void Promise.all(cards.map((card, index) => checkStickerQuality(overrides?.replaceIndex !== undefined ? overrides.replaceIndex + 1 : index + 1, card, true)));
         setLatestGeneratedLabel(cards[0]?.label ?? "");
         setGenerationProgress(100);
@@ -871,6 +880,7 @@ export default function Home() {
       return {
         src: stored.url,
         ...(stored.assetId !== undefined ? { assetId: stored.assetId } : {}),
+        routing: { provider: result.provider, model: result.model, selectedReason: result.selectedReason, attempts: result.attempts },
         label: `${sourceName(job.source, job.sourceIndex)}／${job.text}`,
         color: colors[job.sourceIndex % colors.length],
         source: job.source,
@@ -879,7 +889,7 @@ export default function Home() {
     }));
     const failedCount = collected.failedCount;
     if (cards.length) {
-      setGenerated((current) => overrides?.replaceIndex !== undefined ? replaceStickerAt(current, overrides.replaceIndex, { url: cards[0]!.src, label: cards[0]!.label, action: cards[0]!.action, source: cards[0]!.source, color: cards[0]!.color, assetId: cards[0]!.assetId ?? null }) : mergeBatchResults(current, cards, packSize));
+      setGenerated((current) => overrides?.replaceIndex !== undefined ? replaceStickerAt(current, overrides.replaceIndex, { url: cards[0]!.src, label: cards[0]!.label, action: cards[0]!.action, source: cards[0]!.source, color: cards[0]!.color, assetId: cards[0]!.assetId ?? null, routing: cards[0]!.routing }) : mergeBatchResults(current, cards, packSize));
       void Promise.all(cards.map((card, index) => checkStickerQuality(overrides?.replaceIndex !== undefined ? overrides.replaceIndex + 1 : collected.successful[index]?.job.position ?? index + 1, card, true)));
       setLatestGeneratedLabel(cards[0]?.label ?? "");
     }

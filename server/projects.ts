@@ -119,10 +119,12 @@ async function syncStructuredState(projectId: number, stateJson: string, packSiz
     prompt?: string;
     uploaded?: unknown[];
     sourceAssetIds?: unknown[];
-    generated?: Array<{ label?: string; action?: string; src?: string; assetId?: number }>;
+    generated?: Array<{ label?: string; action?: string; src?: string; assetId?: number; routing?: { provider?: string; model?: string; selectedReason?: string; attempts?: Array<{ provider?: string; model?: string; reason?: string; errorKind?: string; message?: string }> } }>;
     chatMessages?: Array<{ role?: string; content?: string }>;
     imagePrompts?: unknown[];
     jobStates?: Array<{ position?: number; status?: string; errorMessage?: string }>;
+    referenceAnchors?: unknown;
+    qualityByPosition?: Record<number, unknown>;
   };
   const [existingConversation] = await db.select().from(projectConversations).where(eq(projectConversations.projectId, projectId)).limit(1);
   let conversation = existingConversation;
@@ -192,16 +194,16 @@ async function syncStructuredState(projectId: number, stateJson: string, packSiz
     let jobId: number;
     if (job) {
       jobId = job.id;
-      await db.update(stickerJobs).set({ status, errorCode, errorMessage, attemptCount: Math.max(job.attemptCount, status === "generating" || status === "retrying" || status === "completed" || status === "failed" ? 1 : 0), currentAssetId: generated?.assetId ?? job.currentAssetId, completedAt: status === "completed" ? job.completedAt ?? new Date() : null, updatedAt: new Date() }).where(eq(stickerJobs.id, job.id));
+      await db.update(stickerJobs).set({ status, provider: generated?.routing?.provider ?? job.provider, model: generated?.routing?.model ?? job.model, routingJson: generated?.routing ? JSON.stringify(generated.routing) : job.routingJson, qualityJson: state.qualityByPosition?.[position] ? JSON.stringify(state.qualityByPosition[position]) : job.qualityJson, errorCode, errorMessage, attemptCount: Math.max(job.attemptCount, status === "generating" || status === "retrying" || status === "completed" || status === "failed" ? 1 : 0), currentAssetId: generated?.assetId ?? job.currentAssetId, completedAt: status === "completed" ? job.completedAt ?? new Date() : null, updatedAt: new Date() }).where(eq(stickerJobs.id, job.id));
     } else {
-      const inserted = await db.insert(stickerJobs).values({ projectId, position, status, attemptCount: status === "pending" ? 0 : 1, currentAssetId: generated?.assetId ?? null, errorCode, errorMessage, completedAt: status === "completed" ? new Date() : null });
+      const inserted = await db.insert(stickerJobs).values({ projectId, position, status, attemptCount: status === "pending" ? 0 : 1, provider: generated?.routing?.provider ?? null, model: generated?.routing?.model ?? null, routingJson: generated?.routing ? JSON.stringify(generated.routing) : null, qualityJson: state.qualityByPosition?.[position] ? JSON.stringify(state.qualityByPosition[position]) : null, currentAssetId: generated?.assetId ?? null, errorCode, errorMessage, completedAt: status === "completed" ? new Date() : null });
       jobId = Number(inserted[0].insertId);
     }
     const generatedAssetId = generated?.assetId;
     const persistedJobId = jobId;
     if (persistedJobId !== undefined && shouldCreateStickerJobVersion(job?.currentAssetId, generatedAssetId) && generatedAssetId !== undefined) {
       const [latestVersion] = await db.select().from(stickerJobVersions).where(eq(stickerJobVersions.jobId, persistedJobId)).orderBy(desc(stickerJobVersions.version)).limit(1);
-      await db.insert(stickerJobVersions).values({ jobId: persistedJobId, version: (latestVersion?.version ?? 0) + 1, assetId: generatedAssetId, editPrompt: state.prompt ?? null, changeSummary: generated?.label ?? null });
+      await db.insert(stickerJobVersions).values({ jobId: persistedJobId, version: (latestVersion?.version ?? 0) + 1, assetId: generatedAssetId, editPrompt: state.prompt ?? null, changeSummary: generated?.label ?? null, metadataJson: JSON.stringify({ prompt: state.prompt ?? null, references: state.referenceAnchors ?? null, routing: generated?.routing ?? null, quality: state.qualityByPosition?.[position] ?? null }) });
     }
   }
 }

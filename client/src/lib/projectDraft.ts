@@ -48,7 +48,7 @@ export type ProjectSnapshot = {
   packSize: number;
   learningEnabled: boolean;
   referenceAnchors?: ReferenceAnchorState;
-  qualityByPosition?: Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string }>;
+  qualityByPosition?: Record<number, { state: "checking" | "pass" | "retry" | "review" | "unavailable"; summary: string; autoFixCount?: number }>;
 };
 
 export function serializeProjectSnapshot(snapshot: ProjectSnapshot): string {

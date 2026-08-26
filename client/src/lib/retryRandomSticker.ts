@@ -2,7 +2,8 @@ import type { RandomStickerCard } from "./randomStickerUi";
 
 export type RandomInput = { b64Json: string; mimeType: string };
 export type RandomGenerationInput = { prompt: string; originalImage: RandomInput; referenceImages?: RandomInput[] };
-export type RandomGenerator = (input: RandomGenerationInput) => Promise<{ url: string }>;
+export type RandomGenerationResult = { url: string; provider?: string; model?: string; selectedReason?: string; attempts?: Array<{ provider: string; model: string; reason: string; errorKind?: string; message?: string }> };
+export type RandomGenerator = (input: RandomGenerationInput) => Promise<RandomGenerationResult>;
 
 export async function regenerateSingleSticker(
   sticker: RandomStickerCard,
