@@ -1,0 +1,34 @@
+# Dependencies and build output
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+coverage/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Logs, temporary files, and platform-only artifacts
+*.log
+logs/
+.manus-logs/
+.webdev/
+client/public/__manus__/
+.project-config.json
+*.tsbuildinfo
+
+# Local editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

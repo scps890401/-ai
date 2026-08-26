@@ -1,0 +1,89 @@
+/* Style reminder — 靜水編輯室：暖紙白、深墨與遇青；留白和低對比質感優先，介面不使用儀表板卡片語言。 */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600&family=Noto+Serif+TC:wght@500;600&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Noto Serif TC", ui-serif, Georgia, serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.986 0.006 86);
+  --foreground: oklch(0.27 0.012 70);
+  --card: oklch(0.997 0.003 86);
+  --card-foreground: oklch(0.27 0.012 70);
+  --popover: oklch(0.997 0.003 86);
+  --popover-foreground: oklch(0.27 0.012 70);
+  --primary: oklch(0.52 0.075 191);
+  --primary-foreground: oklch(0.99 0.004 86);
+  --secondary: oklch(0.965 0.008 86);
+  --secondary-foreground: oklch(0.38 0.013 70);
+  --muted: oklch(0.965 0.008 86);
+  --muted-foreground: oklch(0.56 0.012 70);
+  --accent: oklch(0.95 0.018 190);
+  --accent-foreground: oklch(0.35 0.06 191);
+  --destructive: oklch(0.58 0.19 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.9 0.009 83);
+  --input: oklch(0.9 0.009 83);
+  --ring: oklch(0.52 0.075 191);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { background: #fdfbf7; }
+  body { @apply bg-background font-sans text-foreground antialiased; }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]), a[href] { @apply cursor-pointer; }
+  button:not(:disabled):active { transform: scale(0.97); }
+  ::selection { background: rgb(45 125 122 / 18%); }
+}
+
+@layer components {
+  .paper-grain {
+    opacity: 0.28;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+  }
+
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .markdown-message ul > li { position: relative; padding-left: 0.2rem; }
+  .markdown-message ul > li::marker { color: #2d7d7a; }
+  .stream-caret { animation: soft-blink 0.95s steps(1, end) infinite; }
+}
+
+@keyframes soft-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
