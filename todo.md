@@ -137,5 +137,5 @@
 - [x] 完善 `/preview/inspection` 的 Desktop／Mobile 視圖、開發者檢查資訊與完整流程導航，同時不外露使用者資料、憑證或實際 Provider 請求。
 - [x] 在 Preview 與 README 明確標示「AI Inspection Preview，不代表真實 AI API 生成結果」，列出可匿名開啟的 Preview／Inspection URL 與安全限制。
 - [x] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
-- [ ] 安全整合完整修改至 GitHub `chat-first-studio`；若遠端分岔，先檢視差異並徵求使用者同意採用合併或新分支，絕不 force push。
-- [ ] 依使用者選擇建立並推送 `phase4-preview-integration`，驗證遠端含第四階段完整原始碼、README、公開 Preview／Inspection 文件與交接包，並確認 `chat-first-studio` 未被改動。
+- [x] 完成 GitHub `chat-first-studio` 分岔分析並徵求使用者選擇；依選項 2 改推安全新分支 `phase4-preview-integration`，保留 `chat-first-studio` 不變且未 force push。
+- [x] 依使用者選擇建立並推送 `phase4-preview-integration`，驗證遠端含第四階段完整原始碼、README、公開 Preview／Inspection 文件與交接包，並確認 `chat-first-studio` 未被改動。
