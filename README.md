@@ -34,9 +34,12 @@ pnpm build
 | [Provider Adapter](docs/provider-adapters.md) | 第三階段多模型介面、路由 audit 與 fallback 邊界 |
 | [語義 Reference／Edit](docs/reference-and-edit.md) | Character／Style／Pose／Scene／Current 的輸入角色 |
 | [Preview／Demo](docs/preview-demo.md) | 公開唯讀 `/preview`、`/preview/inspection` 與 secret scan |
+| [Preview Inspection Package](docs/preview-inspection/PREVIEW-REPORT.md) | 18 張真實瀏覽器 PNG、功能分級、DOM／響應式報告、視覺稽核與截圖索引 |
 
 > 外部 Gemini／FLUX adapter 已保留於 Model Router 設計，但不會在沒有專案擁有的 API 憑證時假裝可用。內建 ImageService 是目前可用基線；影像額度耗盡時系統會保存而非盲目重試。
 
 ## 公開 UI 檢查
 
 `/preview` 與 `/preview/inspection` 是不登入、不讀取使用者專案、不呼叫 AI 的固定展示頁，供 UI 檢查、截圖與 Android 回歸使用。提交前可執行 `pnpm security:scan`，檢查可提交原始碼與文件是否含常見憑證模式。
+
+目前實際畫面的可讀取檢查包位於 [`docs/preview-inspection/`](docs/preview-inspection/)；其中 [`PREVIEW-REPORT.md`](docs/preview-inspection/PREVIEW-REPORT.md) 明確標示 IMPLEMENTED、PARTIALLY_IMPLEMENTED、DEMO_ONLY 與 NOT_IMPLEMENTED，`PREVIEW-SCREENSHOTS/` 保留 18 張非設計稿的真實瀏覽器 PNG。
