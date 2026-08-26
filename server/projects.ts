@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { characterProfiles, projectAssets, projectCheckpoints, projectConversations, projectMessages, stickerJobVersions, stickerJobs, stickerPlanItems, stickerPlans, stickerProjects, type StickerProject } from "../drizzle/schema";
-import { storagePut } from "./storage";
+import { characterProfiles, projectAssets, projectCheckpoints, projectConversations, projectExports, projectMessages, stickerJobVersions, stickerJobs, stickerPlanItems, stickerPlans, stickerProjects, type StickerProject } from "../drizzle/schema";
+import { storageCreatePresignedPut, storagePut } from "./storage";
 
 export type ProjectActor = { userId?: number; guestKey?: string };
 
@@ -17,6 +17,10 @@ export function resolveStickerJobStatus(args: { requestedStatus?: string; hasGen
 
 export function shouldCreateStickerJobVersion(existingAssetId: number | null | undefined, nextAssetId: number | null | undefined) {
   return nextAssetId !== null && nextAssetId !== undefined && nextAssetId !== existingAssetId;
+}
+
+export function isProjectExportStorageKey(projectId: number, storageKey: string) {
+  return storageKey.startsWith(`sticker-muse/projects/${projectId}/exports/`);
 }
 
 export function parseProjectState(stateJson: string): Record<string, unknown> {
@@ -231,4 +235,38 @@ export async function touchProject(projectId: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(stickerProjects).set({ lastOpenedAt: new Date() }).where(eq(stickerProjects.id, projectId));
+}
+
+export async function prepareProjectExportUpload(args: {
+  projectId: number;
+  type: "png" | "zip";
+  fileName: string;
+}) {
+  const safeName = args.fileName.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120) || `line-export.${args.type}`;
+  return storageCreatePresignedPut(`sticker-muse/projects/${args.projectId}/exports/${Date.now()}-${safeName}`);
+}
+
+export async function registerProjectExport(args: {
+  projectId: number;
+  type: "png" | "zip";
+  storageKey: string;
+  validationJson: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  if (!isProjectExportStorageKey(args.projectId, args.storageKey)) throw new Error("Export storage key is invalid");
+  const result = await db.insert(projectExports).values({
+    projectId: args.projectId,
+    type: args.type,
+    storageKey: args.storageKey,
+    status: "ready",
+    validationJson: args.validationJson,
+  });
+  return { id: Number(result[0].insertId), storageKey: args.storageKey, url: `/manus-storage/${args.storageKey}` };
+}
+
+export async function listProjectExports(projectId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(projectExports).where(eq(projectExports.projectId, projectId)).orderBy(desc(projectExports.createdAt));
 }

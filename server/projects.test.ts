@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveStickerJobStatus, shouldCreateStickerJobVersion } from "./projects";
+import { isProjectExportStorageKey, resolveStickerJobStatus, shouldCreateStickerJobVersion } from "./projects";
 
 describe("project structured sync", () => {
   it("keeps retrying and failed states for jobs without a generated asset", () => {
@@ -17,5 +17,11 @@ describe("project structured sync", () => {
     expect(shouldCreateStickerJobVersion(101, 101)).toBe(false);
     expect(shouldCreateStickerJobVersion(101, 102)).toBe(true);
     expect(shouldCreateStickerJobVersion(101, null)).toBe(false);
+  });
+
+  it("accepts only exports stored beneath the owning project's export prefix", () => {
+    expect(isProjectExportStorageKey(42, "sticker-muse/projects/42/exports/line-set.zip")).toBe(true);
+    expect(isProjectExportStorageKey(42, "sticker-muse/projects/41/exports/line-set.zip")).toBe(false);
+    expect(isProjectExportStorageKey(42, "sticker-muse/projects/42/assets/line-set.zip")).toBe(false);
   });
 });

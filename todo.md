@@ -269,3 +269,12 @@
 ### Legacy TODO 歷史（已完成）
 
 - [x] 上述持久化與單張修改缺口已在前端快照／後端 structured sync／S3 generated asset 實作中完成主要路徑；剩餘項目改由本輪實測與測試補強確認
+
+### AI LINE 貼圖工作室重新稽核與升級
+
+- [x] 完成高品質貼圖模型、角色一致性、圖片修改、繁中繪字與 LINE 規格的多來源研究與方案比較；見 research-studio-refresh.md
+- [x] 稽核目前聊天、角色分析、8–40 張計畫、逐張 job、保存／resume、單張修改、HEIC 與 LINE 輸出是否真正接通；見 studio-capability-audit.md
+- [x] 依稽核結果補強最高優先級的可用性缺口，不以展示型 UI 取代真實流程；完成 project_exports ZIP 持久化與重新下載
+- [x] 讓已通過 LINE 驗證的 ZIP 與驗證報告保存到專案 S3／project_exports，支援後續續作與重新下載
+- [x] 執行手機、上傳、多圖、AI 規劃、逐張重試、續作、指定修改、PNG／ZIP 的回歸驗證；TypeScript、production build、24 個測試檔共 110 項 Vitest、Android 390 × 844 與桌面 1280 × 720 通過，新的實圖 E2E 仍受 usage exhausted 限制
+- [ ] 保存新版 checkpoint，發布並交付清楚的能力邊界與外部額度限制

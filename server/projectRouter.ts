@@ -7,9 +7,12 @@ import {
   createProjectAsset,
   getProjectForActor,
   listProjectCheckpoints,
+  listProjectExports,
   listProjectJobs,
   listProjectsForUser,
   parseProjectState,
+  prepareProjectExportUpload,
+  registerProjectExport,
   saveProjectSnapshot,
   type ProjectActor,
 } from "./projects";
@@ -93,6 +96,33 @@ export const projectRouter = router({
     return { asset };
   }),
 
+  prepareExportUpload: publicProcedure.input(z.object({
+    ...projectAccessInput.shape,
+    type: z.enum(["png", "zip"]),
+    fileName: z.string().trim().min(1).max(160),
+    byteSize: z.number().int().positive().max(60 * 1024 * 1024),
+  })).mutation(async ({ ctx, input }) => {
+    const project = await getProjectForActor(input.projectId, actorFromContext(ctx, input.guestKey));
+    if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個專案，或你沒有存取權限。" });
+    const upload = await prepareProjectExportUpload({ projectId: project.id, type: input.type, fileName: input.fileName });
+    return { ...upload, maxBytes: 60 * 1024 * 1024 };
+  }),
+
+  registerExport: publicProcedure.input(z.object({
+    ...projectAccessInput.shape,
+    type: z.enum(["png", "zip"]),
+    storageKey: z.string().trim().min(1).max(512),
+    validationJson: z.string().trim().min(2).max(12_000),
+  })).mutation(async ({ ctx, input }) => {
+    const project = await getProjectForActor(input.projectId, actorFromContext(ctx, input.guestKey));
+    if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個專案，或你沒有存取權限。" });
+    try {
+      return await registerProjectExport({ projectId: project.id, type: input.type, storageKey: input.storageKey, validationJson: input.validationJson });
+    } catch (error) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "匯出檔案登記失敗。" });
+    }
+  }),
+
   resume: publicProcedure.input(projectAccessInput).query(async ({ ctx, input }) => {
     const project = await getProjectForActor(input.projectId, actorFromContext(ctx, input.guestKey));
     if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這個專案，或你沒有存取權限。" });
@@ -103,6 +133,7 @@ export const projectRouter = router({
       project,
       state,
       jobs,
+      exports: (await listProjectExports(project.id)).map((item) => ({ ...item, url: `/manus-storage/${item.storageKey}` })),
       nextPosition: nextJob?.position ?? null,
       checkpoints: await listProjectCheckpoints(project.id, 20),
       resumeHint: project.status === "paused" || nextJob ? `輸入「繼續製作」即可從第 ${nextJob?.position ?? 1} 張未完成貼圖繼續。` : null,
