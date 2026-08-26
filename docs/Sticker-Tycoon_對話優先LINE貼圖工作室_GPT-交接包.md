@@ -238,8 +238,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787692152827,
-  "version": "2b6dcc00"
+  "timestamp": 1787717297291,
+  "version": "3cfbe89b"
 }
 ````
 
@@ -21069,15 +21069,15 @@ pnpm build
 # 瀏覽器回歸
 node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
-node scripts/verify-chat-heic-upload.mjs
+HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
 
 # 僅用於本機成功路徑驗證；絕不可設定於正式環境
 STICKER_E2E_TEST_MODE=1 PORT=3001 NODE_ENV=development npx tsx server/_core/index.ts
-BASE_URL=http://localhost:3001 node scripts/verify-android-controlled-success.mjs
+BASE_URL=http://localhost:3001 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-android-controlled-success.mjs
 ```
 
-測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳與額度暫停提示。
+HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳與額度暫停提示。
 
 `STICKER_E2E_TEST_MODE=1` 是**僅供測試**的受控圖像提供者；它讓 Android 瀏覽器可驗證真實 UI、tRPC、資料庫、S3、修改與下載成功路徑，並不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
@@ -21590,8 +21590,12 @@ console.log("AI_FLOW_OK");
 ````javascript
 import { chromium } from "playwright-core";
 import { writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const baseUrl = process.env.BASE_URL ?? "http://localhost:3001";
+const heicFixture = process.env.HEIC_FIXTURE_PATH;
+if (!heicFixture) throw new Error("請以 HEIC_FIXTURE_PATH 提供一個 HEIC 測試檔案。");
+const convertedName = `${path.basename(heicFixture, path.extname(heicFixture))}.jpg`;
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
 const consoleErrors = [];
@@ -21600,8 +21604,8 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 try {
   await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 45_000 });
-  await page.locator(".attach-button input").setInputFiles("<已遮蔽使用者測試素材路徑>");
-  await page.getByText("1000027865.jpg").waitFor({ timeout: 30_000 });
+  await page.locator(".attach-button input").setInputFiles(heicFixture);
+  await page.getByText(convertedName).waitFor({ timeout: 30_000 });
   await page.getByPlaceholder(/幫我把這隻貓做成/).fill("幫我把這隻橘貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。角色是深藍圍裙、圓眼睛的橘貓店長。");
   await page.locator(".send-button").click();
   await page.getByText("第 1 張 · 早安").waitFor({ timeout: 45_000 });
@@ -21678,15 +21682,11 @@ try {
 ````javascript
 import { chromium } from 'playwright-core';
 import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const baseUrl = 'http://localhost:3000';
-const files = [
-  '<已遮蔽使用者測試素材路徑>',
-  '<已遮蔽使用者測試素材路徑>',
-  '<已遮蔽使用者測試素材路徑>',
-  '<已遮蔽使用者測試素材路徑>',
-  '<已遮蔽使用者測試素材路徑>',
-];
+const files = (process.env.HEIC_FIXTURE_PATHS ?? '').split(path.delimiter).filter(Boolean);
+if (files.length !== 5) throw new Error('請以 HEIC_FIXTURE_PATHS 提供五個以系統路徑分隔符連接的 HEIC 測試檔案。');
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const consoleErrors = [];
@@ -21810,6 +21810,11 @@ try {
 ````javascript
 import { chromium } from "playwright-core";
 import { writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const heicFixture = process.env.HEIC_FIXTURE_PATH;
+if (!heicFixture) throw new Error("請以 HEIC_FIXTURE_PATH 提供一個 HEIC 測試檔案。");
+const convertedName = `${path.basename(heicFixture, path.extname(heicFixture))}.jpg`;
 
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -21819,12 +21824,12 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 try {
   await page.goto("http://localhost:3000", { waitUntil: "networkidle", timeout: 30_000 });
-  await page.locator(".attach-button input").setInputFiles("<已遮蔽使用者測試素材路徑>");
-  await page.getByText("1000027865.jpg").waitFor({ timeout: 30_000 });
+  await page.locator(".attach-button input").setInputFiles(heicFixture);
+  await page.getByText(convertedName).waitFor({ timeout: 30_000 });
   const previewCount = await page.locator(".queued-file img").count();
   if (previewCount !== 1) throw new Error(`Expected one converted JPEG preview, received ${previewCount}`);
   if (consoleErrors.length) throw new Error(`Unexpected browser console errors: ${consoleErrors.join(" | ")}`);
-  const result = { ok: true, convertedName: "1000027865.jpg", previewCount, consoleErrors };
+  const result = { ok: true, convertedName, previewCount, consoleErrors };
   await writeFile("/home/ubuntu/sticker-tycoon-replica/chat-heic-upload-result.json", JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 } finally {
@@ -26326,7 +26331,14 @@ export * from "./_core/errors";
 - [x] 對照研究結果盤點現有對話工作室的既有能力與可量化缺口，形成不破壞既有流程的優先改良方案。
 - [x] 依優先級強化 AI 對話理解、角色設定、獨立貼圖任務、修改、保存續作與 LINE 輸出。
 - [x] 以 Android 真實／受控路徑驗證上傳、規劃、生成、指定修改、暫停續作、PNG／ZIP 與 LINE 檢查。
-- [ ] 保存研究與改良版本，更新交接包並交付結果。
+- [x] 保存研究與改良版本，更新交接包並交付結果。
+- [x] 向使用者交付本輪廣泛研究與改良結果，附上最新 checkpoint 與測試摘要。
+
+# 最新原始碼 GitHub 同步
+
+- [ ] 確認 `chat-first-studio` 目標分支的遠端狀態與本機未同步檔案，並掃描敏感資訊。
+- [ ] 建立包含最新完整原始碼、研究文件與安全交接包的 Git commit。
+- [ ] 經使用者確認後推送至 GitHub 並驗證遠端最新提交與文件完整性。
 
 ````
 

@@ -1,14 +1,10 @@
 import { chromium } from 'playwright-core';
 import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const baseUrl = 'http://localhost:3000';
-const files = [
-  '/home/ubuntu/upload/1000027865.heic',
-  '/home/ubuntu/upload/1000027866.heic',
-  '/home/ubuntu/upload/1000027867.heic',
-  '/home/ubuntu/upload/1000027868.heic',
-  '/home/ubuntu/upload/1000027869.heic',
-];
+const files = (process.env.HEIC_FIXTURE_PATHS ?? '').split(path.delimiter).filter(Boolean);
+if (files.length !== 5) throw new Error('請以 HEIC_FIXTURE_PATHS 提供五個以系統路徑分隔符連接的 HEIC 測試檔案。');
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const consoleErrors = [];

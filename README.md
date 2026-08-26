@@ -60,15 +60,15 @@ pnpm build
 # 瀏覽器回歸
 node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
-node scripts/verify-chat-heic-upload.mjs
+HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
 
 # 僅用於本機成功路徑驗證；絕不可設定於正式環境
 STICKER_E2E_TEST_MODE=1 PORT=3001 NODE_ENV=development npx tsx server/_core/index.ts
-BASE_URL=http://localhost:3001 node scripts/verify-android-controlled-success.mjs
+BASE_URL=http://localhost:3001 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-android-controlled-success.mjs
 ```
 
-測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳與額度暫停提示。
+HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳與額度暫停提示。
 
 `STICKER_E2E_TEST_MODE=1` 是**僅供測試**的受控圖像提供者；它讓 Android 瀏覽器可驗證真實 UI、tRPC、資料庫、S3、修改與下載成功路徑，並不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 

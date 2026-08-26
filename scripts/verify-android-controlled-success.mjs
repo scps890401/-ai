@@ -1,7 +1,11 @@
 import { chromium } from "playwright-core";
 import { writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const baseUrl = process.env.BASE_URL ?? "http://localhost:3001";
+const heicFixture = process.env.HEIC_FIXTURE_PATH;
+if (!heicFixture) throw new Error("請以 HEIC_FIXTURE_PATH 提供一個 HEIC 測試檔案。");
+const convertedName = `${path.basename(heicFixture, path.extname(heicFixture))}.jpg`;
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
 const consoleErrors = [];
@@ -10,8 +14,8 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 try {
   await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 45_000 });
-  await page.locator(".attach-button input").setInputFiles("/home/ubuntu/upload/1000027865.heic");
-  await page.getByText("1000027865.jpg").waitFor({ timeout: 30_000 });
+  await page.locator(".attach-button input").setInputFiles(heicFixture);
+  await page.getByText(convertedName).waitFor({ timeout: 30_000 });
   await page.getByPlaceholder(/幫我把這隻貓做成/).fill("幫我把這隻橘貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。角色是深藍圍裙、圓眼睛的橘貓店長。");
   await page.locator(".send-button").click();
   await page.getByText("第 1 張 · 早安").waitFor({ timeout: 45_000 });
