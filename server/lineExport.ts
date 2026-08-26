@@ -14,15 +14,24 @@ function escapeXml(value: string) {
 
 function fontSizeFor(phrase: string) {
   const characters = Array.from(phrase.trim()).length || 1;
-  return Math.max(24, Math.min(44, Math.floor(320 / Math.max(characters, 4))));
+  return Math.max(22, Math.min(42, Math.floor(280 / Math.max(characters, 4))));
 }
 
 function textOverlay(phrase: string) {
-  const text = escapeXml(phrase.trim().slice(0, 20));
-  if (!text) return undefined;
-  const fontSize = fontSizeFor(text);
-  const y = LINE_HEIGHT - 18;
-  return Buffer.from(`<svg width="${LINE_WIDTH}" height="${LINE_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><style>.label{font-family:'Noto Sans CJK TC','Noto Sans TC',sans-serif;font-weight:900;paint-order:stroke;stroke:#09213a;stroke-width:9px;stroke-linejoin:round;}</style><text x="${LINE_WIDTH / 2}" y="${y}" text-anchor="middle" class="label" fill="#ffffff" font-size="${fontSize}">${text}</text></svg>`);
+  const source = phrase.trim();
+  const truncated = Array.from(source).slice(0, 20).join("");
+  if (!truncated) return undefined;
+  const characters = Array.from(truncated);
+  const lines = characters.length > 10 ? [characters.slice(0, 10).join(""), characters.slice(10).join("")] : [truncated];
+  const fontSize = fontSizeFor(lines.reduce((longest, line) => line.length > longest.length ? line : longest, ""));
+  const lineHeight = fontSize + 6;
+  const lastBaseline = LINE_HEIGHT - 18;
+  const firstBaseline = lastBaseline - (lines.length - 1) * lineHeight;
+  const textNodes = lines.map((line, index) => `<text x="${LINE_WIDTH / 2}" y="${firstBaseline + index * lineHeight}" text-anchor="middle" class="label" fill="#ffffff" font-size="${fontSize}">${escapeXml(line)}</text>`).join("");
+  return {
+    buffer: Buffer.from(`<svg width="${LINE_WIDTH}" height="${LINE_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><style>.label{font-family:'Noto Sans CJK TC','Noto Sans TC',sans-serif;font-weight:900;paint-order:stroke;stroke:#09213a;stroke-width:6px;stroke-linejoin:round;}</style>${textNodes}</svg>`),
+    bounds: { x: 10, y: Math.max(10, firstBaseline - fontSize - 6), width: LINE_WIDTH - 20, height: fontSize + (lines.length - 1) * lineHeight + 12, lineCount: lines.length, truncated: source !== truncated },
+  };
 }
 
 async function toFetchUrl(url: string) {
@@ -47,25 +56,29 @@ export type LineQualityReport = {
   evenDimensions: boolean;
   bytes: number;
   maxBytes: number;
-  text: { source: "server_overlay"; phrase: string; font: string };
+  text: { source: "server_overlay"; phrase: string; font: string; bounds: { x: number; y: number; width: number; height: number; lineCount: number; truncated: boolean } | null };
+  safeMarginPx: number;
   messages: string[];
 };
 
 export async function renderLineSticker(input: { imageUrl: string; phrase: string }) {
   const source = await readImage(input.imageUrl);
-  const normalized = await sharp(source).rotate().ensureAlpha().resize({ width: 340, height: 252, fit: "contain", withoutEnlargement: false }).png().toBuffer();
+  const normalized = await sharp(source).rotate().ensureAlpha().resize({ width: 340, height: 244, fit: "contain", withoutEnlargement: false }).png().toBuffer();
   const meta = await sharp(normalized).metadata();
   const left = Math.floor((LINE_WIDTH - (meta.width ?? 0)) / 2);
-  const top = 8;
+  const top = 10;
+  const overlay = textOverlay(input.phrase);
   const output = await sharp({ create: { width: LINE_WIDTH, height: LINE_HEIGHT, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-    .composite([{ input: normalized, left, top }, ...(textOverlay(input.phrase) ? [{ input: textOverlay(input.phrase)! }] : [])])
+    .composite([{ input: normalized, left, top }, ...(overlay ? [{ input: overlay.buffer }] : [])])
     .png({ compressionLevel: 9, palette: true })
     .toBuffer();
   const outputMeta = await sharp(output).metadata();
   const transparent = outputMeta.hasAlpha === true;
   const evenDimensions = Boolean(outputMeta.width && outputMeta.height && outputMeta.width % 2 === 0 && outputMeta.height % 2 === 0);
-  const messages = ["已輸出 RGB PNG 與透明背景。", "已使用伺服器端 Noto Sans CJK TC 疊繪繁體中文，避免由圖像模型直接產字。", "主體已縮放並保留至少約 8 px 的畫布安全邊距；請於上架前人工確認構圖。"];
-  const report: LineQualityReport = { valid: outputMeta.format === "png" && transparent && outputMeta.width === LINE_WIDTH && outputMeta.height === LINE_HEIGHT && output.byteLength <= 1_000_000 && evenDimensions, format: "PNG", transparent, dimensions: `${outputMeta.width}×${outputMeta.height}`, evenDimensions, bytes: output.byteLength, maxBytes: 1_000_000, text: { source: "server_overlay", phrase: input.phrase, font: "Noto Sans CJK TC" }, messages };
+  const safeMarginPx = 10;
+  const textInsideCanvas = !overlay || overlay.bounds.x >= safeMarginPx && overlay.bounds.y >= safeMarginPx && overlay.bounds.x + overlay.bounds.width <= LINE_WIDTH - safeMarginPx && overlay.bounds.y + overlay.bounds.height <= LINE_HEIGHT - safeMarginPx;
+  const messages = ["已輸出 RGB PNG 與透明背景。", "已使用伺服器端 Noto Sans CJK TC 疊繪繁體中文，避免由圖像模型直接產字。", "主體與文字皆依 10 px 畫布安全邊距配置；請於上架前人工確認構圖與內容規範。"];
+  const report: LineQualityReport = { valid: outputMeta.format === "png" && transparent && outputMeta.width === LINE_WIDTH && outputMeta.height === LINE_HEIGHT && output.byteLength <= 1_000_000 && evenDimensions && textInsideCanvas, format: "PNG", transparent, dimensions: `${outputMeta.width}×${outputMeta.height}`, evenDimensions, bytes: output.byteLength, maxBytes: 1_000_000, text: { source: "server_overlay", phrase: input.phrase, font: "Noto Sans CJK TC", bounds: overlay?.bounds ?? null }, safeMarginPx, messages };
   return { buffer: output, report };
 }
 

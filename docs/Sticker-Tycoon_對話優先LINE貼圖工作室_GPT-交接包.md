@@ -3,7 +3,7 @@
 **建立日期：** 2026-08-26（GMT+8）  
 **專案目錄：** `/home/ubuntu/sticker-tycoon-replica`  
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2。  
-**目前工作階段 checkpoint 基線：** `a00fe198`（本交接包包含其後未保存的最新程式碼變更。）
+**目前工作階段 checkpoint 基線：** `804b35b7`（本交接包包含其後未保存的廣泛研究與角色錨點改良。）
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
@@ -13,10 +13,10 @@
 
 | 層面 | 現行做法 |
 | --- | --- |
-| 角色理解與規劃 | GPT-5 mini LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；若 LLM 額度不足，改用可編輯的本機備援腳本。 |
-| 角色一致性生成 | Gemini 3.1 Flash Image 優先接受多張參考圖；若 Gemini 額度暫停，嘗試 GPT Image 2 後備。 |
-| 圖像修改與透明背景 | GPT Image 2 對初稿做語意去背與單張修改；中繼初稿與工作 checkpoint 都會保存。 |
-| 繁體中文 | 圖像模型不負責最後文字；LINE 匯出時以伺服器端 Noto Sans CJK TC SVG 疊字，避免亂碼與截斷。 |
+| 角色理解與規劃 | GPT-5 mini LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認的角色錨點不會被後續純文字對話覆寫；若 LLM 額度不足，改用可編輯備援腳本。 |
+| 角色一致性生成 | Gemini 3.1 Flash Image 優先接受最多 4 張已保存角色參考圖；每張任務 checkpoint 保存參考圖順序、模型、初稿與 Gemini interaction ID；若 Gemini 額度暫停，嘗試 GPT Image 2 後備。 |
+| 圖像修改與透明背景 | GPT Image 2 對初稿做語意去背與單張修改；修改 instruction、原圖版本與位置也會在暫停時保存，輸入「繼續製作」可只續跑該修改。 |
+| 繁體中文 | 圖像模型不負責最後文字；LINE 匯出時以伺服器端 Noto Sans CJK TC SVG 疊字，檢查 10 px 安全邊距、兩行換行與文字 bounding box。 |
 | 保存與續作 | MySQL 保存專案、對話、附件、角色設定、腳本、任務、版本與匯出紀錄；S3 保存檔案；projectKey 保存在瀏覽器並可跨裝置輸入恢復。 |
 | LINE 輸出 | 單張輸出 370×320 透明 PNG；整套 ZIP 包含 sticker、main、tab 與品質報告，並檢查 alpha、尺寸、單圖 1 MB、套組 60 MB。 |
 
@@ -42,14 +42,16 @@
 - `research/chat-first-line-sticker-architecture.md`：官方來源的模型、角色一致性、LINE 規格與多模型分工研究。
 - `research/chat-first-line-sticker-implementation-plan.md`：資料模型、對話意圖、工作狀態、續作與輸出架構。
 - `research/chat-first-ui-visual-findings.md`：桌面、Android 真實額度中斷、受控成功路徑的驗證紀錄。
+- `research/wide-research-2026.md`：2026-08-26 的官方模型、LINE、額度與 HEIC 廣泛研究及選型結論。
+- `research/wide-research-gap-analysis.md`：研究結果與現有程式直接對照的能力缺口及本輪改良範圍。
 
 ## 5. 驗證摘要
 
 | 驗證 | 結果 |
 | --- | --- |
 | `pnpm check` | 通過。 |
-| `pnpm test` | 通過；包含 12 項左右的單元／整合測試（數量會隨後續修改變動）。 |
-| `pnpm build` | 通過；Vite 提示部分 chunk 大於 500 kB，屬效能優化建議而非建置失敗。 |
+| `pnpm test` | 通過；共 14 項單元／整合測試，覆蓋 LINE 文字安全邊距、角色錨點、Gemini interaction checkpoint、單張修改暫停與續作。 |
+| `pnpm build` | 通過；Vite 提示部分 chunk 大於 500 kB，屬效能優化建議而非建置失敗。建置時應停止多餘 watcher 以降低 sandbox 記憶體壓力。 |
 | 真實 Android server route | 通過自然語言建案、projectKey、8 個任務、額度暫停與「繼續製作」續作；外部服務額度不足被正確保存與呈現。 |
 | 受控 Android 成功路徑 | 通過 HEIC→JPEG、8 張生成、指定單張修改、單張 PNG 下載、LINE ZIP 下載與重新載入恢復；未攔截 UI、tRPC、DB、S3、LINE 合成或下載。 |
 | server route 整合 | 直接呼叫真實 tRPC router，覆蓋規劃、生成、修改、單張 PNG、ZIP、paused_quota checkpoint 及只續跑未完成工作。 |
@@ -71,14 +73,14 @@ git push -u github main
 
 ## 7. 給下一位 AI／工程師的優先事項
 
-1. 外部額度恢復後，用真實人物／寵物圖片重跑端到端生成，人工審查角色一致性與透明邊緣。
+1. 外部額度恢復後，用真實人物／寵物圖片重跑端到端生成，人工審查角色一致性、透明邊緣與指定修改前後差異。
 2. 針對前端大型 chunk 做 code splitting，尤其是 HEIC 與 Streamdown 相關模組。
-3. 保留 AI 對話為唯一主要入口；設定與技術細節只能按需漸進揭露。
-4. 不要偽造評價、星等、測試者或使用者見證；不要重新加入付款或 LINE 外部導流。
+3. 保存 provider 的 Retry-After／request ID，將短暫 rate limit 與需等待的 quota／billing 狀態再細分。
+4. 保留 AI 對話為唯一主要入口；設定與技術細節只能按需漸進揭露，且不要偽造評價、星等、測試者或使用者見證。
 
 ## 8. 可分享原始碼與設定
 
-本章收錄 151 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 153 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -236,8 +238,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787687891452,
-  "version": "0f3bce77"
+  "timestamp": 1787692152827,
+  "version": "2b6dcc00"
 }
 ````
 
@@ -21308,6 +21310,133 @@ Google Gemini API 整合需要一個專案專用的 `GEMINI_API_KEY`，並應透
 
 另於 `STICKER_E2E_TEST_MODE=1` 的專用本機伺服器，以 Android `390 × 844` 實際 UI 執行完整成功路徑：HEIC 上傳後轉為 JPEG、自然語言建案、8 張已完成任務、指定第 1 張修改、單張 `sticker_01.png` 下載、整套 ZIP 下載與重新載入後專案恢復均通過。此模式只替代外部模型回覆，不攔截前端、tRPC、資料庫、S3、LINE 合成或下載流程。
 
+## 本輪研究改良後複驗
+
+在角色錨點保存、指定修改續作與 LINE 文字品質檢查改良後，再次於桌面 `1280 × 720` 及 Android `390 × 844` 檢視首頁。桌面保留左側單一對話工作區與右側任務區，不出現表格式設定；手機維持從需求提示、附件／對話輸入到任務區的單欄順序。兩種尺寸皆能看見足夠大的附件按鈕、送出按鈕和繁中提示文字，沒有水平捲動或不可讀的文字重疊。
+
+````
+
+### `research/wide-research-2026.md`
+
+````markdown
+# 對話優先 LINE 貼圖工作室：廣泛研究與技術選型更新
+
+**研究日期：** 2026-08-26（GMT+8）  
+**目的：** 以官方文件為主，重新檢核現有工作室在角色一致性、圖片修改、LINE 輸出、額度中斷與手機上傳方面的技術選擇；本文件不將尚未啟用的外部服務宣稱為既有功能。
+
+## 結論摘要
+
+目前工作室採用的「**Gemini 3.1 Flash Image 優先，GPT Image 2 作為編輯、透明化與後備**」仍是適合以多張角色照片產生一整套貼圖的可落地基線。Gemini 官方將 Flash Image 定位為支援多參考圖與一致性的通用模型；其文件更具體標示最多 4 張角色參考圖。GPT Image 2 則適合高保真參考圖修改、遮罩式局部修正與透明背景輸出，但官方仍提醒跨多次生成的一致性與精確文字位置可能不穩定。[1] [2]
+
+因此，**繁體中文字不可由圖像模型作為唯一來源**。現有伺服器端 SVG／Noto Sans CJK TC 疊字流程應保留，並擴充為「模型先產生無字角色與情境，程式後製文字、安全邊距與 LINE 尺寸」的唯一正式匯出路徑。LINE 的靜態貼圖需為透明 PNG、單張不超過 370×320、主圖 240×240、聊天室縮圖 96×74、每張不超過 1 MB、ZIP 不超過 60 MB，且可選數量為 8／16／24／32／40 張。[3]
+
+| 決策層 | 建議 | 目前狀態 | 改良重點 |
+| --- | --- | --- | --- |
+| 自然語言理解與計畫 | 結構化 LLM 規劃角色設定、張數、動作、情境與文字 | 已有結構化規劃與備援腳本 | 新增規劃版本與差異確認，避免後續對話覆蓋既有完成貼圖。 |
+| 角色一致性主生成 | Gemini 3.1 Flash Image，最多 4 張角色參考圖 | 已採 Gemini 優先，限制前 4 張 | 保存 provider interaction ID、角色參考圖排序與每張腳本的角色鎖定提示。 |
+| 高難度／高價值生成 | Gemini 3 Pro Image 或已訓練的 Firefly Custom Subject Model | 未啟用 | 僅在使用者提供合規外部憑證、同意成本與訓練資料治理後評估。 |
+| 指定修改與去背 | GPT Image 2 + alpha 檢查；必要時使用遮罩 | 已採用 | 儲存修改前圖、目標區域遮罩與修改版本鏈，並避免把非目標圖片重跑。 |
+| 繁體中文 | 伺服器端 SVG 字型後製 | 已採用 | 增加字數、溢出、禁用字與 10 px 安全邊距檢查。 |
+| 額度中斷 | 逐張任務、checkpoint、明確暫停與續作 | 已採用 | 保存 Retry-After／provider interaction ID，節流與延遲排程改為可觀察任務欄位。 |
+
+## 模型與 API 比較
+
+Gemini 3.1 Flash Image 支援文字與圖片的對話式生成／修改，官方將其定位為大量、多參考圖與一致性的通用模型；Gemini 3 Pro Image 則定位於更複雜的控制與品牌一致性。對角色貼圖而言，應優先保留 1–4 張能清楚覆蓋正面、側面、服裝／配件與毛色的參考圖，而不是盲目把所有照片一起送入模型。官方文件同時指出 Flash Image 支援 4 張角色參考圖、最多 10 張物件參考圖與 3 張風格參考圖；因此產品 UI 應讓 AI 自動挑選參考組合，並在對話中向使用者說明已採用哪些照片。[1]
+
+> Gemini 官方將 Gemini 3.1 Flash Image 描述為「在多參考圖處理與一致性方面表現出色」的通用工作模型。[1]
+
+OpenAI 的 GPT Image 文件顯示，Images Edits 支援一張或多張來源圖；Responses API 允許以先前 response／image ID 延續多輪圖像對話。對「第 3 張多了一隻腳」這種操作，系統應把第 3 張既有成圖、原始角色參考與明確修改提示一併送入編輯，而不是重新規劃整套貼圖。文件同時指出 GPT Image 2 對輸入圖採高保真處理、可要求透明背景，但仍可能在跨多張生成時失去角色一致性或無法精確放置文字，支持本產品採取雙模型與文字後製策略。[2]
+
+Adobe Firefly Custom Models 是值得保留的進階選項：官方明示可訓練 subject model 來捕捉特定角色、產品或物件，並用 asset ID 在不同請求間維持一致。其 style／structure reference 也提供 1–100 強度控制與非同步工作。這條路徑可在未來為高價值、長期角色專案提供更強的一致性，但它需要額外 Adobe client credentials、訓練資料治理、費用與使用者同意；目前不應在沒有這些條件下硬整合。[4] [5] [6]
+
+| 方案 | 最適用工作 | 一致性機制 | 主要限制／風險 | 本產品定位 |
+| --- | --- | --- | --- | --- |
+| Gemini 3.1 Flash Image | 角色參考圖驅動的多張貼圖、日常批次 | 最多 4 張角色參考圖與互動 ID | 受專案級 RPM／IPM／RPD 與 429 限制 | 主要生成模型。 |
+| Gemini 3 Pro Image | 複雜構圖與高保真角色成果 | 多參考圖與更高階控制 | 較昂貴、需先確認可用額度與成本 | 選用升級路徑。 |
+| GPT Image 2 | 指定單張修改、遮罩、透明輸出 | 高保真輸入與多輪 response state | 文字與跨次一致性仍非完全可靠 | 編輯／後備／透明處理模型。 |
+| Firefly Custom Subject Model | 長期固定角色或品牌 IP | 訓練 subject model、asset ID | 外部憑證、成本、訓練資料權利與時間 | 未來付費進階整合候選。 |
+
+## LINE 匯出與文字可靠性
+
+LINE 的官方規範要求 PNG、透明背景、RGB、至少 72 dpi，並建議貼圖內容與裁切邊緣保有約 10 px 間距。圖像模型即使可產生較可讀文字，也不能保證繁中沒有錯字、截斷或歪斜；尤其 OpenAI 官方文件明確列出精確文字位置與清晰度仍是限制。因此，現有的「角色無字圖 → Sharp 正規化與 alpha 檢查 → SVG／Noto Sans CJK TC 疊字 → 370×320 貼圖、240×240 主圖與 96×74 縮圖 → ZIP 品質報告」是正確方向，應加上文字最大字數、行距、換行、避開角色臉部與 10 px 邊距檢查。[2] [3]
+
+## 額度、錯誤與自動續作
+
+Gemini 的限制按專案計算，可能包含 RPM、TPM、RPD 與圖片每分鐘；花費型限制會回傳 `429 RESOURCE_EXHAUSTED`。官方建議短暫等待、降低昂貴請求頻率或申請提高限制。OpenAI 對暫時性 429 建議尊重 `Retry-After` 並加上 jitter 的指數退避，但明確提醒不要重試需要使用者處理的 quota、billing 類錯誤。故系統應把「短暫速率限制」與「額度／計費用盡」分開：前者建立 `retry_at` 排程，後者切為 `paused_quota`、保存 checkpoint 並等待使用者輸入「繼續製作」。[7] [8]
+
+Gemini Interactions API 的背景執行會立刻回傳 interaction ID，可輪詢、串流或在連線中斷後恢復；不過官方現行文件把 background execution 限定於標準 Gemini／Managed Agents，不能在未驗證圖像模型支援前假定可直接用於 Image 工作。產品應先持續使用自己的 MySQL job state 作為唯一真實來源，再把可用的 provider interaction ID 視為補強 checkpoint，而非唯一保存方式。[9]
+
+## 手機上傳與 HEIC
+
+HEIC／HEIF 在瀏覽器的解碼支援並不一致。現有做法以 `heic2any` 在裝置端將 HEIC 轉成 JPEG／PNG，再上傳到 S3，符合該工具的瀏覽器端用途，也避開伺服器 libheif 安全限制。應持續保留逐檔錯誤、12 MB 上限、多檔佇列與原始檔名／轉檔結果的顯示；必須注意此工具不保留原始 HEIC metadata，因此角色理解應依轉換後影像像素，不依賴 EXIF。[10]
+
+## 不破壞現有功能的優先改良清單
+
+1. 將每次 Gemini 生成回應的 interaction ID、使用的參考圖 ID、模型、大小及 provider request ID 存入 `stickerJobs.checkpointJson`，讓單張修改與續作可回到相同模型上下文。
+2. 將任務狀態補為 `queued`、`generating`、`removing_background`、`quality_checking`、`completed`、`retrying`、`paused_quota`、`failed`，並在 UI 顯示可理解的下一步。
+3. 對「第 N 張」修改新增 LLM 解析信心度與確認追問；解析不確定時禁止誤修改其他貼圖。
+4. 匯出前新增文字 bounding-box、安全邊距、透明像素比例、檔案大小與主圖／縮圖缺漏檢查；保留品質報告與可單張修正入口。
+5. 只有在取得使用者明確提供的 Adobe 憑證、訓練資料權利說明與成本同意後，才評估 Firefly Custom Models 整合；否則不要將其宣稱為現有能力。
+
+## 參考資料
+
+[1]: [Google AI for Developers — Nano Banana image generation](https://ai.google.dev/gemini-api/docs/image-generation)
+[2]: [OpenAI Developers — Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+[3]: [LINE Creators Market — Sticker guidelines](https://creator.line.me/en/guideline/sticker/)
+[4]: [Adobe Developer — Firefly API overview](https://developer.adobe.com/firefly-services/docs/firefly-api/)
+[5]: [Adobe Developer — Style image reference](https://developer.adobe.com/firefly-services/docs/firefly-api/guides/concepts/style-image-reference/)
+[6]: [Adobe Developer — Structure image reference](https://developer.adobe.com/firefly-services/docs/firefly-api/guides/concepts/structure-image-reference/)
+[7]: [Google AI for Developers — Gemini API rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+[8]: [OpenAI Developers — Rate limits](https://developers.openai.com/api/docs/guides/rate-limits)
+[9]: [Google AI for Developers — Background execution](https://ai.google.dev/gemini-api/docs/background-execution)
+[10]: [heic2any — Browser-side HEIC/HEIF conversion](https://github.com/alexcorvi/heic2any)
+
+````
+
+### `research/wide-research-gap-analysis.md`
+
+````markdown
+# 對話優先 LINE 貼圖工作室：研究對照與能力缺口
+
+本盤點以 `research/wide-research-2026.md` 的官方研究來源為準，並直接檢閱現有 `server/studio.ts`、`server/geminiImage.ts`、資料模型與手機介面。目標不是重建既有功能，而是找出會影響「真正可用」貼圖工作室的資料保存、角色一致性與錯誤恢復缺口。
+
+| 使用者最高優先級 | 現有能力 | 證據／限制 | 改良優先級 |
+| --- | --- | --- | --- |
+| 極簡對話介面 | 已完成 | 首頁以單一對話輸入、附件、訊息歷史與任務卡為中心。 | 維持；不加回大型設定表單。 |
+| AI 理解與角色設定 | 部分完成 | LLM 可從當次訊息與最多 4 張新附件建角色設定，但後續對話會以新訊息覆寫專案 `characterProfile`，且不會把既有 reference 全部再次送入規劃。 | 高。 |
+| 多張獨立生成 | 已完成 | 每個腳本有獨立 `stickerJobs`、狀態、重試與結果 URL。 | 維持；補上 retry 排程 metadata。 |
+| 角色一致性 | 部分完成 | Gemini 優先讀前 4 張 reference，提示中含 profile；但未保存 provider interaction ID、已用 reference 順序、模型／尺寸或角色錨點版本。 | 最高。 |
+| 對話式單張修改 | 部分完成 | 可解析「第 N 張」並只改指定圖、保留版本。額度不足時原圖不被覆蓋。 | 高；額度中斷時應保存修改 instruction checkpoint。 |
+| 專案保存與中斷續作 | 大致完成 | 對話、附件、腳本、任務、版本、匯出已落 DB；生成中斷會保存 `paused_quota`。 | 高；補 provider retry-after、interaction ID 與所有 job stage。 |
+| LINE 輸出與中文 | 已完成 | 伺服器用繁中字型後製文字、輸出透明 PNG、main／tab、ZIP 和品質報告。 | 中；補文字 bbox／安全邊距與品質檢查資料回寫。 |
+| Android 體驗與 HEIC | 已完成 | 受控與真實額度中斷回歸已驗證 HEIC 轉 JPEG、多檔佇列、任務與下載。 | 中；維持真機生成驗收。 |
+
+## 優先改良：角色錨點與可恢復 Provider Context
+
+Gemini 官方文件支持以最多 4 張角色 reference 維持一致性，而多輪編輯可使用 interaction ID。[1] 現在程式僅保存透明 PNG 結果與 draft URL；它沒有把 Gemini 回傳的 interaction ID、實際使用的 reference IDs 或選用模型儲存在 job checkpoint。因此，最先應做的非破壞性改良是把這些 metadata 加入 `checkpointJson`，且在每張生成、retry、edit 都沿用相同角色錨點。
+
+同時，後續訊息不應以「最新一句話」取代角色設定。若使用者輸入「第 3 張眼睛大一點」，應保留先前 character profile，僅建立 edit intent；如果使用者上傳更多參考圖，系統才合併、版本化 profile，並清楚說明新增參考圖會影響未完成貼圖，不會靜默改寫已完成版本。
+
+## 優先改良：區分短暫 429 與需人工處理的額度耗盡
+
+Google 與 OpenAI 文件都將短暫速率限制和需等待／處理的配額狀態區分處理。[2] [3] 現有 `isQuotaError` 將 429、412 和關鍵字一律歸為 `paused_quota`，這已能保護使用者進度，但缺少 `retryAt`、provider retry-after 與可預期的輕量重試。下一輪應為 job checkpoint 加入 `errorKind`、`retryAfterSeconds`、`nextRetryAt`、`resumeCommand`，短暫率限才使用受限指數退避；用量或計費限制只顯示「繼續製作」且不自動狂重試。
+
+## 優先改良：修改 checkpoint 與 LINE 品質報告回寫
+
+生成工作已保存 pause checkpoint，但 `editStudioSticker` 在配額耗盡時只記錄錯誤訊息。應保存原始版本 URL、修改指令、目標 position 和既有角色 profile，讓使用者輸入「繼續製作」時也能完成待處理的修改，而不只續跑 generate 工作。
+
+LINE 輸出應維持目前的程式後製繁中；新增的品質欄位應回寫到 script 或 export record，例如文字 bounding box、最小透明邊距、alpha 比例、像素尺寸、位元組數、RGB／PNG、規格版號。這能把「可下載」提升為「可追溯地符合目標 LINE 靜態貼圖規格」。
+
+## 本輪實作範圍
+
+本輪將優先以不破壞資料庫 schema 的方式，擴充 `stickerJobs.checkpointJson` 與現有品質報告 JSON，並以單元／server route／Android 受控流程測試驗證：角色錨點保存、指定修改中斷後續作、單張 retry 不影響其他貼圖、繁中後製與 ZIP 規格資料仍正確。
+
+## 參考資料
+
+[1]: [Google AI for Developers — Nano Banana image generation](https://ai.google.dev/gemini-api/docs/image-generation)
+[2]: [Google AI for Developers — Gemini API rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+[3]: [OpenAI Developers — Rate limits](https://developers.openai.com/api/docs/guides/rate-limits)
+
 ````
 
 ### `scripts/check-heic-sharp.mjs`
@@ -24926,6 +25055,7 @@ export type GeminiImageResult = {
   b64Json: string;
   mimeType: "image/jpeg";
   provider: "gemini";
+  interactionId?: string;
 };
 
 export class GeminiImageError extends Error {
@@ -24949,7 +25079,7 @@ async function readReference(reference: GeminiImageReference) {
 export async function generateGeminiImage(input: { prompt: string; references?: GeminiImageReference[]; model?: "gemini-3.1-flash-image" | "gemini-3-pro-image" }) {
   if (process.env.STICKER_E2E_TEST_MODE === "1") {
     const buffer = await sharp({ create: { width: 512, height: 512, channels: 3, background: { r: 239, g: 152, b: 58 } } }).jpeg({ quality: 90 }).toBuffer();
-    return { b64Json: buffer.toString("base64"), mimeType: "image/jpeg", provider: "gemini" } satisfies GeminiImageResult;
+    return { b64Json: buffer.toString("base64"), mimeType: "image/jpeg", provider: "gemini", interactionId: `e2e-${Date.now()}` } satisfies GeminiImageResult;
   }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new GeminiImageError("Gemini 圖像服務尚未設定", "MISSING_API_KEY");
@@ -24969,10 +25099,10 @@ export async function generateGeminiImage(input: { prompt: string; references?: 
     });
     const detail = await response.text();
     if (!response.ok) throw new GeminiImageError(`Gemini 圖像服務錯誤（${response.status}）${detail ? `：${detail.slice(0, 320)}` : ""}`, isQuotaOrRateLimit(response.status, detail) ? "USAGE_EXHAUSTED" : "GEMINI_REQUEST", isQuotaOrRateLimit(response.status, detail));
-    const payload = JSON.parse(detail) as { output_image?: { data?: string } };
+    const payload = JSON.parse(detail) as { id?: string; interaction_id?: string; output_image?: { data?: string } };
     const b64Json = payload.output_image?.data;
     if (!b64Json) throw new GeminiImageError("Gemini 沒有回傳圖片資料", "EMPTY_IMAGE", true);
-    return { b64Json, mimeType: "image/jpeg", provider: "gemini" } satisfies GeminiImageResult;
+    return { b64Json, mimeType: "image/jpeg", provider: "gemini", interactionId: payload.id ?? payload.interaction_id } satisfies GeminiImageResult;
   } catch (error) {
     if (error instanceof GeminiImageError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") throw new GeminiImageError("Gemini 圖像生成逾時，請稍後重試", "TIMEOUT", true);
@@ -25042,8 +25172,17 @@ describe("LINE 靜態貼圖輸出", () => {
     expect(metadata.height).toBe(320);
     expect(metadata.hasAlpha).toBe(true);
     expect(output.report.valid).toBe(true);
-    expect(output.report.text).toEqual({ source: "server_overlay", phrase: "早安", font: "Noto Sans CJK TC" });
+    expect(output.report.text).toMatchObject({ source: "server_overlay", phrase: "早安", font: "Noto Sans CJK TC", bounds: { x: 10, lineCount: 1, truncated: false } });
+    expect(output.report.safeMarginPx).toBe(10);
     expect(output.buffer.byteLength).toBeLessThanOrEqual(1_000_000);
+  });
+
+  it("將較長繁中貼圖文字安全換行並在品質報告保留可檢查的文字邊界", async () => {
+    const source = await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 20, g: 160, b: 220, alpha: 1 } } }).png().toBuffer();
+    const output = await renderLineSticker({ imageUrl: `data:image/png;base64,${source.toString("base64")}`, phrase: "今天也要元氣滿滿快樂喔" });
+    expect(output.report.valid).toBe(true);
+    expect(output.report.text.bounds).toMatchObject({ x: 10, lineCount: 2, truncated: false });
+    expect(output.report.text.bounds!.y + output.report.text.bounds!.height).toBeLessThanOrEqual(310);
   });
 
   it("以 8 張完成貼圖建立含主圖、聊天室縮圖與品質報告的 LINE ZIP", async () => {
@@ -25079,15 +25218,24 @@ function escapeXml(value: string) {
 
 function fontSizeFor(phrase: string) {
   const characters = Array.from(phrase.trim()).length || 1;
-  return Math.max(24, Math.min(44, Math.floor(320 / Math.max(characters, 4))));
+  return Math.max(22, Math.min(42, Math.floor(280 / Math.max(characters, 4))));
 }
 
 function textOverlay(phrase: string) {
-  const text = escapeXml(phrase.trim().slice(0, 20));
-  if (!text) return undefined;
-  const fontSize = fontSizeFor(text);
-  const y = LINE_HEIGHT - 18;
-  return Buffer.from(`<svg width="${LINE_WIDTH}" height="${LINE_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><style>.label{font-family:'Noto Sans CJK TC','Noto Sans TC',sans-serif;font-weight:900;paint-order:stroke;stroke:#09213a;stroke-width:9px;stroke-linejoin:round;}</style><text x="${LINE_WIDTH / 2}" y="${y}" text-anchor="middle" class="label" fill="#ffffff" font-size="${fontSize}">${text}</text></svg>`);
+  const source = phrase.trim();
+  const truncated = Array.from(source).slice(0, 20).join("");
+  if (!truncated) return undefined;
+  const characters = Array.from(truncated);
+  const lines = characters.length > 10 ? [characters.slice(0, 10).join(""), characters.slice(10).join("")] : [truncated];
+  const fontSize = fontSizeFor(lines.reduce((longest, line) => line.length > longest.length ? line : longest, ""));
+  const lineHeight = fontSize + 6;
+  const lastBaseline = LINE_HEIGHT - 18;
+  const firstBaseline = lastBaseline - (lines.length - 1) * lineHeight;
+  const textNodes = lines.map((line, index) => `<text x="${LINE_WIDTH / 2}" y="${firstBaseline + index * lineHeight}" text-anchor="middle" class="label" fill="#ffffff" font-size="${fontSize}">${escapeXml(line)}</text>`).join("");
+  return {
+    buffer: Buffer.from(`<svg width="${LINE_WIDTH}" height="${LINE_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><style>.label{font-family:'Noto Sans CJK TC','Noto Sans TC',sans-serif;font-weight:900;paint-order:stroke;stroke:#09213a;stroke-width:6px;stroke-linejoin:round;}</style>${textNodes}</svg>`),
+    bounds: { x: 10, y: Math.max(10, firstBaseline - fontSize - 6), width: LINE_WIDTH - 20, height: fontSize + (lines.length - 1) * lineHeight + 12, lineCount: lines.length, truncated: source !== truncated },
+  };
 }
 
 async function toFetchUrl(url: string) {
@@ -25112,25 +25260,29 @@ export type LineQualityReport = {
   evenDimensions: boolean;
   bytes: number;
   maxBytes: number;
-  text: { source: "server_overlay"; phrase: string; font: string };
+  text: { source: "server_overlay"; phrase: string; font: string; bounds: { x: number; y: number; width: number; height: number; lineCount: number; truncated: boolean } | null };
+  safeMarginPx: number;
   messages: string[];
 };
 
 export async function renderLineSticker(input: { imageUrl: string; phrase: string }) {
   const source = await readImage(input.imageUrl);
-  const normalized = await sharp(source).rotate().ensureAlpha().resize({ width: 340, height: 252, fit: "contain", withoutEnlargement: false }).png().toBuffer();
+  const normalized = await sharp(source).rotate().ensureAlpha().resize({ width: 340, height: 244, fit: "contain", withoutEnlargement: false }).png().toBuffer();
   const meta = await sharp(normalized).metadata();
   const left = Math.floor((LINE_WIDTH - (meta.width ?? 0)) / 2);
-  const top = 8;
+  const top = 10;
+  const overlay = textOverlay(input.phrase);
   const output = await sharp({ create: { width: LINE_WIDTH, height: LINE_HEIGHT, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-    .composite([{ input: normalized, left, top }, ...(textOverlay(input.phrase) ? [{ input: textOverlay(input.phrase)! }] : [])])
+    .composite([{ input: normalized, left, top }, ...(overlay ? [{ input: overlay.buffer }] : [])])
     .png({ compressionLevel: 9, palette: true })
     .toBuffer();
   const outputMeta = await sharp(output).metadata();
   const transparent = outputMeta.hasAlpha === true;
   const evenDimensions = Boolean(outputMeta.width && outputMeta.height && outputMeta.width % 2 === 0 && outputMeta.height % 2 === 0);
-  const messages = ["已輸出 RGB PNG 與透明背景。", "已使用伺服器端 Noto Sans CJK TC 疊繪繁體中文，避免由圖像模型直接產字。", "主體已縮放並保留至少約 8 px 的畫布安全邊距；請於上架前人工確認構圖。"];
-  const report: LineQualityReport = { valid: outputMeta.format === "png" && transparent && outputMeta.width === LINE_WIDTH && outputMeta.height === LINE_HEIGHT && output.byteLength <= 1_000_000 && evenDimensions, format: "PNG", transparent, dimensions: `${outputMeta.width}×${outputMeta.height}`, evenDimensions, bytes: output.byteLength, maxBytes: 1_000_000, text: { source: "server_overlay", phrase: input.phrase, font: "Noto Sans CJK TC" }, messages };
+  const safeMarginPx = 10;
+  const textInsideCanvas = !overlay || overlay.bounds.x >= safeMarginPx && overlay.bounds.y >= safeMarginPx && overlay.bounds.x + overlay.bounds.width <= LINE_WIDTH - safeMarginPx && overlay.bounds.y + overlay.bounds.height <= LINE_HEIGHT - safeMarginPx;
+  const messages = ["已輸出 RGB PNG 與透明背景。", "已使用伺服器端 Noto Sans CJK TC 疊繪繁體中文，避免由圖像模型直接產字。", "主體與文字皆依 10 px 畫布安全邊距配置；請於上架前人工確認構圖與內容規範。"];
+  const report: LineQualityReport = { valid: outputMeta.format === "png" && transparent && outputMeta.width === LINE_WIDTH && outputMeta.height === LINE_HEIGHT && output.byteLength <= 1_000_000 && evenDimensions && textInsideCanvas, format: "PNG", transparent, dimensions: `${outputMeta.width}×${outputMeta.height}`, evenDimensions, bytes: output.byteLength, maxBytes: 1_000_000, text: { source: "server_overlay", phrase: input.phrase, font: "Noto Sans CJK TC", bounds: overlay?.bounds ?? null }, safeMarginPx, messages };
   return { buffer: output, report };
 }
 
@@ -25529,7 +25681,7 @@ vi.mock("./storage", () => ({
 
 vi.mock("./geminiImage", () => ({
   GeminiImageError: class GeminiImageError extends Error { constructor(message: string, public code?: string) { super(message); } },
-  generateGeminiImage: vi.fn(async () => { if (memory.forceQuota) throw new (class GeminiImageError extends Error { constructor() { super("usage exhausted"); this.code = "USAGE_EXHAUSTED"; } code: string })(); return { b64Json: memory.imageDataUrl.split(",")[1], mimeType: "image/jpeg", provider: "gemini" }; }),
+  generateGeminiImage: vi.fn(async () => { if (memory.forceQuota) throw new (class GeminiImageError extends Error { constructor() { super("usage exhausted"); this.code = "USAGE_EXHAUSTED"; } code: string })(); return { b64Json: memory.imageDataUrl.split(",")[1], mimeType: "image/jpeg", provider: "gemini", interactionId: "gemini-test-interaction" }; }),
 }));
 
 vi.mock("./_core/imageGeneration", () => ({
@@ -25573,11 +25725,13 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.references).toHaveLength(1);
     expect(memory.scripts).toHaveLength(8);
     expect(memory.jobs.filter((item) => item.kind === "generate")).toHaveLength(8);
+    expect(JSON.parse(memory.profile.profileJson)).toMatchObject({ referenceUrls: ["/manus-storage/test.png"], version: 1 });
 
     await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
     await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
     expect(memory.scripts.every((item) => item.status === "ready" && item.resultUrl)).toBe(true);
     expect(memory.jobs.filter((item) => item.kind === "generate").every((item) => item.status === "completed")).toBe(true);
+    expect(JSON.parse(memory.jobs.find((item) => item.kind === "generate").checkpointJson)).toMatchObject({ geminiInteractionId: "gemini-test-interaction", referenceUrls: ["/manus-storage/test.png"] });
 
     const edited = await api.studio.editSticker({ projectKey: created.projectKey, position: 3, instruction: "第 3 張眼睛大一點，表情更開心。" });
     expect(edited.status).toBe("completed");
@@ -25613,6 +25767,28 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.scripts[0].resultUrl).toBeTruthy();
     expect(memory.scripts.slice(1).every((item) => item.resultUrl === null)).toBe(true);
   });
+
+  it("保留角色錨點，且會續跑額度中斷的指定修改而不建立重複修改工作", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我把這隻橘貓做成 8 張 LINE 貼圖", attachments: [{ dataUrl: memory.imageDataUrl, fileName: "cat.png", mimeType: "image/png" }] });
+    const firstAnchor = memory.profile.profileJson;
+    await api.studio.sendMessage({ projectKey: created.projectKey, content: "讓第 3 張的表情更可愛", attachments: [] });
+    expect(memory.profile.profileJson).toBe(firstAnchor);
+
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    memory.forceQuota = true;
+    const paused = await api.studio.editSticker({ projectKey: created.projectKey, position: 3, instruction: "第 3 張眼睛大一點" });
+    expect(paused.status).toBe("paused_quota");
+    const editJob = memory.jobs.find((item) => item.kind === "edit");
+    expect(JSON.parse(editJob.checkpointJson)).toMatchObject({ position: 3, instruction: "第 3 張眼睛大一點", stage: "paused_quota", resumeCommand: "繼續製作" });
+
+    memory.forceQuota = false;
+    const resumed = await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 1, position: 3 });
+    expect(resumed.completed).toMatchObject([{ status: "completed" }]);
+    expect(memory.jobs.filter((item) => item.kind === "edit")).toHaveLength(1);
+    expect(editJob.status).toBe("completed");
+  });
 });
 
 ````
@@ -25643,6 +25819,7 @@ const plannerSchema = z.object({
 
 type StudioPlan = z.infer<typeof plannerSchema>;
 type IncomingAttachment = { dataUrl: string; fileName: string; mimeType: string };
+type CharacterAnchor = { summary: string; referenceUrls: string[]; version: number; updatedAt: string };
 
 const e2eImageMode = () => process.env.STICKER_E2E_TEST_MODE === "1";
 
@@ -25666,6 +25843,26 @@ function normaliseProjectTitle(message: string) {
 function extractStickerCount(message: string) {
   const matched = message.match(/(?:做成|製作|生成|要|做)?\s*(8|16|24|32|40)\s*(?:張|個)?(?:貼圖)?/);
   return matched ? Number(matched[1]) : 8;
+}
+
+function parseCharacterAnchor(value: string | null | undefined): CharacterAnchor | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as Partial<CharacterAnchor>;
+    if (typeof parsed.summary === "string") {
+      return {
+        summary: parsed.summary,
+        referenceUrls: Array.isArray(parsed.referenceUrls) ? parsed.referenceUrls.filter((url): url is string => typeof url === "string") : [],
+        version: typeof parsed.version === "number" ? parsed.version : 1,
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString(),
+      };
+    }
+  } catch { /* Legacy plain-text profiles are normalized below. */ }
+  return { summary: value, referenceUrls: [], version: 1, updatedAt: new Date(0).toISOString() };
+}
+
+function selectCharacterReferences(urls: string[]) {
+  return Array.from(new Set(urls.filter(Boolean))).slice(0, 4);
 }
 
 function isQuotaError(error: unknown) {
@@ -25708,13 +25905,13 @@ function fallbackPlan(message: string): StudioPlan {
   };
 }
 
-async function createPlan(message: string, referenceUrls: string[]) {
+async function createPlan(message: string, referenceUrls: string[], existingCharacterProfile?: string) {
   try {
     const visionContent = await Promise.all(referenceUrls.slice(0, 4).map(async (url) => ({ type: "image_url" as const, image_url: { url: (await signedReference(url)).url, detail: "high" as const } })));
     const response = await invokeLLM({
       model: "gpt-5-mini",
       messages: [
-        { role: "system", content: "你是 LINE 貼圖工作室的中文創作總監。使用者只用自然語言操作。分析他們的需求與參考圖片，輸出一份務實的 JSON 計畫。只有在使用者明確要求生成、繼續或重試時才設定 generate_pending、continue_project 或 retry_sticker。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。" },
+        { role: "system", content: `你是 LINE 貼圖工作室的中文創作總監。使用者只用自然語言操作。分析他們的需求與參考圖片，輸出一份務實的 JSON 計畫。只有在使用者明確要求生成、繼續或重試時才設定 generate_pending、continue_project 或 retry_sticker。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。${existingCharacterProfile ? `\n已確認的角色設定如下，除非使用者上傳新角色照片並明確要求重設，後續對話必須保留這些不可變特徵：${existingCharacterProfile}` : ""}` },
         { role: "user", content: [{ type: "text", text: message }, ...visionContent] },
       ],
       response_format: {
@@ -25765,14 +25962,22 @@ async function ensureConversation(projectId: number) {
 export async function sendStudioMessage(input: { projectKey?: string; content: string; attachments: IncomingAttachment[] }) {
   const project = await createProjectIfNeeded(input.projectKey, input.content);
   const conversation = await ensureConversation(project.id);
+  const before = await getStickerStudio(project.projectKey);
+  const previousAnchor = parseCharacterAnchor(before?.characterProfile?.profileJson ?? project.characterProfile);
   const userMessage = await addStickerMessage({ conversationId: conversation.id, role: "user", content: input.content });
   if (!userMessage) throw new Error("無法保存你的訊息");
   const attachmentRows = await persistAttachments(project.id, userMessage.id, input.attachments);
   for (const attachment of attachmentRows.filter((item) => item.mimeType.startsWith("image/"))) await addStickerReference({ projectId: project.id, url: attachment.url, fileName: attachment.fileName, sortOrder: attachment.sortOrder });
-  const plan = await createPlan(input.content, attachmentRows.filter((item) => item.mimeType.startsWith("image/")).map((item) => item.url));
-  await updateStickerProject({ id: project.id, title: plan.projectTitle, brief: input.content, characterProfile: plan.characterProfile, stickerCount: plan.stickerCount });
-  const character = await saveStickerCharacterProfile({ projectId: project.id, profileJson: JSON.stringify({ summary: plan.characterProfile, referenceCount: attachmentRows.length }), anchorUrl: attachmentRows.find((item) => item.mimeType.startsWith("image/"))?.url, status: attachmentRows.length ? "ready" : "needs_reference" });
   const existing = await getStickerProject(project.projectKey);
+  const newReferenceUrls = attachmentRows.filter((item) => item.mimeType.startsWith("image/")).map((item) => item.url);
+  const selectedReferenceUrls = selectCharacterReferences([...newReferenceUrls, ...(existing?.references.map((reference) => reference.url) ?? []), ...(previousAnchor?.referenceUrls ?? [])]);
+  const plan = await createPlan(input.content, selectedReferenceUrls, previousAnchor?.summary);
+  const preserveCharacter = Boolean(previousAnchor && newReferenceUrls.length === 0);
+  const nextAnchor: CharacterAnchor = preserveCharacter
+    ? previousAnchor!
+    : { summary: plan.characterProfile, referenceUrls: selectedReferenceUrls, version: (previousAnchor?.version ?? 0) + 1, updatedAt: new Date().toISOString() };
+  await updateStickerProject({ id: project.id, title: preserveCharacter ? project.title : plan.projectTitle, brief: preserveCharacter ? project.brief : input.content, characterProfile: nextAnchor.summary, stickerCount: preserveCharacter ? project.stickerCount : plan.stickerCount });
+  const character = await saveStickerCharacterProfile({ projectId: project.id, profileJson: JSON.stringify(nextAnchor), anchorUrl: nextAnchor.referenceUrls[0], status: nextAnchor.referenceUrls.length ? "ready" : "needs_reference" });
   if (plan.scripts.length && !(existing?.scripts.length)) {
     for (const script of plan.scripts.slice(0, plan.stickerCount)) {
       const row = await addStickerScript({ projectId: project.id, ...script });
@@ -25809,7 +26014,8 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
   const studio = await getStickerStudio(projectKey);
   if (!studio) throw new Error("找不到要繼續的專案");
   const references = (await getStickerProject(projectKey))?.references ?? [];
-  const profile = studio.characterProfile?.profileJson ?? studio.project.characterProfile ?? "請維持所有角色外觀特徵一致";
+  const anchor = parseCharacterAnchor(studio.characterProfile?.profileJson ?? studio.project.characterProfile);
+  const profile = anchor?.summary ?? "請維持所有角色外觀特徵一致";
   const candidates = studio.jobs.filter((job) => {
     if (job.kind !== "generate" || !["queued", "retrying", "paused_quota"].includes(job.status)) return false;
     return position === undefined || studio.scripts.find((script) => script.id === job.scriptId)?.position === position;
@@ -25822,15 +26028,17 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
     await updateStickerScript({ id: script.id, status: "generating", errorMessage: null });
     const prompt = buildStickerPrompt({ style: "可愛、清晰、適合日常溝通的 LINE 貼圖", emotion: script.emotion, phrase: script.phrase, scene: script.scene ?? undefined, characterProfile: profile, prompt: "使用乾淨的淺色背景與約 10 像素安全邊距。不要直接生成文字；最終繁體中文字將由程式後製。" });
     try {
-      const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { draftUrl?: string } : {};
+      const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { draftUrl?: string; referenceUrls?: string[]; geminiInteractionId?: string; model?: string; draftProvider?: string } : {};
       let draftUrl = checkpoint.draftUrl;
       let draftProvider = "gemini";
+      const referenceUrls = selectCharacterReferences(checkpoint.referenceUrls?.length ? checkpoint.referenceUrls : [...(anchor?.referenceUrls ?? []), ...references.map((reference) => reference.url)]);
       if (!draftUrl) {
-        const referenceImages = await Promise.all(references.slice(0, 4).map(async (reference) => ({ ...(await signedReference(reference.url)), mimeType: "image/jpeg" })));
+        const referenceImages = await Promise.all(referenceUrls.map(async (url) => ({ ...(await signedReference(url)), mimeType: "image/jpeg" })));
         let draft: Awaited<ReturnType<typeof storeGeneratedDraft>>;
         try {
           const result = await generateGeminiImage({ prompt, references: referenceImages });
           draft = await storeGeneratedDraft(result.b64Json, result.mimeType);
+          checkpoint.geminiInteractionId = result.interactionId;
         } catch (geminiError) {
           if (!isQuotaError(geminiError)) throw geminiError;
           const fallback = await generateImage({ prompt, originalImages: referenceImages, quality: "medium" });
@@ -25839,7 +26047,7 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
           draft = await storeGeneratedDraft(fallback.b64Json, "image/png");
         }
         draftUrl = draft.url;
-        await updateStickerJob({ id: job.id, status: "removing_background", provider: draftProvider, checkpointJson: JSON.stringify({ draftUrl, stage: "removing_background", draftProvider }) });
+        await updateStickerJob({ id: job.id, status: "removing_background", provider: draftProvider, checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, referenceUrls, stage: "removing_background", draftProvider, model: draftProvider === "gemini" ? "gemini-3.1-flash-image" : "gpt-image-2" }) });
       }
       const draftReference = await signedReference(draftUrl, "image/jpeg");
       const cutout = e2eImageMode()
@@ -25849,7 +26057,7 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
       const saved = await storeTransparentPng(cutout.b64Json);
       await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: saved.hasAlpha, provider: "gemini+gpt-image", textOverlayPending: true }) });
       await addStickerVersion({ scriptId: script.id, version: 1, url: saved.url, mode: "generate" });
-      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image`, checkpointJson: JSON.stringify({ draftUrl, url: saved.url, stage: "completed", draftProvider }) });
+      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image`, checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, url: saved.url, referenceUrls, stage: "completed", draftProvider }) });
       completed.push({ jobId: job.id, scriptId: script.id, status: "completed", url: saved.url });
     } catch (error) {
       const message = error instanceof Error ? error.message : "貼圖生成失敗";
@@ -25866,7 +26074,22 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
       if (paused) break;
     }
   }
-  return { projectKey, completed, remaining: studio.jobs.filter((job) => job.kind === "generate" && ["queued", "retrying", "paused_quota"].includes(job.status)).length - completed.length };
+  const pausedEdits = studio.jobs.filter((job) => {
+    if (job.kind !== "edit" || job.status !== "paused_quota") return false;
+    const script = studio.scripts.find((item) => item.id === job.scriptId);
+    return position === undefined || script?.position === position;
+  }).slice(0, Math.max(0, maxJobs - completed.length));
+  for (const job of pausedEdits) {
+    const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { instruction?: string; position?: number } : {};
+    const script = studio.scripts.find((item) => item.id === job.scriptId);
+    const targetPosition = checkpoint.position ?? script?.position;
+    if (!targetPosition || !checkpoint.instruction) continue;
+    const resumed = await editStudioSticker({ projectKey, position: targetPosition, instruction: checkpoint.instruction, resumeJobId: job.id });
+    completed.push({ jobId: job.id, scriptId: job.scriptId, status: resumed.status, url: resumed.url, message: resumed.message });
+    if (resumed.status === "paused_quota") break;
+  }
+  const remaining = studio.jobs.filter((job) => ["generate", "edit"].includes(job.kind) && ["queued", "retrying", "paused_quota"].includes(job.status)).length - completed.length;
+  return { projectKey, completed, remaining };
 }
 
 export async function retryStudioSticker(projectKey: string, position: number) {
@@ -25882,13 +26105,16 @@ export async function retryStudioSticker(projectKey: string, position: number) {
   return runPendingStudioJobs(projectKey, 1, position);
 }
 
-export async function editStudioSticker(input: { projectKey: string; position: number; instruction: string }) {
+export async function editStudioSticker(input: { projectKey: string; position: number; instruction: string; resumeJobId?: number }) {
   const project = await getStickerProject(input.projectKey);
   if (!project) throw new Error("找不到要修改的專案");
   const script = project.scripts.find((item) => item.position === input.position);
   if (!script?.resultUrl) throw new Error(`第 ${input.position} 張尚未完成，無法修改`);
   const current = await signedReference(script.resultUrl, "image/png");
-  const job = await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: "gpt-image-2" });
+  const studio = await getStickerStudio(input.projectKey);
+  const previousJob = input.resumeJobId ? studio?.jobs.find((item) => item.id === input.resumeJobId && item.kind === "edit") : undefined;
+  const job = previousJob ?? await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: "gpt-image-2" });
+  if (previousJob) await updateStickerJob({ id: previousJob.id, status: "generating", errorCode: null, errorMessage: null });
   try {
     const result = e2eImageMode()
       ? { url: (await storeTransparentPng((await createE2ETransparentPng()).toString("base64"))).url }
@@ -25897,11 +26123,11 @@ export async function editStudioSticker(input: { projectKey: string; position: n
     const nextVersion = (await getStickerStudio(input.projectKey))?.jobs.filter((item) => item.scriptId === script.id && item.kind === "edit").length ?? 1;
     await addStickerVersion({ scriptId: script.id, version: nextVersion + 1, url: result.url, mode: "refine" });
     await updateStickerScript({ id: script.id, status: "ready", resultUrl: result.url, errorMessage: null });
-    if (job) await updateStickerJob({ id: job.id, status: "completed", checkpointJson: JSON.stringify({ url: result.url }) });
+    if (job) await updateStickerJob({ id: job.id, status: "completed", checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, url: result.url, stage: "completed" }) });
     return { position: input.position, url: result.url, status: "completed" as const };
   } catch (error) {
     const message = error instanceof Error ? error.message : "貼圖修改失敗";
-    if (job) await updateStickerJob({ id: job.id, status: isQuotaError(error) ? "paused_quota" : "failed", errorCode: isQuotaError(error) ? "USAGE_EXHAUSTED" : "EDIT_FAILED", errorMessage: message });
+    if (job) await updateStickerJob({ id: job.id, status: isQuotaError(error) ? "paused_quota" : "failed", errorCode: isQuotaError(error) ? "USAGE_EXHAUSTED" : "EDIT_FAILED", errorMessage: message, checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, stage: isQuotaError(error) ? "paused_quota" : "failed", resumeCommand: "繼續製作" }) });
     return { position: input.position, url: script.resultUrl, status: isQuotaError(error) ? "paused_quota" as const : "failed" as const, message };
   }
 }
@@ -26085,7 +26311,22 @@ export * from "./_core/errors";
 - [x] 實作 LINE 規格檢查、透明 PNG／文字後製、單張下載與 ZIP 匯出。
 - [x] 在 Android 手機視窗新增受控後端成功路徑回歸：上傳、自然語言規劃、至少一張生成、指定修改、單張 PNG 與 ZIP 輸出。
 - [x] 為 server route 整合測試補上 paused_quota checkpoint 保存與「繼續製作」僅續跑未完成貼圖的驗證，並保留生成、修改與 LINE 輸出覆蓋。
-- [ ] 建立適合 GitHub 的 README、交接包與安全推送指引，並保存最終 checkpoint。
+- [x] 建立適合 GitHub 的 README、交接包與安全推送指引，並保存最終 checkpoint。
+
+# GitHub 遠端交接
+
+- [x] 確認 GitHub 授權、目標遠端倉庫與目前 Git 工作樹狀態。
+- [x] 將最新版安全交接包置入可提交目錄並建立包含最新程式碼的 Git commit。
+- [x] 經使用者確認目標遠端後推送並驗證 GitHub 分支內容。
+
+# 對話優先工作室廣泛研究與持續改良
+
+- [x] 廣泛研究現行圖像模型、角色一致性、圖片修改、批次生成與繁中可靠文字的最佳實務及 API 能力。
+- [x] 查核 LINE Creators Market 最新靜態貼圖規格、手機瀏覽器上傳／HEIC 相容性及 API 額度中斷處理建議。
+- [x] 對照研究結果盤點現有對話工作室的既有能力與可量化缺口，形成不破壞既有流程的優先改良方案。
+- [x] 依優先級強化 AI 對話理解、角色設定、獨立貼圖任務、修改、保存續作與 LINE 輸出。
+- [x] 以 Android 真實／受控路徑驗證上傳、規劃、生成、指定修改、暫停續作、PNG／ZIP 與 LINE 檢查。
+- [ ] 保存研究與改良版本，更新交接包並交付結果。
 
 ````
 
@@ -26341,4 +26582,4 @@ export default defineConfig({
 
 ## 9. 交接結論
 
-此版本已從多欄精靈重構為對話優先、手機優先的可保存 LINE 貼圖工作室。程式已完整處理外部額度中斷；目前外部 AI 服務的 429／412 是供應端可用量狀態，不是前端、資料庫、續作或輸出流程的阻塞錯誤。請以本文件的架構文件、README、測試與原始碼為唯一後續實作依據。
+此版本已從多欄精靈重構為對話優先、手機優先的可保存 LINE 貼圖工作室。本輪新增角色錨點與參考圖保存、Gemini interaction checkpoint、指定修改的 paused_quota 續作，以及可檢查安全邊距的繁中 LINE 文字品質報告。程式已完整處理外部額度中斷；目前外部 AI 服務的 429／412 是供應端可用量狀態，不是前端、資料庫、續作或輸出流程的阻塞錯誤。請以本文件的架構文件、README、測試與原始碼為後續實作依據。

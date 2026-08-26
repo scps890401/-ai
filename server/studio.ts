@@ -21,6 +21,7 @@ const plannerSchema = z.object({
 
 type StudioPlan = z.infer<typeof plannerSchema>;
 type IncomingAttachment = { dataUrl: string; fileName: string; mimeType: string };
+type CharacterAnchor = { summary: string; referenceUrls: string[]; version: number; updatedAt: string };
 
 const e2eImageMode = () => process.env.STICKER_E2E_TEST_MODE === "1";
 
@@ -44,6 +45,26 @@ function normaliseProjectTitle(message: string) {
 function extractStickerCount(message: string) {
   const matched = message.match(/(?:做成|製作|生成|要|做)?\s*(8|16|24|32|40)\s*(?:張|個)?(?:貼圖)?/);
   return matched ? Number(matched[1]) : 8;
+}
+
+function parseCharacterAnchor(value: string | null | undefined): CharacterAnchor | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as Partial<CharacterAnchor>;
+    if (typeof parsed.summary === "string") {
+      return {
+        summary: parsed.summary,
+        referenceUrls: Array.isArray(parsed.referenceUrls) ? parsed.referenceUrls.filter((url): url is string => typeof url === "string") : [],
+        version: typeof parsed.version === "number" ? parsed.version : 1,
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString(),
+      };
+    }
+  } catch { /* Legacy plain-text profiles are normalized below. */ }
+  return { summary: value, referenceUrls: [], version: 1, updatedAt: new Date(0).toISOString() };
+}
+
+function selectCharacterReferences(urls: string[]) {
+  return Array.from(new Set(urls.filter(Boolean))).slice(0, 4);
 }
 
 function isQuotaError(error: unknown) {
@@ -86,13 +107,13 @@ function fallbackPlan(message: string): StudioPlan {
   };
 }
 
-async function createPlan(message: string, referenceUrls: string[]) {
+async function createPlan(message: string, referenceUrls: string[], existingCharacterProfile?: string) {
   try {
     const visionContent = await Promise.all(referenceUrls.slice(0, 4).map(async (url) => ({ type: "image_url" as const, image_url: { url: (await signedReference(url)).url, detail: "high" as const } })));
     const response = await invokeLLM({
       model: "gpt-5-mini",
       messages: [
-        { role: "system", content: "你是 LINE 貼圖工作室的中文創作總監。使用者只用自然語言操作。分析他們的需求與參考圖片，輸出一份務實的 JSON 計畫。只有在使用者明確要求生成、繼續或重試時才設定 generate_pending、continue_project 或 retry_sticker。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。" },
+        { role: "system", content: `你是 LINE 貼圖工作室的中文創作總監。使用者只用自然語言操作。分析他們的需求與參考圖片，輸出一份務實的 JSON 計畫。只有在使用者明確要求生成、繼續或重試時才設定 generate_pending、continue_project 或 retry_sticker。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。${existingCharacterProfile ? `\n已確認的角色設定如下，除非使用者上傳新角色照片並明確要求重設，後續對話必須保留這些不可變特徵：${existingCharacterProfile}` : ""}` },
         { role: "user", content: [{ type: "text", text: message }, ...visionContent] },
       ],
       response_format: {
@@ -143,14 +164,22 @@ async function ensureConversation(projectId: number) {
 export async function sendStudioMessage(input: { projectKey?: string; content: string; attachments: IncomingAttachment[] }) {
   const project = await createProjectIfNeeded(input.projectKey, input.content);
   const conversation = await ensureConversation(project.id);
+  const before = await getStickerStudio(project.projectKey);
+  const previousAnchor = parseCharacterAnchor(before?.characterProfile?.profileJson ?? project.characterProfile);
   const userMessage = await addStickerMessage({ conversationId: conversation.id, role: "user", content: input.content });
   if (!userMessage) throw new Error("無法保存你的訊息");
   const attachmentRows = await persistAttachments(project.id, userMessage.id, input.attachments);
   for (const attachment of attachmentRows.filter((item) => item.mimeType.startsWith("image/"))) await addStickerReference({ projectId: project.id, url: attachment.url, fileName: attachment.fileName, sortOrder: attachment.sortOrder });
-  const plan = await createPlan(input.content, attachmentRows.filter((item) => item.mimeType.startsWith("image/")).map((item) => item.url));
-  await updateStickerProject({ id: project.id, title: plan.projectTitle, brief: input.content, characterProfile: plan.characterProfile, stickerCount: plan.stickerCount });
-  const character = await saveStickerCharacterProfile({ projectId: project.id, profileJson: JSON.stringify({ summary: plan.characterProfile, referenceCount: attachmentRows.length }), anchorUrl: attachmentRows.find((item) => item.mimeType.startsWith("image/"))?.url, status: attachmentRows.length ? "ready" : "needs_reference" });
   const existing = await getStickerProject(project.projectKey);
+  const newReferenceUrls = attachmentRows.filter((item) => item.mimeType.startsWith("image/")).map((item) => item.url);
+  const selectedReferenceUrls = selectCharacterReferences([...newReferenceUrls, ...(existing?.references.map((reference) => reference.url) ?? []), ...(previousAnchor?.referenceUrls ?? [])]);
+  const plan = await createPlan(input.content, selectedReferenceUrls, previousAnchor?.summary);
+  const preserveCharacter = Boolean(previousAnchor && newReferenceUrls.length === 0);
+  const nextAnchor: CharacterAnchor = preserveCharacter
+    ? previousAnchor!
+    : { summary: plan.characterProfile, referenceUrls: selectedReferenceUrls, version: (previousAnchor?.version ?? 0) + 1, updatedAt: new Date().toISOString() };
+  await updateStickerProject({ id: project.id, title: preserveCharacter ? project.title : plan.projectTitle, brief: preserveCharacter ? project.brief : input.content, characterProfile: nextAnchor.summary, stickerCount: preserveCharacter ? project.stickerCount : plan.stickerCount });
+  const character = await saveStickerCharacterProfile({ projectId: project.id, profileJson: JSON.stringify(nextAnchor), anchorUrl: nextAnchor.referenceUrls[0], status: nextAnchor.referenceUrls.length ? "ready" : "needs_reference" });
   if (plan.scripts.length && !(existing?.scripts.length)) {
     for (const script of plan.scripts.slice(0, plan.stickerCount)) {
       const row = await addStickerScript({ projectId: project.id, ...script });
@@ -187,7 +216,8 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
   const studio = await getStickerStudio(projectKey);
   if (!studio) throw new Error("找不到要繼續的專案");
   const references = (await getStickerProject(projectKey))?.references ?? [];
-  const profile = studio.characterProfile?.profileJson ?? studio.project.characterProfile ?? "請維持所有角色外觀特徵一致";
+  const anchor = parseCharacterAnchor(studio.characterProfile?.profileJson ?? studio.project.characterProfile);
+  const profile = anchor?.summary ?? "請維持所有角色外觀特徵一致";
   const candidates = studio.jobs.filter((job) => {
     if (job.kind !== "generate" || !["queued", "retrying", "paused_quota"].includes(job.status)) return false;
     return position === undefined || studio.scripts.find((script) => script.id === job.scriptId)?.position === position;
@@ -200,15 +230,17 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
     await updateStickerScript({ id: script.id, status: "generating", errorMessage: null });
     const prompt = buildStickerPrompt({ style: "可愛、清晰、適合日常溝通的 LINE 貼圖", emotion: script.emotion, phrase: script.phrase, scene: script.scene ?? undefined, characterProfile: profile, prompt: "使用乾淨的淺色背景與約 10 像素安全邊距。不要直接生成文字；最終繁體中文字將由程式後製。" });
     try {
-      const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { draftUrl?: string } : {};
+      const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { draftUrl?: string; referenceUrls?: string[]; geminiInteractionId?: string; model?: string; draftProvider?: string } : {};
       let draftUrl = checkpoint.draftUrl;
       let draftProvider = "gemini";
+      const referenceUrls = selectCharacterReferences(checkpoint.referenceUrls?.length ? checkpoint.referenceUrls : [...(anchor?.referenceUrls ?? []), ...references.map((reference) => reference.url)]);
       if (!draftUrl) {
-        const referenceImages = await Promise.all(references.slice(0, 4).map(async (reference) => ({ ...(await signedReference(reference.url)), mimeType: "image/jpeg" })));
+        const referenceImages = await Promise.all(referenceUrls.map(async (url) => ({ ...(await signedReference(url)), mimeType: "image/jpeg" })));
         let draft: Awaited<ReturnType<typeof storeGeneratedDraft>>;
         try {
           const result = await generateGeminiImage({ prompt, references: referenceImages });
           draft = await storeGeneratedDraft(result.b64Json, result.mimeType);
+          checkpoint.geminiInteractionId = result.interactionId;
         } catch (geminiError) {
           if (!isQuotaError(geminiError)) throw geminiError;
           const fallback = await generateImage({ prompt, originalImages: referenceImages, quality: "medium" });
@@ -217,7 +249,7 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
           draft = await storeGeneratedDraft(fallback.b64Json, "image/png");
         }
         draftUrl = draft.url;
-        await updateStickerJob({ id: job.id, status: "removing_background", provider: draftProvider, checkpointJson: JSON.stringify({ draftUrl, stage: "removing_background", draftProvider }) });
+        await updateStickerJob({ id: job.id, status: "removing_background", provider: draftProvider, checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, referenceUrls, stage: "removing_background", draftProvider, model: draftProvider === "gemini" ? "gemini-3.1-flash-image" : "gpt-image-2" }) });
       }
       const draftReference = await signedReference(draftUrl, "image/jpeg");
       const cutout = e2eImageMode()
@@ -227,7 +259,7 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
       const saved = await storeTransparentPng(cutout.b64Json);
       await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: saved.hasAlpha, provider: "gemini+gpt-image", textOverlayPending: true }) });
       await addStickerVersion({ scriptId: script.id, version: 1, url: saved.url, mode: "generate" });
-      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image`, checkpointJson: JSON.stringify({ draftUrl, url: saved.url, stage: "completed", draftProvider }) });
+      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image`, checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, url: saved.url, referenceUrls, stage: "completed", draftProvider }) });
       completed.push({ jobId: job.id, scriptId: script.id, status: "completed", url: saved.url });
     } catch (error) {
       const message = error instanceof Error ? error.message : "貼圖生成失敗";
@@ -244,7 +276,22 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
       if (paused) break;
     }
   }
-  return { projectKey, completed, remaining: studio.jobs.filter((job) => job.kind === "generate" && ["queued", "retrying", "paused_quota"].includes(job.status)).length - completed.length };
+  const pausedEdits = studio.jobs.filter((job) => {
+    if (job.kind !== "edit" || job.status !== "paused_quota") return false;
+    const script = studio.scripts.find((item) => item.id === job.scriptId);
+    return position === undefined || script?.position === position;
+  }).slice(0, Math.max(0, maxJobs - completed.length));
+  for (const job of pausedEdits) {
+    const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { instruction?: string; position?: number } : {};
+    const script = studio.scripts.find((item) => item.id === job.scriptId);
+    const targetPosition = checkpoint.position ?? script?.position;
+    if (!targetPosition || !checkpoint.instruction) continue;
+    const resumed = await editStudioSticker({ projectKey, position: targetPosition, instruction: checkpoint.instruction, resumeJobId: job.id });
+    completed.push({ jobId: job.id, scriptId: job.scriptId, status: resumed.status, url: resumed.url, message: resumed.message });
+    if (resumed.status === "paused_quota") break;
+  }
+  const remaining = studio.jobs.filter((job) => ["generate", "edit"].includes(job.kind) && ["queued", "retrying", "paused_quota"].includes(job.status)).length - completed.length;
+  return { projectKey, completed, remaining };
 }
 
 export async function retryStudioSticker(projectKey: string, position: number) {
@@ -260,13 +307,16 @@ export async function retryStudioSticker(projectKey: string, position: number) {
   return runPendingStudioJobs(projectKey, 1, position);
 }
 
-export async function editStudioSticker(input: { projectKey: string; position: number; instruction: string }) {
+export async function editStudioSticker(input: { projectKey: string; position: number; instruction: string; resumeJobId?: number }) {
   const project = await getStickerProject(input.projectKey);
   if (!project) throw new Error("找不到要修改的專案");
   const script = project.scripts.find((item) => item.position === input.position);
   if (!script?.resultUrl) throw new Error(`第 ${input.position} 張尚未完成，無法修改`);
   const current = await signedReference(script.resultUrl, "image/png");
-  const job = await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: "gpt-image-2" });
+  const studio = await getStickerStudio(input.projectKey);
+  const previousJob = input.resumeJobId ? studio?.jobs.find((item) => item.id === input.resumeJobId && item.kind === "edit") : undefined;
+  const job = previousJob ?? await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: "gpt-image-2" });
+  if (previousJob) await updateStickerJob({ id: previousJob.id, status: "generating", errorCode: null, errorMessage: null });
   try {
     const result = e2eImageMode()
       ? { url: (await storeTransparentPng((await createE2ETransparentPng()).toString("base64"))).url }
@@ -275,11 +325,11 @@ export async function editStudioSticker(input: { projectKey: string; position: n
     const nextVersion = (await getStickerStudio(input.projectKey))?.jobs.filter((item) => item.scriptId === script.id && item.kind === "edit").length ?? 1;
     await addStickerVersion({ scriptId: script.id, version: nextVersion + 1, url: result.url, mode: "refine" });
     await updateStickerScript({ id: script.id, status: "ready", resultUrl: result.url, errorMessage: null });
-    if (job) await updateStickerJob({ id: job.id, status: "completed", checkpointJson: JSON.stringify({ url: result.url }) });
+    if (job) await updateStickerJob({ id: job.id, status: "completed", checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, url: result.url, stage: "completed" }) });
     return { position: input.position, url: result.url, status: "completed" as const };
   } catch (error) {
     const message = error instanceof Error ? error.message : "貼圖修改失敗";
-    if (job) await updateStickerJob({ id: job.id, status: isQuotaError(error) ? "paused_quota" : "failed", errorCode: isQuotaError(error) ? "USAGE_EXHAUSTED" : "EDIT_FAILED", errorMessage: message });
+    if (job) await updateStickerJob({ id: job.id, status: isQuotaError(error) ? "paused_quota" : "failed", errorCode: isQuotaError(error) ? "USAGE_EXHAUSTED" : "EDIT_FAILED", errorMessage: message, checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, stage: isQuotaError(error) ? "paused_quota" : "failed", resumeCommand: "繼續製作" }) });
     return { position: input.position, url: script.resultUrl, status: isQuotaError(error) ? "paused_quota" as const : "failed" as const, message };
   }
 }

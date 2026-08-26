@@ -45,7 +45,7 @@ vi.mock("./storage", () => ({
 
 vi.mock("./geminiImage", () => ({
   GeminiImageError: class GeminiImageError extends Error { constructor(message: string, public code?: string) { super(message); } },
-  generateGeminiImage: vi.fn(async () => { if (memory.forceQuota) throw new (class GeminiImageError extends Error { constructor() { super("usage exhausted"); this.code = "USAGE_EXHAUSTED"; } code: string })(); return { b64Json: memory.imageDataUrl.split(",")[1], mimeType: "image/jpeg", provider: "gemini" }; }),
+  generateGeminiImage: vi.fn(async () => { if (memory.forceQuota) throw new (class GeminiImageError extends Error { constructor() { super("usage exhausted"); this.code = "USAGE_EXHAUSTED"; } code: string })(); return { b64Json: memory.imageDataUrl.split(",")[1], mimeType: "image/jpeg", provider: "gemini", interactionId: "gemini-test-interaction" }; }),
 }));
 
 vi.mock("./_core/imageGeneration", () => ({
@@ -89,11 +89,13 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.references).toHaveLength(1);
     expect(memory.scripts).toHaveLength(8);
     expect(memory.jobs.filter((item) => item.kind === "generate")).toHaveLength(8);
+    expect(JSON.parse(memory.profile.profileJson)).toMatchObject({ referenceUrls: ["/manus-storage/test.png"], version: 1 });
 
     await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
     await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
     expect(memory.scripts.every((item) => item.status === "ready" && item.resultUrl)).toBe(true);
     expect(memory.jobs.filter((item) => item.kind === "generate").every((item) => item.status === "completed")).toBe(true);
+    expect(JSON.parse(memory.jobs.find((item) => item.kind === "generate").checkpointJson)).toMatchObject({ geminiInteractionId: "gemini-test-interaction", referenceUrls: ["/manus-storage/test.png"] });
 
     const edited = await api.studio.editSticker({ projectKey: created.projectKey, position: 3, instruction: "第 3 張眼睛大一點，表情更開心。" });
     expect(edited.status).toBe("completed");
@@ -128,5 +130,27 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.scripts[0].status).toBe("ready");
     expect(memory.scripts[0].resultUrl).toBeTruthy();
     expect(memory.scripts.slice(1).every((item) => item.resultUrl === null)).toBe(true);
+  });
+
+  it("保留角色錨點，且會續跑額度中斷的指定修改而不建立重複修改工作", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我把這隻橘貓做成 8 張 LINE 貼圖", attachments: [{ dataUrl: memory.imageDataUrl, fileName: "cat.png", mimeType: "image/png" }] });
+    const firstAnchor = memory.profile.profileJson;
+    await api.studio.sendMessage({ projectKey: created.projectKey, content: "讓第 3 張的表情更可愛", attachments: [] });
+    expect(memory.profile.profileJson).toBe(firstAnchor);
+
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    memory.forceQuota = true;
+    const paused = await api.studio.editSticker({ projectKey: created.projectKey, position: 3, instruction: "第 3 張眼睛大一點" });
+    expect(paused.status).toBe("paused_quota");
+    const editJob = memory.jobs.find((item) => item.kind === "edit");
+    expect(JSON.parse(editJob.checkpointJson)).toMatchObject({ position: 3, instruction: "第 3 張眼睛大一點", stage: "paused_quota", resumeCommand: "繼續製作" });
+
+    memory.forceQuota = false;
+    const resumed = await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 1, position: 3 });
+    expect(resumed.completed).toMatchObject([{ status: "completed" }]);
+    expect(memory.jobs.filter((item) => item.kind === "edit")).toHaveLength(1);
+    expect(editJob.status).toBe("completed");
   });
 });

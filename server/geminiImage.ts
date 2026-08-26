@@ -9,6 +9,7 @@ export type GeminiImageResult = {
   b64Json: string;
   mimeType: "image/jpeg";
   provider: "gemini";
+  interactionId?: string;
 };
 
 export class GeminiImageError extends Error {
@@ -32,7 +33,7 @@ async function readReference(reference: GeminiImageReference) {
 export async function generateGeminiImage(input: { prompt: string; references?: GeminiImageReference[]; model?: "gemini-3.1-flash-image" | "gemini-3-pro-image" }) {
   if (process.env.STICKER_E2E_TEST_MODE === "1") {
     const buffer = await sharp({ create: { width: 512, height: 512, channels: 3, background: { r: 239, g: 152, b: 58 } } }).jpeg({ quality: 90 }).toBuffer();
-    return { b64Json: buffer.toString("base64"), mimeType: "image/jpeg", provider: "gemini" } satisfies GeminiImageResult;
+    return { b64Json: buffer.toString("base64"), mimeType: "image/jpeg", provider: "gemini", interactionId: `e2e-${Date.now()}` } satisfies GeminiImageResult;
   }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new GeminiImageError("Gemini 圖像服務尚未設定", "MISSING_API_KEY");
@@ -52,10 +53,10 @@ export async function generateGeminiImage(input: { prompt: string; references?: 
     });
     const detail = await response.text();
     if (!response.ok) throw new GeminiImageError(`Gemini 圖像服務錯誤（${response.status}）${detail ? `：${detail.slice(0, 320)}` : ""}`, isQuotaOrRateLimit(response.status, detail) ? "USAGE_EXHAUSTED" : "GEMINI_REQUEST", isQuotaOrRateLimit(response.status, detail));
-    const payload = JSON.parse(detail) as { output_image?: { data?: string } };
+    const payload = JSON.parse(detail) as { id?: string; interaction_id?: string; output_image?: { data?: string } };
     const b64Json = payload.output_image?.data;
     if (!b64Json) throw new GeminiImageError("Gemini 沒有回傳圖片資料", "EMPTY_IMAGE", true);
-    return { b64Json, mimeType: "image/jpeg", provider: "gemini" } satisfies GeminiImageResult;
+    return { b64Json, mimeType: "image/jpeg", provider: "gemini", interactionId: payload.id ?? payload.interaction_id } satisfies GeminiImageResult;
   } catch (error) {
     if (error instanceof GeminiImageError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") throw new GeminiImageError("Gemini 圖像生成逾時，請稍後重試", "TIMEOUT", true);
