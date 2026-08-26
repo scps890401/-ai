@@ -31,6 +31,7 @@
 | --- | --- | --- |
 | Preview | [https://stickertyco-wsz8yoes.manus.space/preview](https://stickertyco-wsz8yoes.manus.space/preview) | 不登入即可查看固定 Demo 的完整 Chat-first 工作流程。 |
 | Inspection | [https://stickertyco-wsz8yoes.manus.space/preview/inspection](https://stickertyco-wsz8yoes.manus.space/preview/inspection) | 提供 Desktop View 與 Mobile View，供外部 AI、開發者與測試人員檢查完整介面。 |
+| Preview Inspection Report | [`docs/preview-inspection/PREVIEW-REPORT.md`](docs/preview-inspection/PREVIEW-REPORT.md) | 目前實際 Preview 的真實瀏覽器截圖、UI／DOM 結構、響應式觀察、功能分級與 JSON manifest。 |
 
 兩頁皆**不需要登入、API Key 或私人資料**。它們僅使用固定且非個資的兔子 Demo 圖與 React 本頁狀態；不讀取 `localStorage`、不建立專案、不上傳檔案、不呼叫 `/api/trpc` 或任何外部影像 Provider。Preview 直接復用正式工作室的 `StudioTopbar`、`StudioMessage`、`StudioComposer`、`StudioAgentWorkspace`、`StudioStickerTask`、`StudioPreflight` 與相同 `chat-studio.css`，因此不是另一套平行展示 UI。
 
@@ -82,6 +83,7 @@ VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=mobile node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-preview-demo.mjs
 VIEWPORT=mobile node scripts/verify-preview-demo.mjs
+node scripts/capture-preview-inspection.mjs
 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
 
@@ -136,6 +138,7 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`docs/phase-4-preview-component-audit.md`](docs/phase-4-preview-component-audit.md)：正式工作室與公開 Preview 的共用元件盤點及去除平行 UI 的決策。
 - [`docs/phase-4-preview-delivery.md`](docs/phase-4-preview-delivery.md)：公開 Preview／Inspection 的流程覆蓋、安全邊界與驗收紀錄。
 - [`docs/phase-4-public-domain-verification.md`](docs/phase-4-public-domain-verification.md)：正式公開網域的匿名驗證紀錄與新版傳播重新檢查項目。
+- [`docs/preview-inspection/PREVIEW-REPORT.md`](docs/preview-inspection/PREVIEW-REPORT.md)：供外部 AI 閱讀的目前實際 Preview 畫面報告；同目錄含真實 PNG、DOM 結構、響應式報告、AI 檢查說明與 manifest。
 
 ## 重要限制
 

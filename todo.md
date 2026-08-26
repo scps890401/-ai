@@ -139,3 +139,11 @@
 - [x] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
 - [x] 完成 GitHub `chat-first-studio` 分岔分析並徵求使用者選擇；依選項 2 改推安全新分支 `phase4-preview-integration`，保留 `chat-first-studio` 不變且未 force push。
 - [x] 依使用者選擇建立並推送 `phase4-preview-integration`，驗證遠端含第四階段完整原始碼、README、公開 Preview／Inspection 文件與交接包，並確認 `chat-first-studio` 未被改動。
+
+# 實際 Preview AI 檢查包
+
+- [x] 以目前實際運行的 `/preview`、`/preview/inspection`、共用元件與 DOM 盤點可見 UI、操作、Demo／實接／部分實接／不存在狀態。
+- [x] 使用瀏覽器自動化從真實 `/preview` 擷取指定桌面與 Android PNG 證據畫面並存入 `docs/preview-inspection/PREVIEW-SCREENSHOTS/`。
+- [x] 建立 `PREVIEW-REPORT.md`、`UI-STRUCTURE.md`、`RESPONSIVE-REPORT.md`、`AI-INSPECTION.md` 與 `PREVIEW-MANIFEST.json`，明確區分 DEMO_ONLY、IMPLEMENTED、PARTIALLY_IMPLEMENTED、NOT_IMPLEMENTED。
+- [x] 更新 README 加入 Preview URL、Inspection URL 與 Preview Inspection Report 路徑，並驗證所有檢查包檔案、截圖、JSON 與公開頁內容一致。
+- [ ] 比較 GitHub `chat-first-studio` 的最新分岔；在不 force push 前提下取得使用者對合併或新安全分支的選擇並完成同步驗證。

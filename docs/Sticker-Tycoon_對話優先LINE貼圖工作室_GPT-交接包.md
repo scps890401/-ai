@@ -55,7 +55,7 @@
 
 ## 5. 可分享原始碼與設定
 
-本章收錄 171 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 178 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -213,8 +213,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787751130450,
-  "version": "e8ae7144"
+  "timestamp": 1787751770873,
+  "version": "66cb1042"
 }
 ````
 
@@ -10393,6 +10393,349 @@ Preview 不複製或另寫平行假 UI。正式首頁與公開頁面共同使用
 | `/preview/inspection` | **已通過。**未登入可開啟，Desktop／Mobile View 可切換，並有 Selected Model／Fallback、Quality Check／Retry、Quota／Resume／Export 摘要。 |
 | 網路邊界 | **已通過自動回歸。**桌面與 Android 瀏覽器回歸均顯示 0 個 `/api/trpc` 與 0 個 Gemini、GPT Image、Forge、FLUX 等影像 Provider 請求。 |
 | 安全 | **已通過匿名頁面檢查。**不顯示使用者資料、API Key、token、預簽 URL 或登入流程。 |
+
+````
+
+### `docs/preview-inspection/AI-INSPECTION.md`
+
+````markdown
+# AI Preview 檢查說明
+
+> **以下內容描述的是目前實際 Preview 版本，不是未來規劃。**
+
+## 如何查看
+
+| 頁面 | URL | 用途 |
+| --- | --- | --- |
+| Preview | `https://stickertyco-wsz8yoes.manus.space/preview` | 檢查公開 Chat-first UI、固定 Demo 對話、Anchor、八張任務、品質、quota 與 LINE 輸出外觀。 |
+| Inspection | `https://stickertyco-wsz8yoes.manus.space/preview/inspection` | 檢查同一工作區的 Desktop View／Mobile View，以及 Router、Quality、Quota 摘要。 |
+
+兩頁不需要登入。進入後應先看到 `DEMO / PREVIEW` 與「這是 AI Inspection Preview，不代表真實 AI API 生成結果」。若未出現此 notice，請將結果標記為部署版本不一致。
+
+## 可安全測試的畫面與操作
+
+| 測試 | 操作 | 預期結果 | 分級 |
+| --- | --- | --- | --- |
+| 需求對話 | 在 `示範聊天輸入` 輸入「第3張多一隻腳」後送出。 | Notice 表示第 3 張切到 V2；不呼叫影像 API。 | **DEMO_ONLY** |
+| 姿勢／風格 | 輸入含「姿勢」或「風格」的文字後送出。 | 顯示固定 Character + Pose 或 Style Anchor notice。 | **DEMO_ONLY** |
+| 自動規劃 | 點「AI 自動規劃」。 | 進入固定分析／Anchor 畫面。 | **DEMO_ONLY** |
+| 生成 | 點「開始製作」或 8／16／24／32／40 張。 | 進入固定 `generating` stage；僅前八張卡片變更完成／生成／等待顯示。 | **DEMO_ONLY** |
+| 品質 | 點「查看品質循環」。 | 顯示第 6 張 Fail → Auto Fix → Regenerate → Pass。 | **DEMO_ONLY** |
+| quota | 點「Quota checkpoint」或「繼續製作」。 | 顯示固定 Checkpoint／Resume 文案。 | **DEMO_ONLY** |
+| Inspection 視圖 | 在 Inspection 點 Desktop View／Mobile View。 | `.inspection-device` class 在 `desktop` 和 `mobile` 間切換。 | **IMPLEMENTED** |
+
+## 功能分級
+
+| 狀態 | 目前項目 |
+| --- | --- |
+| **IMPLEMENTED** | 公開 `/preview`、`/preview/inspection` 路由；不登入頁面；真實共享的 Studio UI 元件與 CSS；固定示範素材渲染；Inspection Desktop／Mobile View 的前端切換；DEMO notice。 |
+| **PARTIALLY_IMPLEMENTED** | Preview 任務卡的 UI、PNG／修改／版本按鈕與第 3 張 V2 標示皆存在，但 Preview handler 僅操作本頁 state，沒有真實影像、版本還原或下載。 |
+| **DEMO_ONLY** | 對話理解、附件、張數規劃、生成進度、任務結果、單張修改／重試、Anchor 更新、Quality Fix、Model Router／Fallback、Quota checkpoint／Resume、LINE Preflight、PNG／ZIP。 |
+| **NOT_IMPLEMENTED** | Preview 中的檔案選擇與上傳、tRPC／專案建立、登入／使用者資料讀取、真實 Provider health、真實 Gemini／GPT Image／FLUX 呼叫、真實圖片生成或修改、S3 結果更新、真實 PNG／ZIP 建檔下載、真實版本回復。 |
+
+## AI 檢查時不可做的推論
+
+1. 不得因 Preview 顯示「Gemini 可用」或「GPT Image 可用」就判定外部 Provider 已成功產生圖片；這些是固定示範標籤。
+2. 不得因有 HEIC 附件列就判定 Preview 已上傳或轉檔；Preview 沒有檔案 input。
+3. 不得因有 LINE Preflight 綠色勾選或 ZIP／PNG 按鈕就判定已建立檔案；按鈕只顯示 notice。
+4. 不得把正式首頁的後端能力套用到 Preview；本檢查包只報告公開 Preview route 的實際行為。
+
+## 建議 AI 輸出格式
+
+其他 AI 檢查此版本時，應至少回報：可見 notice、可見任務數、是否可見第 3 張 V2、是否可見第 6 張 `Fix → Pass`、是否可見 LINE Preflight、Inspection 視圖切換結果、網路請求是否包含 `/api/trpc` 或 Provider、以及任何文字重疊、裁切或水平捲動。請將未真正執行的 API／下載／生成標為 **DEMO_ONLY** 或 **NOT_IMPLEMENTED**，而不是通過。
+
+````
+
+### `docs/preview-inspection/CAPTURE-NOTES.md`
+
+````markdown
+# Preview 真實畫面擷取註記
+
+## 已檢視證據
+
+| 檔案 | 實際渲染發現 |
+| --- | --- |
+| `PREVIEW-SCREENSHOTS/01-home.png` | 桌面 1280×900 首屏含深海藍 Chat-first 殼層、DEMO／PREVIEW notice、使用者與助理訊息、固定兔子附件、Character／Pose／Style Anchor、右側 LINE Preflight 與任務卡。預設 Demo stage 為 `export`，因此首屏已呈現完整流程末段的訊息，而非空白起始表單。 |
+| `PREVIEW-SCREENSHOTS/mobile-03-results.png` | Android 390×844 以單欄垂直任務卡呈現；每張可見固定兔子結果、完成標籤、動作描述、Router／品質文字、PNG、修改與版本按鈕。第 3 張顯示 V2，第 6 張顯示 `Fix → Pass`；所見範圍無水平溢位。 |
+| `PREVIEW-SCREENSHOTS/08-version.png` | 桌面任務區可見第 3 張 `V2` 標籤與其他卡片的 `V1` 按鈕。Demo 版版本按鈕會更新所選卡片／notice 狀態，但不渲染可回復版本歷史列；真實首頁才提供版本回復列。 |
+| `PREVIEW-SCREENSHOTS/09-quality-check.png` | 桌面對話中實際顯示「第 6 張安全邊距未通過 → Auto Fix 一次 → Regenerate → Pass」；右側仍可見 LINE Preflight 與 Anchor 卡，品質循環是固定 Demo 文案與狀態。 |
+| `PREVIEW-SCREENSHOTS/tablet-01-workspace.png` | 768×1024 平板將 8 張任務改為兩欄格線，Anchor 與 Preflight 位於其上方；卡片控制仍可見，所見範圍未出現橫向捲動列。 |
+| `PREVIEW-SCREENSHOTS/inspection-mobile.png` | Inspection 的 Mobile View 以窄欄裝置容器置中顯示同一套元件。此擷取範圍可見對話文字與任務區在容器轉換位置有視覺重疊／裁切感，應在 Responsive Report 列為檢查發現，而非宣稱其無缺陷。 |
+
+這些檔案均由 `scripts/capture-preview-inspection.mjs` 以真實 `/preview` 瀏覽器頁面擷取；它們不是 Figma、設計稿或人工繪製畫面。
+
+另於公開匿名網址重新開啟 Preview，所見 DEMO notice、八張任務、第 3 張 V2、第 6 張 `Fix → Pass`、quota、LINE Preflight 與截圖／報告相符；其瀏覽器資源清單經 Provider／tRPC 關鍵字篩選後為空。
+
+````
+
+### `docs/preview-inspection/PREVIEW-MANIFEST.json`
+
+````json
+{
+  "preview_url": "https://stickertyco-wsz8yoes.manus.space/preview",
+  "inspection_url": "https://stickertyco-wsz8yoes.manus.space/preview/inspection",
+  "capture_source": "scripts/capture-preview-inspection.mjs against the currently running Preview routes",
+  "screens": [
+    { "id": "01-home", "name": "Desktop home", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/01-home.png", "description": "Desktop default export-stage landing viewport with DEMO notice, Chat-first conversation, Anchor cards, LINE Preflight and task panel." },
+    { "id": "02-chat", "name": "Desktop chat", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/02-chat.png", "description": "Desktop message list showing fixed user and assistant conversation." },
+    { "id": "03-ai-response", "name": "Desktop AI response", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/03-ai-response.png", "description": "After AI auto-plan control: fixed character-analysis and Anchor response state." },
+    { "id": "04-sticker-plan", "name": "Desktop sticker plan", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/04-sticker-plan.png", "description": "Agent Workspace after start control, with count shortcuts and generating-stage plan state." },
+    { "id": "05-generation", "name": "Desktop generation", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/05-generation.png", "description": "Task grid at fixed generating stage, representing completed, generating and queued cards." },
+    { "id": "06-results", "name": "Desktop results", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/06-results.png", "description": "Default export-stage task grid with eight fixed result cards." },
+    { "id": "07-edit", "name": "Desktop edit", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/07-edit.png", "description": "After third-card edit action: input and task state are changed locally to the V2 demo state." },
+    { "id": "08-version", "name": "Desktop version", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/08-version.png", "description": "Task controls show V2 on sticker 3 and V1 elsewhere; Preview has no version restore rail." },
+    { "id": "09-quality-check", "name": "Desktop quality check", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/09-quality-check.png", "description": "Fixed Quality Check Fail, Auto Fix, Regenerate and Pass message for sticker 6." },
+    { "id": "10-export", "name": "Desktop export", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/10-export.png", "description": "LINE Preflight panel and Demo-only PNG and LINE ZIP controls." },
+    { "id": "tablet-01-workspace", "name": "Tablet workspace", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/tablet-01-workspace.png", "description": "768px tablet task workspace with two-column sticker grid." },
+    { "id": "mobile-01-home", "name": "Android home", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-01-home.png", "description": "390px Android initial Preview viewport." },
+    { "id": "mobile-02-chat", "name": "Android chat", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-02-chat.png", "description": "390px Android fixed chat and analysis state." },
+    { "id": "mobile-03-results", "name": "Android results", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-03-results.png", "description": "390px Android single-column sticker results." },
+    { "id": "mobile-04-edit", "name": "Android edit", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-04-edit.png", "description": "390px Android locally selected edit and V2 state." },
+    { "id": "mobile-05-export", "name": "Android export", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-05-export.png", "description": "390px Android LINE Preflight and Demo export controls." },
+    { "id": "inspection-desktop", "name": "Inspection desktop", "route": "/preview/inspection", "screenshot": "PREVIEW-SCREENSHOTS/inspection-desktop.png", "description": "Inspection page with desktop device container and developer details." },
+    { "id": "inspection-mobile", "name": "Inspection mobile view", "route": "/preview/inspection", "screenshot": "PREVIEW-SCREENSHOTS/inspection-mobile.png", "description": "Inspection page after Mobile View toggle; record current narrow-container overlap/cropping observation." }
+  ],
+  "features": [
+    { "id": "public_preview_routes", "status": "IMPLEMENTED", "route": "/preview and /preview/inspection", "description": "Public wouter routes render without login checks." },
+    { "id": "shared_studio_ui", "status": "IMPLEMENTED", "route": "/preview", "description": "Preview renders the shared StudioTopbar, StudioMessage, StudioAgentWorkspace, StudioComposer, StudioPreflight and StudioStickerTask components." },
+    { "id": "inspection_view_toggle", "status": "IMPLEMENTED", "route": "/preview/inspection", "description": "Desktop View and Mobile View buttons switch the inspection container class in client state." },
+    { "id": "task_card_controls", "status": "PARTIALLY_IMPLEMENTED", "route": "/preview", "description": "Visible cards and controls invoke local handlers but do not alter real jobs, images, versions or files." },
+    { "id": "conversation_and_planning", "status": "DEMO_ONLY", "route": "/preview", "description": "Fixed message text and stage transitions replace LLM planning." },
+    { "id": "attachment_upload", "status": "DEMO_ONLY", "route": "/preview", "description": "Fixed attachment chips are displayed; no file input or upload exists in Preview." },
+    { "id": "generation_edit_retry", "status": "DEMO_ONLY", "route": "/preview", "description": "Generation, edit and retry labels only update local Demo state." },
+    { "id": "quality_router_quota_preflight", "status": "DEMO_ONLY", "route": "/preview and /preview/inspection", "description": "Quality, Provider, fallback, quota, checkpoint and preflight text is fixed Demo data." },
+    { "id": "real_provider_and_exports", "status": "NOT_IMPLEMENTED", "route": "/preview", "description": "Preview makes no API calls, does not generate, upload, persist, create PNG/ZIP, download files or restore versions." }
+  ],
+  "demo_only": [
+    "chat understanding", "fixed attachments", "8/16/24/32/40 planning", "generation progress", "sticker images", "edit and retry", "Anchor updates", "quality fix", "Model Router and fallback", "quota checkpoint and resume", "LINE Preflight", "PNG and ZIP controls"
+  ],
+  "implemented": [
+    "public routes", "shared Studio UI rendering", "DEMO notice", "fixed non-personal demo asset rendering", "Inspection Desktop/Mobile view toggle", "browser-rendered evidence capture"
+  ],
+  "not_implemented": [
+    "Preview file picker and upload", "Preview login or user-data access", "Preview tRPC calls", "Preview external image-provider calls", "Preview project persistence", "Preview real generation or editing", "Preview real PNG/ZIP creation or download", "Preview real version restore"
+  ]
+}
+
+````
+
+### `docs/preview-inspection/PREVIEW-REPORT.md`
+
+````markdown
+# Preview 實際畫面報告
+
+> **範圍：** 本文件只描述目前實際運行的 `/preview` 與 `/preview/inspection`。所有畫面證據均由 `scripts/capture-preview-inspection.mjs` 在目前瀏覽器渲染的頁面擷取，非設計稿、Figma 或人工繪圖。
+
+## 版本與預設畫面
+
+| 項目 | 實際狀態 |
+| --- | --- |
+| Preview URL | `https://stickertyco-wsz8yoes.manus.space/preview` |
+| Inspection URL | `https://stickertyco-wsz8yoes.manus.space/preview/inspection` |
+| 預設 Demo stage | `export`；初次載入已呈現完整八張結果與 LINE 匯出末段，不是空白起始頁。 |
+| 固定示範角色 | 三個附件與八張貼圖卡都使用固定非個資兔子圖 `/manus-storage/preview-demo-rabbit_4aabab59.png`。 |
+| 狀態邊界 | Preview 的控制僅改變 React 記憶體中的 `stage`、`input`、`notice`、`selected`；不建立專案、不登入、不上傳、不呼叫 tRPC 或影像 Provider。 |
+
+於 2026-08-26（GMT+8）以未登入瀏覽器重新開啟公開 Preview 並以瀏覽器 `performance` 資源清單篩選 `/api/trpc`、Gemini、GPT Image、Forge、FLUX 等端點，結果為空陣列。此為當次公開頁的網路邊界觀察；固定 Demo 的成功文案不代表任何真實影像 API 成功。
+
+## 依使用者看到的順序
+
+| 順序與實際 UI | 使用者看到什麼 | 可操作什麼 | Preview 狀態 | 真實連接狀態 |
+| --- | --- | --- | --- | --- |
+| 1. 首頁／Topbar | 深海藍殼層、貼圖大亨、`AI Inspection Preview`、`DEMO / PREVIEW` 與 `Inspection` 連結。 | `Inspection` 連結可切換至 `/preview/inspection`。 | **IMPLEMENTED** | 路由連結為真實前端導覽；不讀登入狀態。 |
+| 2. DEMO notice | 固定顯示「這是 AI Inspection Preview，不代表真實 AI API 生成結果」與不登入、不上傳、不呼叫 Provider 說明。 | 無。 | **IMPLEMENTED** | 是真實可見安全提示。 |
+| 3. Chat-first 對話區 | 使用者訊息「我想製作 LINE 貼圖」、助理引導、兔子附件、Character Anchor、八張規劃、V2、姿勢、風格、品質、quota 與輸出訊息。 | 隨 Demo stage 顯示不同訊息。 | **DEMO_ONLY** | 訊息由固定 JSX 依 `stage` 顯示，不使用 LLM。 |
+| 4. 輸入框 | 有 `示範聊天輸入` textarea、送出按鈕及附件列。 | 可輸入「第3張多一隻腳」、「姿勢」、「風格」、「繼續」等文字並送出。 | **DEMO_ONLY** | 僅解析少數字串並切換固定 stage；沒有聊天 API。 |
+| 5. 圖片／檔案按鈕 | 左側圖示按鈕標示「上傳圖片或檔案」；下方固定顯示兔兔角色、HEIC 姿勢、風格附件。 | 點擊會顯示 Demo notice 或切至分析畫面。 | **DEMO_ONLY** | Preview 沒有 `<input type="file">`，不開啟檔案選擇器、不上傳。 |
+| 6. AI 回覆與快捷操作 | `AGENT WORKSPACE`、Gemini／GPT Image 可用、FLUX.2 未設定；8／16／24／32／40 張、整套修改、繼續製作，以及 AI 自動規劃、開始製作、查看品質循環、Quota checkpoint。 | 可點擊按鈕切換示範訊息、完成數與 notice。 | **DEMO_ONLY** | 計數按鈕仍固定只呈現前八張任務；不建立真實 job。 |
+| 7. 貼圖規劃 | 助理訊息說明已規劃八張；右側顯示八張貼圖卡。 | 「開始製作」可切至 `generating`；8 張、16 張等可改示範 notice。 | **DEMO_ONLY** | 無後端貼圖規劃或批次排程。 |
+| 8. Character Anchor | Anchor 區顯示 `Character Reference · 已接受`，並有角色／姿勢／風格按鈕。 | 任一按鈕將 stage 切換至 anchors 並顯示 notice。 | **DEMO_ONLY** | 不寫入角色檔案、不儲存 Anchor。 |
+| 9. Style Anchor | 顯示 `Style Reference · 已更新`，聊天訊息含「Style Anchor 已更新」。 | 點擊風格或輸入含「風格」的文字可更新 Demo notice。 | **DEMO_ONLY** | 不更新真實專案的 Style Anchor。 |
+| 10. 生成進度 | Agent 標題顯示 `0 / 8`、`5 / 8` 或 `8 / 8`；任務卡可呈現等待中、正在生成、已完成。 | 「開始製作」與張數按鈕會變更固定 completed 值。 | **DEMO_ONLY** | 沒有真實產生或輪詢。 |
+| 11. 貼圖結果 | 八張卡顯示固定兔子圖、文字、動作、Router 字串、品質字串與完成標籤。 | 每張提供 PNG 圖示、告訴 AI 修改、V1／V2；符合錯誤狀態時才會出現重試。 | **PARTIALLY_IMPLEMENTED** | 任務卡與按鈕的真實元件已渲染；Preview handler 只切換本機 notice／stage，不修改影像或下載檔案。 |
+| 12. 修改與重新生成 | 點選「告訴 AI 修改」會聚焦指定卡片、將輸入值設為「第 N 張請修改：」，並把 Demo 切到 `edited`。 | 可點選修改；預設完成卡不顯示重試，Demo 中沒有實際重生影像。 | **DEMO_ONLY** | 沒有 image edit、retry job 或 S3 結果更新。 |
+| 13. 版本 | 第 3 張在 `edited` 以後顯示 `V2`，其他卡片顯示 `V1`。 | 版本按鈕切換選取卡片並顯示 notice。 | **PARTIALLY_IMPLEMENTED** | 可見 V1／V2 標籤與按鈕；Preview 未渲染可回復版本歷史列，亦不實際還原檔案。 |
+| 14. Quality Check | 助理訊息與第 6 張卡顯示 `Fail → Auto Fix → Regenerate → Pass`／`Fix → Pass`。 | 「查看品質循環」切換固定 quality stage。 | **DEMO_ONLY** | 無實際視覺模型分析、修圖或 Recheck。 |
+| 15. Model Router／Fallback | Preview 卡片固定顯示 `Gemini → GPT Image`；Inspection 另有 Selected Model／Fallback 說明，FLUX.2 為 disabled。 | 無模型設定控制。 | **DEMO_ONLY** | Preview 不查詢 Provider health，不做 Router 或 fallback。 |
+| 16. Quota／Checkpoint／Resume | 聊天中顯示 `Quota exhausted → Checkpoint saved`；工作區有「繼續製作」與 `Quota checkpoint`。 | 按鈕將 stage 或 notice 變更為固定續作訊息。 | **DEMO_ONLY** | 不保存 checkpoint，不從資料庫／佇列續作。 |
+| 17. LINE Preflight | 右側 LINE PREFLIGHT 顯示 PNG 370×320、透明背景、安全邊距、繁中 SVG 後製與 ZIP 就緒。 | `LINE ZIP`、`PNG` 按鈕會顯示 Demo notice。 | **DEMO_ONLY** | 不進行檔案檢驗，也不建立 PNG／ZIP。 |
+| 18. ZIP／Download | 任務卡有每張 PNG 圖示，面板有 LINE ZIP／PNG。 | 可點擊並看到「僅展示下載操作」notice。 | **DEMO_ONLY** | 不觸發檔案下載。 |
+| 19. Inspection | Inspection 以同一套工作區嵌入 Desktop View／Mobile View 容器，底部顯示 Router、Quality、Quota 摘要。 | Desktop View／Mobile View 切換為真實前端 state。 | **IMPLEMENTED** | 視圖切換和路由為真實 UI；其中展示的模型／品質／quota 內容仍為固定 Demo。 |
+
+## 實際可測試的固定狀態
+
+| 操作 | 實際反應 | 分級 |
+| --- | --- | --- |
+| 輸入「第3張多一隻腳」後送出 | 第 3 張切為 V2，notice 說明未呼叫影像 API。 | **DEMO_ONLY** |
+| 輸入含「姿勢」或「風格」後送出 | 顯示 Character + Pose 或 Style Anchor 的固定示範說明。 | **DEMO_ONLY** |
+| 輸入含「繼續」後送出／點繼續製作 | 回到 `export` stage，顯示完成狀態。 | **DEMO_ONLY** |
+| 點 AI 自動規劃 | 進入 `analysis` stage。 | **DEMO_ONLY** |
+| 點開始製作或 8／16／24／32／40 張 | 進入 `generating` stage，五張完成、一張生成、其餘等待；畫面只固定列八張。 | **DEMO_ONLY** |
+| 點查看品質循環 | 進入 `quality` stage，第 6 張顯示 `Fix → Pass`。 | **DEMO_ONLY** |
+| 點 Quota checkpoint | 進入 `quota` stage，顯示 checkpoint 文案。 | **DEMO_ONLY** |
+| 點 Inspection 的 Mobile View | 同頁切換 `.inspection-device.mobile` 容器。 | **IMPLEMENTED** |
+
+## 已知畫面觀察
+
+桌面截圖使用 1280×900，預設為兩欄：左側對話與 Composer、右側任務面板。768px 平板在實際擷取時轉為單列工作區，但八張任務仍是兩欄；390px Android 則為一欄任務卡，所檢視的結果與匯出區沒有水平捲動。Inspection 的窄欄 Mobile View 截圖在容器轉換範圍有對話文字與任務區重疊／裁切感，這是目前應保留給後續修正的真實發現，而不是已通過的視覺品質結論。
+
+完整畫面索引位於 [`PREVIEW-MANIFEST.json`](PREVIEW-MANIFEST.json)，人工檢視註記位於 [`CAPTURE-NOTES.md`](CAPTURE-NOTES.md)。
+
+````
+
+### `docs/preview-inspection/RESPONSIVE-REPORT.md`
+
+````markdown
+# Preview 響應式實際檢查報告
+
+## 檢查方法
+
+本報告採用目前 CSS 斷點與真實瀏覽器擷取畫面：Desktop 1280×900、Tablet 768×1024、Android Mobile 390×844。截圖位於 `PREVIEW-SCREENSHOTS/`，不是設計稿。
+
+| 範圍 | CSS 實際規則 |
+| --- | --- |
+| 大於 900px | `.chat-layout` 為左側彈性對話欄與右側 `310–390px` 任務面板的兩欄 grid。 |
+| 900px 以下 | `.chat-layout` 改單欄；任務面板移至對話區下方；`.task-grid` 為兩欄。 |
+| 560px 以下 | Topbar 高度 61px、左右 padding 14px；`.task-grid` 改一欄；任務卡圖片欄為 92px。 |
+
+## Desktop：1280×900
+
+| 項目 | 實際觀察 | 狀態 |
+| --- | --- | --- |
+| 導航 | Topbar 左側品牌，右側 DEMO badge 與 Inspection；sticky。 | **通過** |
+| 對話與輸入框 | 左欄顯示訊息、Agent Workspace、Composer；textarea 與附件按鈕可見。 | **通過** |
+| 圖片與貼圖 Grid | 右欄顯示 Preflight、Anchor 與單欄任務卡；同畫面可見多張結果。 | **通過** |
+| 按鈕／Download | LINE ZIP、PNG、每張 PNG、修改、版本可見；僅 Demo notice，不下載。 | **符合 Demo 邊界** |
+| 水平滑動 | 擷取畫面未見主內容水平捲動。 | **所見範圍通過** |
+
+證據：`01-home.png`、`06-results.png`、`09-quality-check.png`、`10-export.png`。
+
+## Tablet：768×1024
+
+| 項目 | 實際觀察 | 狀態 |
+| --- | --- | --- |
+| 導航 | 品牌、DEMO badge 與 Inspection 仍可見於同列。 | **通過** |
+| 對話與輸入框 | 依 CSS 轉為任務面板在對話後的單列流程；本擷取聚焦任務區。 | **可用** |
+| 圖片與貼圖 Grid | 八張任務為兩欄，卡片內容、PNG、修改與版本按鈕可見。 | **通過** |
+| Download | 輸出按鈕為 Demo only。 | **符合 Demo 邊界** |
+| 水平滑動 | `tablet-01-workspace.png` 未見水平捲動列或卡片截斷。 | **所見範圍通過** |
+
+證據：`tablet-01-workspace.png`。
+
+## Android Mobile：390×844
+
+| 項目 | 實際觀察 | 狀態 |
+| --- | --- | --- |
+| 導航 | 高度縮至 61px，左右 padding 縮小；Inspection 連結保留。 | **通過** |
+| 對話與輸入框 | 對話單欄；Composer 具附件按鈕、textarea、送出按鈕。 | **通過** |
+| 圖片與貼圖 Grid | 任務卡改一欄，固定兔子圖與各控制在卡內換行。 | **通過** |
+| 按鈕 | 每張任務卡仍有 PNG、修改、版本；觸控按鈕較小但可見。 | **可用；建議後續實機檢查觸控間距** |
+| Download | 可見匯出控制，但不產生檔案。 | **DEMO_ONLY** |
+| 水平滑動 | `mobile-03-results.png`、`mobile-05-export.png` 的所見範圍未見水平捲動。 | **所見範圍通過** |
+
+證據：`mobile-01-home.png`、`mobile-02-chat.png`、`mobile-03-results.png`、`mobile-04-edit.png`、`mobile-05-export.png`。
+
+## Inspection 的 Mobile View
+
+Inspection 的 Mobile View 是在桌面頁面中以 `.inspection-device.mobile` 顯示窄欄容器，不是瀏覽器真的改成 390px viewport。`inspection-mobile.png` 可見容器置中與任務卡，但在此擷取位置出現對話文字與任務區重疊／裁切感。此項列為**待修正的實際視覺發現**，不可標記為無缺陷。
+
+| 風險 | 影響 | 建議驗證 |
+| --- | --- | --- |
+| Inspection Mobile View 的內容重疊／裁切感 | 外部 AI 或開發者閱讀模擬手機畫面時可讀性下降。 | 調整 `.inspection-device.mobile` 的 overflow／內嵌工作區尺寸後，重新擷取 `inspection-mobile.png`。 |
+| Android 按鈕密度 | 任務卡小型控制在實機觸控時可能偏密。 | 用 Android 真機或 390px 自動化逐一點擊 PNG、修改、版本與 Composer。 |
+
+````
+
+### `docs/preview-inspection/UI-STRUCTURE.md`
+
+````markdown
+# Preview 實際 UI／DOM 結構
+
+> 下列結構依 `client/src/App.tsx`、`client/src/pages/Preview.tsx` 與 `client/src/components/StudioSharedUI.tsx` 的目前程式碼整理；名稱優先採用實際 React 元件與實際 CSS class。
+
+```text
+App
+└── ErrorBoundary
+    └── ThemeProvider → TooltipProvider → Toaster → Router (wouter Switch)
+        ├── / → Home（正式工作室，不是本檢查包的 Preview 行為依據）
+        ├── /preview → PreviewPage → <Preview />
+        │   └── DemoWorkspace
+        │       └── main.chat-studio-shell.preview-shell
+        │           ├── StudioTopbar(demo)
+        │           │   ├── .chat-brand
+        │           │   └── .topbar-actions
+        │           │       ├── .preview-mode-badge
+        │           │       └── Link(/preview/inspection)
+        │           ├── Notice[DEMO / PREVIEW]
+        │           ├── section.chat-layout.preview-chat-layout
+        │           │   ├── div.conversation-column
+        │           │   │   ├── DemoConversation(stage)
+        │           │   │   │   └── div.message-list.preview-message-list
+        │           │   │   │       └── StudioMessage × stage-dependent count
+        │           │   │   │           ├── article.chat-message.user
+        │           │   │   │           └── article.chat-message.assistant
+        │           │   │   ├── StudioAgentWorkspace(demo)
+        │           │   │   │   ├── section.agent-inline-card
+        │           │   │   │   ├── .provider-health
+        │           │   │   │   └── .agent-quick-actions (附件、8/16/24/32/40、整套修改、續作)
+        │           │   │   ├── div.demo-workflow-actions
+        │           │   │   │   ├── AI 自動規劃
+        │           │   │   │   ├── 開始製作
+        │           │   │   │   ├── 查看品質循環
+        │           │   │   │   └── Quota checkpoint
+        │           │   │   └── StudioComposer(demo)
+        │           │   │       ├── div.queued-files (3 個固定附件)
+        │           │   │       └── div.composer
+        │           │   │           ├── button.attach-button
+        │           │   │           ├── textarea[aria-label="示範聊天輸入"]
+        │           │   │           └── button.send-button
+        │           │   └── aside.task-panel
+        │           │       ├── .task-panel-head + StudioDemoExport
+        │           │       ├── StudioPreflight(demo)
+        │           │       ├── section.reference-tray (stage ≥ analysis)
+        │           │       │   └── .reference-card × 3（Character／Pose／Style）
+        │           │       ├── div.task-grid
+        │           │       │   └── StudioStickerTask × 8
+        │           │       │       ├── .task-image + .task-status
+        │           │       │       ├── .task-meta + .task-router
+        │           │       │       └── .task-actions（PNG、修改、V1/V2；必要時重試）
+        │           │       └── div.preview-selected-note
+        │           ├── Notice[互動結果；只在 notice 非空時出現]
+        │           └── footer.preview-footer
+        │               └── Link(/preview/inspection)
+        └── /preview/inspection → PreviewInspection → <Preview inspection />
+            └── main.chat-studio-shell.inspection-shell
+                ├── StudioTopbar(demo)
+                ├── Notice[Inspection 安全邊界]
+                ├── section.inspection-intro
+                │   └── div.inspection-switch
+                │       ├── Desktop View button
+                │       └── Mobile View button
+                ├── section.inspection-device.desktop | .mobile
+                │   └── DemoWorkspace(embedded)
+                ├── section.inspection-details
+                │   ├── Selected Model／Fallback
+                │   ├── Quality Check／Retry
+                │   └── Quota／Resume／Export
+                └── div.inspection-footer
+```
+
+## 真實狀態資料流
+
+`DemoWorkspace` 只有四個本頁 React state：`stage`、`input`、`notice`、`selected`。`pushStage()`、`sendDemo()`、各按鈕 handler 只更新這些 state；`scriptRows` 由固定片語、固定動作與 stage 推導。此路徑沒有 tRPC hook、`fetch`、登入 hook、`localStorage`、檔案 input 或 Provider Adapter 呼叫。
+
+| 元件 | Preview 中的資料來源 | 真實 I/O |
+| --- | --- | --- |
+| `StudioMessage` | 固定 JSX 文案與 `previewAttachments` | 無。 |
+| `StudioComposer` | `input` state、三個固定附件 | 無；attach handler 只切換 stage。 |
+| `StudioAgentWorkspace` | 固定 Provider 狀態與 button handler | 無；8/16/24/32/40 只改 Demo stage／notice。 |
+| `StudioStickerTask` | `scriptRows`、固定兔子圖、固定 V1/V2 文案 | 無；修改、版本、PNG 按鈕只改本頁 state。 |
+| `StudioPreflight` | stage 推導的數字與固定 Demo 項目 | 無；不分析真實 PNG。 |
+| `StudioDemoExport` | `onPng`、`onZip` notice handler | 無；不建立下載檔。 |
+
+## 與正式工作室的邊界
+
+Preview 與正式首頁共用 `StudioTopbar`、`StudioMessage`、`StudioAgentWorkspace`、`StudioComposer`、`StudioPreflight`、`StudioStickerTask` 與 `chat-studio.css`，因此視覺元件是真實共用元件。**這不代表 Preview 的資料操作等同正式首頁。**正式首頁才注入真實 tRPC、檔案選擇、上傳、專案、任務、版本與匯出 handler；Preview 明確傳入 `demo` 與本頁 handler。
 
 ````
 
@@ -22649,6 +22992,7 @@ snapshots:
 | --- | --- | --- |
 | Preview | [https://stickertyco-wsz8yoes.manus.space/preview](https://stickertyco-wsz8yoes.manus.space/preview) | 不登入即可查看固定 Demo 的完整 Chat-first 工作流程。 |
 | Inspection | [https://stickertyco-wsz8yoes.manus.space/preview/inspection](https://stickertyco-wsz8yoes.manus.space/preview/inspection) | 提供 Desktop View 與 Mobile View，供外部 AI、開發者與測試人員檢查完整介面。 |
+| Preview Inspection Report | [`docs/preview-inspection/PREVIEW-REPORT.md`](docs/preview-inspection/PREVIEW-REPORT.md) | 目前實際 Preview 的真實瀏覽器截圖、UI／DOM 結構、響應式觀察、功能分級與 JSON manifest。 |
 
 兩頁皆**不需要登入、API Key 或私人資料**。它們僅使用固定且非個資的兔子 Demo 圖與 React 本頁狀態；不讀取 `localStorage`、不建立專案、不上傳檔案、不呼叫 `/api/trpc` 或任何外部影像 Provider。Preview 直接復用正式工作室的 `StudioTopbar`、`StudioMessage`、`StudioComposer`、`StudioAgentWorkspace`、`StudioStickerTask`、`StudioPreflight` 與相同 `chat-studio.css`，因此不是另一套平行展示 UI。
 
@@ -22700,6 +23044,7 @@ VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=mobile node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-preview-demo.mjs
 VIEWPORT=mobile node scripts/verify-preview-demo.mjs
+node scripts/capture-preview-inspection.mjs
 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
 
@@ -22754,6 +23099,7 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`docs/phase-4-preview-component-audit.md`](docs/phase-4-preview-component-audit.md)：正式工作室與公開 Preview 的共用元件盤點及去除平行 UI 的決策。
 - [`docs/phase-4-preview-delivery.md`](docs/phase-4-preview-delivery.md)：公開 Preview／Inspection 的流程覆蓋、安全邊界與驗收紀錄。
 - [`docs/phase-4-public-domain-verification.md`](docs/phase-4-public-domain-verification.md)：正式公開網域的匿名驗證紀錄與新版傳播重新檢查項目。
+- [`docs/preview-inspection/PREVIEW-REPORT.md`](docs/preview-inspection/PREVIEW-REPORT.md)：供外部 AI 閱讀的目前實際 Preview 畫面報告；同目錄含真實 PNG、DOM 結構、響應式報告、AI 檢查說明與 manifest。
 
 ## 重要限制
 
@@ -23129,6 +23475,71 @@ LINE 輸出應維持目前的程式後製繁中；新增的品質欄位應回寫
 [1]: [Google AI for Developers — Nano Banana image generation](https://ai.google.dev/gemini-api/docs/image-generation)
 [2]: [Google AI for Developers — Gemini API rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)
 [3]: [OpenAI Developers — Rate limits](https://developers.openai.com/api/docs/guides/rate-limits)
+
+````
+
+### `scripts/capture-preview-inspection.mjs`
+
+````javascript
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { chromium } from "playwright-core";
+
+const baseUrl = process.env.PREVIEW_CAPTURE_BASE_URL ?? "http://localhost:3000";
+const outputDir = path.resolve(import.meta.dirname, "..", "docs", "preview-inspection", "PREVIEW-SCREENSHOTS");
+const desktop = { width: 1280, height: 900 };
+const tablet = { width: 768, height: 1024 };
+const mobile = { width: 390, height: 844 };
+
+await mkdir(outputDir, { recursive: true });
+const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
+const captured = [];
+
+async function capture({ id, route = "/preview", viewport, prepare, focus }) {
+  const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
+  await page.getByText("AI Inspection Preview，不代表真實 AI API 生成結果").waitFor();
+  if (prepare) await prepare(page);
+  if (focus) await page.locator(focus).scrollIntoViewIfNeeded();
+  await page.waitForTimeout(120);
+  const filePath = path.join(outputDir, id);
+  await page.screenshot({ path: filePath, fullPage: false });
+  captured.push({ id, route, viewport, focus: focus ?? "page-top" });
+  await page.close();
+}
+
+const clickAutoPlan = async (page) => page.getByRole("button", { name: "AI 自動規劃", exact: true }).click();
+const clickGenerate = async (page) => page.getByRole("button", { name: "開始製作", exact: true }).click();
+const clickQuality = async (page) => page.getByRole("button", { name: "查看品質循環", exact: true }).click();
+const clickTaskEdit = async (page) => page.locator(".sticker-task").nth(2).getByRole("button", { name: "告訴 AI 修改", exact: true }).click();
+const clickTaskVersion = async (page) => page.locator(".sticker-task").nth(2).getByRole("button", { name: "V2", exact: true }).click();
+
+try {
+  await capture({ id: "01-home.png", viewport: desktop });
+  await capture({ id: "02-chat.png", viewport: desktop, focus: ".preview-message-list" });
+  await capture({ id: "03-ai-response.png", viewport: desktop, prepare: clickAutoPlan, focus: ".preview-message-list" });
+  await capture({ id: "04-sticker-plan.png", viewport: desktop, prepare: clickGenerate, focus: ".agent-inline-card" });
+  await capture({ id: "05-generation.png", viewport: desktop, prepare: clickGenerate, focus: ".task-grid" });
+  await capture({ id: "06-results.png", viewport: desktop, focus: ".task-grid" });
+  await capture({ id: "07-edit.png", viewport: desktop, prepare: clickTaskEdit, focus: ".task-grid" });
+  await capture({ id: "08-version.png", viewport: desktop, prepare: clickTaskVersion, focus: ".task-grid" });
+  await capture({ id: "09-quality-check.png", viewport: desktop, prepare: clickQuality, focus: ".preview-message-list" });
+  await capture({ id: "10-export.png", viewport: desktop, focus: ".main-preflight" });
+
+  await capture({ id: "tablet-01-workspace.png", viewport: tablet, focus: ".task-grid" });
+  await capture({ id: "mobile-01-home.png", viewport: mobile });
+  await capture({ id: "mobile-02-chat.png", viewport: mobile, prepare: clickAutoPlan, focus: ".preview-message-list" });
+  await capture({ id: "mobile-03-results.png", viewport: mobile, focus: ".task-grid" });
+  await capture({ id: "mobile-04-edit.png", viewport: mobile, prepare: clickTaskEdit, focus: ".task-grid" });
+  await capture({ id: "mobile-05-export.png", viewport: mobile, focus: ".main-preflight" });
+
+  await capture({ id: "inspection-desktop.png", route: "/preview/inspection", viewport: desktop, focus: ".inspection-device" });
+  await capture({ id: "inspection-mobile.png", route: "/preview/inspection", viewport: desktop, prepare: async (page) => page.getByRole("button", { name: "Mobile View", exact: true }).click(), focus: ".inspection-device" });
+  console.log(JSON.stringify({ baseUrl, outputDir, count: captured.length, captured }));
+} finally {
+  await browser.close();
+}
 
 ````
 
@@ -29296,7 +29707,16 @@ export * from "./_core/errors";
 - [x] 完善 `/preview/inspection` 的 Desktop／Mobile 視圖、開發者檢查資訊與完整流程導航，同時不外露使用者資料、憑證或實際 Provider 請求。
 - [x] 在 Preview 與 README 明確標示「AI Inspection Preview，不代表真實 AI API 生成結果」，列出可匿名開啟的 Preview／Inspection URL 與安全限制。
 - [x] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
-- [ ] 安全整合完整修改至 GitHub `chat-first-studio`；若遠端分岔，先檢視差異並徵求使用者同意採用合併或新分支，絕不 force push。
+- [x] 完成 GitHub `chat-first-studio` 分岔分析並徵求使用者選擇；依選項 2 改推安全新分支 `phase4-preview-integration`，保留 `chat-first-studio` 不變且未 force push。
+- [x] 依使用者選擇建立並推送 `phase4-preview-integration`，驗證遠端含第四階段完整原始碼、README、公開 Preview／Inspection 文件與交接包，並確認 `chat-first-studio` 未被改動。
+
+# 實際 Preview AI 檢查包
+
+- [x] 以目前實際運行的 `/preview`、`/preview/inspection`、共用元件與 DOM 盤點可見 UI、操作、Demo／實接／部分實接／不存在狀態。
+- [x] 使用瀏覽器自動化從真實 `/preview` 擷取指定桌面與 Android PNG 證據畫面並存入 `docs/preview-inspection/PREVIEW-SCREENSHOTS/`。
+- [x] 建立 `PREVIEW-REPORT.md`、`UI-STRUCTURE.md`、`RESPONSIVE-REPORT.md`、`AI-INSPECTION.md` 與 `PREVIEW-MANIFEST.json`，明確區分 DEMO_ONLY、IMPLEMENTED、PARTIALLY_IMPLEMENTED、NOT_IMPLEMENTED。
+- [x] 更新 README 加入 Preview URL、Inspection URL 與 Preview Inspection Report 路徑，並驗證所有檢查包檔案、截圖、JSON 與公開頁內容一致。
+- [ ] 比較 GitHub `chat-first-studio` 的最新分岔；在不 force push 前提下取得使用者對合併或新安全分支的選擇並完成同步驗證。
 
 ````
 

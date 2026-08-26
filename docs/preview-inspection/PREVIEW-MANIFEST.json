@@ -1,0 +1,45 @@
+{
+  "preview_url": "https://stickertyco-wsz8yoes.manus.space/preview",
+  "inspection_url": "https://stickertyco-wsz8yoes.manus.space/preview/inspection",
+  "capture_source": "scripts/capture-preview-inspection.mjs against the currently running Preview routes",
+  "screens": [
+    { "id": "01-home", "name": "Desktop home", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/01-home.png", "description": "Desktop default export-stage landing viewport with DEMO notice, Chat-first conversation, Anchor cards, LINE Preflight and task panel." },
+    { "id": "02-chat", "name": "Desktop chat", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/02-chat.png", "description": "Desktop message list showing fixed user and assistant conversation." },
+    { "id": "03-ai-response", "name": "Desktop AI response", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/03-ai-response.png", "description": "After AI auto-plan control: fixed character-analysis and Anchor response state." },
+    { "id": "04-sticker-plan", "name": "Desktop sticker plan", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/04-sticker-plan.png", "description": "Agent Workspace after start control, with count shortcuts and generating-stage plan state." },
+    { "id": "05-generation", "name": "Desktop generation", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/05-generation.png", "description": "Task grid at fixed generating stage, representing completed, generating and queued cards." },
+    { "id": "06-results", "name": "Desktop results", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/06-results.png", "description": "Default export-stage task grid with eight fixed result cards." },
+    { "id": "07-edit", "name": "Desktop edit", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/07-edit.png", "description": "After third-card edit action: input and task state are changed locally to the V2 demo state." },
+    { "id": "08-version", "name": "Desktop version", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/08-version.png", "description": "Task controls show V2 on sticker 3 and V1 elsewhere; Preview has no version restore rail." },
+    { "id": "09-quality-check", "name": "Desktop quality check", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/09-quality-check.png", "description": "Fixed Quality Check Fail, Auto Fix, Regenerate and Pass message for sticker 6." },
+    { "id": "10-export", "name": "Desktop export", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/10-export.png", "description": "LINE Preflight panel and Demo-only PNG and LINE ZIP controls." },
+    { "id": "tablet-01-workspace", "name": "Tablet workspace", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/tablet-01-workspace.png", "description": "768px tablet task workspace with two-column sticker grid." },
+    { "id": "mobile-01-home", "name": "Android home", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-01-home.png", "description": "390px Android initial Preview viewport." },
+    { "id": "mobile-02-chat", "name": "Android chat", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-02-chat.png", "description": "390px Android fixed chat and analysis state." },
+    { "id": "mobile-03-results", "name": "Android results", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-03-results.png", "description": "390px Android single-column sticker results." },
+    { "id": "mobile-04-edit", "name": "Android edit", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-04-edit.png", "description": "390px Android locally selected edit and V2 state." },
+    { "id": "mobile-05-export", "name": "Android export", "route": "/preview", "screenshot": "PREVIEW-SCREENSHOTS/mobile-05-export.png", "description": "390px Android LINE Preflight and Demo export controls." },
+    { "id": "inspection-desktop", "name": "Inspection desktop", "route": "/preview/inspection", "screenshot": "PREVIEW-SCREENSHOTS/inspection-desktop.png", "description": "Inspection page with desktop device container and developer details." },
+    { "id": "inspection-mobile", "name": "Inspection mobile view", "route": "/preview/inspection", "screenshot": "PREVIEW-SCREENSHOTS/inspection-mobile.png", "description": "Inspection page after Mobile View toggle; record current narrow-container overlap/cropping observation." }
+  ],
+  "features": [
+    { "id": "public_preview_routes", "status": "IMPLEMENTED", "route": "/preview and /preview/inspection", "description": "Public wouter routes render without login checks." },
+    { "id": "shared_studio_ui", "status": "IMPLEMENTED", "route": "/preview", "description": "Preview renders the shared StudioTopbar, StudioMessage, StudioAgentWorkspace, StudioComposer, StudioPreflight and StudioStickerTask components." },
+    { "id": "inspection_view_toggle", "status": "IMPLEMENTED", "route": "/preview/inspection", "description": "Desktop View and Mobile View buttons switch the inspection container class in client state." },
+    { "id": "task_card_controls", "status": "PARTIALLY_IMPLEMENTED", "route": "/preview", "description": "Visible cards and controls invoke local handlers but do not alter real jobs, images, versions or files." },
+    { "id": "conversation_and_planning", "status": "DEMO_ONLY", "route": "/preview", "description": "Fixed message text and stage transitions replace LLM planning." },
+    { "id": "attachment_upload", "status": "DEMO_ONLY", "route": "/preview", "description": "Fixed attachment chips are displayed; no file input or upload exists in Preview." },
+    { "id": "generation_edit_retry", "status": "DEMO_ONLY", "route": "/preview", "description": "Generation, edit and retry labels only update local Demo state." },
+    { "id": "quality_router_quota_preflight", "status": "DEMO_ONLY", "route": "/preview and /preview/inspection", "description": "Quality, Provider, fallback, quota, checkpoint and preflight text is fixed Demo data." },
+    { "id": "real_provider_and_exports", "status": "NOT_IMPLEMENTED", "route": "/preview", "description": "Preview makes no API calls, does not generate, upload, persist, create PNG/ZIP, download files or restore versions." }
+  ],
+  "demo_only": [
+    "chat understanding", "fixed attachments", "8/16/24/32/40 planning", "generation progress", "sticker images", "edit and retry", "Anchor updates", "quality fix", "Model Router and fallback", "quota checkpoint and resume", "LINE Preflight", "PNG and ZIP controls"
+  ],
+  "implemented": [
+    "public routes", "shared Studio UI rendering", "DEMO notice", "fixed non-personal demo asset rendering", "Inspection Desktop/Mobile view toggle", "browser-rendered evidence capture"
+  ],
+  "not_implemented": [
+    "Preview file picker and upload", "Preview login or user-data access", "Preview tRPC calls", "Preview external image-provider calls", "Preview project persistence", "Preview real generation or editing", "Preview real PNG/ZIP creation or download", "Preview real version restore"
+  ]
+}
