@@ -11,6 +11,10 @@
 | 角色一致性 | Gemini 3.1 Flash Image 作為多參考角色生成的優先提供者；GPT Image 2 作為語意去背、單張修改與後備。 |
 | 獨立貼圖任務 | 每張貼圖具獨立 `queued`、`generating`、`completed`、`failed`、`paused_quota` 狀態；重試第 3 張不影響其他張。 |
 | 中斷續作 | API 額度中斷時保存專案、對話、角色設定、初稿 checkpoint、任務狀態和已完成圖片；輸入「繼續製作」只續跑未完成工作。 |
+| Agent Model Router | 每張任務保存 Provider 候選、已嘗試歷程、參考圖快照、品質報告與 checkpoint。新生成優先 Gemini；單張編修優先 GPT Image；FLUX.2 僅作為尚未設定憑證的候選，不宣稱已啟用。 |
+| 參考圖與 Style Anchor | 上傳圖可被設為角色、已確認角色、姿勢或風格參考；已接受圖與畫風錨點會在後續任務中優先排序。 |
+| 版本回復 | 每次生成／重試／修改均保存不可覆蓋版本鏈、父版本、活動版本、Provider 與品質結果；可在聊天工作室回復單張舊版本。 |
+| 對話內工作狀態 | 聊天欄顯示 Agent 工作事件、最近成果、修改／下載快捷操作與規劃／續作按鈕；桌面與手機均保留獨立任務總覽。 |
 | 中文文字可靠性 | 圖像模型不負責最終中文字；伺服器端用 `Noto Sans CJK TC` SVG 後製，避免亂碼、錯字與文字截斷。 |
 | LINE 輸出 | 產生透明 PNG、主圖、聊天室縮圖與 ZIP；檢查 370×320、透明 alpha、偶數尺寸、單圖 1 MB、套組 60 MB 等規格。 |
 
@@ -18,7 +22,7 @@
 
 - **前端：** React 19、Tailwind 4、tRPC React、手機優先 CSS。
 - **後端：** Express、tRPC 11、TypeScript。
-- **資料：** MySQL／Drizzle，保存專案、對話、附件、角色設定檔、貼圖腳本、工作、版本和輸出紀錄。
+- **資料：** MySQL／Drizzle，保存專案、對話、附件、角色／風格 Anchor、貼圖腳本、Agent 事件、Router／品質工作紀錄、可回復版本和輸出紀錄。
 - **檔案：** S3；資料庫只保存檔案參照，不保存圖片 bytes。
 - **圖像：** Gemini Image API 生成角色初稿；GPT Image 2 去背與修改；Sharp 合成 PNG、驗證 alpha、後製 LINE 文字。
 
@@ -48,7 +52,7 @@ Schema 位於 `drizzle/schema.ts`。產生 migration 後，必須先閱讀 SQL�
 pnpm drizzle-kit generate
 ```
 
-目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerJobs`、`stickerExports`。
+目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerStyleAnchors`、`stickerAgentEvents`、`stickerJobs`、`stickerExports`。第二階段 migration 為 `drizzle/0003_grey_sentinel.sql`，僅新增欄位／表格，未刪除既有資料。
 
 ## 測試與驗證
 
@@ -68,7 +72,7 @@ STICKER_E2E_TEST_MODE=1 PORT=3001 NODE_ENV=development npx tsx server/_core/inde
 BASE_URL=http://localhost:3001 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-android-controlled-success.mjs
 ```
 
-HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳與額度暫停提示。
+HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳、額度暫停、Model Router、參考圖角色切換、版本 V1→V2→回復、對話內成果操作與 Android 手機回歸。
 
 `STICKER_E2E_TEST_MODE=1` 是**僅供測試**的受控圖像提供者；它讓 Android 瀏覽器可驗證真實 UI、tRPC、資料庫、S3、修改與下載成功路徑，並不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
@@ -107,6 +111,8 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`research/chat-first-line-sticker-architecture.md`](research/chat-first-line-sticker-architecture.md)：模型比較、角色一致性、中文字策略與 LINE 規格研究。
 - [`research/chat-first-line-sticker-implementation-plan.md`](research/chat-first-line-sticker-implementation-plan.md)：資料模型、任務狀態、對話編排、輸出與續作架構。
 - [`research/chat-first-ui-visual-findings.md`](research/chat-first-ui-visual-findings.md)：桌面與 Android 初始視覺驗證結果。
+- [`research/phase-2-model-router-research.md`](research/phase-2-model-router-research.md)：Gemini、GPT Image、FLUX.2 的可部署邊界與 Router 決策。
+- [`docs/phase-2-agent-design.md`](docs/phase-2-agent-design.md)：Agent 資料模型、錯誤／fallback、品質、Anchor、版本與聊天室設計。
 
 ## 重要限制
 

@@ -92,3 +92,14 @@
 - [x] 確認 `chat-first-studio` 目標分支的遠端狀態與本機未同步檔案，並掃描敏感資訊。
 - [x] 建立包含最新完整原始碼、研究文件與安全交接包的 Git commit。
 - [x] 經使用者確認後推送至 GitHub 並驗證遠端最新提交與文件完整性。
+
+# 第二階段：AI 對話式 LINE 貼圖 Agent
+
+- [x] 研究可用的 Gemini、GPT Image、FLUX.2 與候選影像 Provider，完成可替換 Model Router 決策與限制記錄。
+- [x] 擴充資料模型與儲存層，保存 Style Anchor、參考圖角色／姿勢／風格角色、接受圖優先序、品質檢查、路由歷程與版本還原狀態。
+- [x] 實作 Agent 指令解析、模型 Router、錯誤分類 fallback、品質檢查、可續作 checkpoint 與單張版本還原。
+- [x] 升級 Chat-first 介面，加入對話內快捷操作、簡潔工作狀態、內嵌成果操作、版本與參考圖操作，並維持 Android 優先體驗。
+- [x] 驗證 `studio.restoreVersion` 與 `studio.setReferenceRole` 的 tRPC 真實整合行為，包含 active version、貼圖結果與參考圖接受狀態。
+- [x] 擴充桌面／Android 瀏覽器回歸，實際操作參考圖角色切換、版本回復與對話內貼圖成果操作。
+- [x] 完成 migration、單元／整合／手機瀏覽器回歸、production build 與安全掃描。
+- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並同步完整可執行原始碼到 `chat-first-studio`。

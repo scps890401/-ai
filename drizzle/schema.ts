@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -31,6 +31,10 @@ export const stickerReferences = mysqlTable("stickerReferences", {
   url: text("url").notNull(),
   fileName: varchar("fileName", { length: 255 }).notNull(),
   sortOrder: int("sortOrder").notNull().default(0),
+  role: varchar("role", { length: 40 }).notNull().default("character"),
+  priority: int("priority").notNull().default(50),
+  accepted: boolean("accepted").notNull().default(false),
+  metadataJson: text("metadataJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -45,6 +49,7 @@ export const stickerScripts = mysqlTable("stickerScripts", {
   resultUrl: text("resultUrl"),
   errorMessage: text("errorMessage"),
   qualityReport: text("qualityReport"),
+  planJson: text("planJson"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -54,6 +59,10 @@ export const stickerVersions = mysqlTable("stickerVersions", {
   version: int("version").notNull().default(1),
   url: text("url").notNull(),
   mode: varchar("mode", { length: 40 }).notNull(),
+  parentVersionId: int("parentVersionId"),
+  isActive: boolean("isActive").notNull().default(true),
+  qualityReportJson: text("qualityReportJson"),
+  provider: varchar("provider", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -96,6 +105,16 @@ export const stickerCharacterProfiles = mysqlTable("stickerCharacterProfiles", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const stickerStyleAnchors = mysqlTable("stickerStyleAnchors", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  summaryJson: text("summaryJson").notNull(),
+  anchorUrl: text("anchorUrl"),
+  status: varchar("status", { length: 40 }).notNull().default("draft"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const stickerJobs = mysqlTable("stickerJobs", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId").notNull(),
@@ -107,6 +126,8 @@ export const stickerJobs = mysqlTable("stickerJobs", {
   errorCode: varchar("errorCode", { length: 120 }),
   errorMessage: text("errorMessage"),
   checkpointJson: text("checkpointJson"),
+  routerJson: text("routerJson"),
+  qualityReportJson: text("qualityReportJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -117,6 +138,17 @@ export const stickerExports = mysqlTable("stickerExports", {
   kind: varchar("kind", { length: 64 }).notNull(),
   url: text("url").notNull(),
   qualityReportJson: text("qualityReportJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const stickerAgentEvents = mysqlTable("stickerAgentEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  jobId: int("jobId"),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  status: varchar("status", { length: 40 }).notNull().default("queued"),
+  message: text("message").notNull(),
+  detailJson: text("detailJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -131,5 +163,7 @@ export type StickerConversation = typeof stickerConversations.$inferSelect;
 export type StickerMessage = typeof stickerMessages.$inferSelect;
 export type StickerAttachment = typeof stickerAttachments.$inferSelect;
 export type StickerCharacterProfile = typeof stickerCharacterProfiles.$inferSelect;
+export type StickerStyleAnchor = typeof stickerStyleAnchors.$inferSelect;
 export type StickerJob = typeof stickerJobs.$inferSelect;
+export type StickerAgentEvent = typeof stickerAgentEvents.$inferSelect;
 export type StickerExport = typeof stickerExports.$inferSelect;

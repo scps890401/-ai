@@ -9,9 +9,11 @@ const memory = vi.hoisted(() => ({
   attachments: [] as any[],
   references: [] as any[],
   profile: null as any,
+  styleAnchor: null as any,
   scripts: [] as any[],
   jobs: [] as any[],
   versions: [] as any[],
+  events: [] as any[],
   exports: [] as any[],
   imageDataUrl: "",
   forceQuota: false,
@@ -27,14 +29,18 @@ vi.mock("./db", () => ({
   addStickerMessage: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, intentJson: input.intentJson ?? null, createdAt: new Date() }; memory.messages.push(row); return row; }),
   addStickerAttachments: vi.fn(async (rows: any[]) => { const saved = rows.map((row) => ({ id: memory.nextId++, ...row, createdAt: new Date() })); memory.attachments.push(...saved); return saved; }),
   addStickerReference: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.references.push(row); return row; }),
+  updateStickerReference: vi.fn(async (input: any) => { const row = memory.references.find((item) => item.id === input.id); Object.assign(row, input); return row; }),
   saveStickerCharacterProfile: vi.fn(async (input: any) => (memory.profile = { id: 1, ...input, createdAt: new Date(), updatedAt: new Date() })),
+  saveStickerStyleAnchor: vi.fn(async (input: any) => (memory.styleAnchor = { id: memory.nextId++, ...input, createdAt: new Date(), updatedAt: new Date() })),
   addStickerScript: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, status: "draft", resultUrl: null, errorMessage: null, qualityReport: null, updatedAt: new Date() }; memory.scripts.push(row); return row; }),
   createStickerJob: vi.fn(async (input: any) => { const row = { id: memory.nextId++, scriptId: input.scriptId ?? null, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, errorCode: null, errorMessage: null, checkpointJson: input.checkpointJson ?? null, createdAt: new Date(), updatedAt: new Date(), ...input }; memory.jobs.push(row); return row; }),
   updateStickerJob: vi.fn(async (input: any) => { const row = memory.jobs.find((item) => item.id === input.id); Object.assign(row, input, { updatedAt: new Date() }); return row; }),
   updateStickerScript: vi.fn(async (input: any) => { const row = memory.scripts.find((item) => item.id === input.id); Object.assign(row, input, { updatedAt: new Date() }); return row; }),
-  addStickerVersion: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.versions.push(row); return row; }),
+  addStickerAgentEvent: vi.fn(async (input: any) => ({ id: memory.nextId++, ...input, createdAt: new Date() })),
+  addStickerVersion: vi.fn(async (input: any) => { if (input.isActive ?? true) memory.versions.filter((item) => item.scriptId === input.scriptId).forEach((item) => { item.isActive = false; }); const row = { id: memory.nextId++, isActive: input.isActive ?? true, ...input, createdAt: new Date() }; memory.versions.push(row); return row; }),
+  restoreStickerVersion: vi.fn(async (input: any) => { const row = memory.versions.find((item) => item.id === input.versionId && item.scriptId === input.scriptId); if (!row) return undefined; memory.versions.filter((item) => item.scriptId === input.scriptId).forEach((item) => { item.isActive = false; }); row.isActive = true; const script = memory.scripts.find((item) => item.id === input.scriptId); if (script) Object.assign(script, { status: "ready", resultUrl: row.url, errorMessage: null }); return row; }),
   addStickerExport: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.exports.push(row); return row; }),
-  getStickerStudio: vi.fn(async (projectKey: string) => memory.project?.projectKey === projectKey ? ({ project: memory.project, conversation: memory.conversation, messages: memory.messages, attachments: memory.attachments, characterProfile: memory.profile, scripts: memory.scripts, jobs: memory.jobs, exports: memory.exports }) : undefined),
+  getStickerStudio: vi.fn(async (projectKey: string) => memory.project?.projectKey === projectKey ? ({ project: memory.project, conversation: memory.conversation, messages: memory.messages, attachments: memory.attachments, characterProfile: memory.profile, styleAnchor: memory.styleAnchor, references: memory.references, scripts: memory.scripts, versions: memory.versions, jobs: memory.jobs, events: memory.events, exports: memory.exports }) : undefined),
   getDb: vi.fn(),
 }));
 
@@ -68,9 +74,11 @@ beforeEach(async () => {
   memory.attachments = [];
   memory.references = [];
   memory.profile = null;
+  memory.styleAnchor = null;
   memory.scripts = [];
   memory.jobs = [];
   memory.versions = [];
+  memory.events = [];
   memory.exports = [];
   memory.forceQuota = false;
   memory.nextId = 1;
@@ -152,5 +160,30 @@ describe("對話工作室真實 server route 整合", () => {
     expect(resumed.completed).toMatchObject([{ status: "completed" }]);
     expect(memory.jobs.filter((item) => item.kind === "edit")).toHaveLength(1);
     expect(editJob.status).toBe("completed");
+  });
+
+  it("可保存參考圖角色設定並在回復版本時切換 active version 與目前貼圖成果", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我把這隻橘貓做成 8 張 LINE 貼圖", attachments: [{ dataUrl: memory.imageDataUrl, fileName: "cat.png", mimeType: "image/png" }] });
+    const reference = memory.references[0];
+    await api.studio.setReferenceRole({ projectKey: created.projectKey, referenceId: reference.id, role: "accepted_character", accepted: true });
+    expect(reference).toMatchObject({ role: "accepted_character", priority: 10, accepted: true });
+
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    const script = memory.scripts.find((item) => item.position === 1);
+    const initial = memory.versions.find((item) => item.scriptId === script.id && item.version === 1);
+    expect(initial).toMatchObject({ isActive: true });
+
+    await api.studio.editSticker({ projectKey: created.projectKey, position: 1, instruction: "第 1 張眼睛大一點" });
+    const refined = memory.versions.find((item) => item.scriptId === script.id && item.version === 2);
+    expect(refined).toMatchObject({ isActive: true, parentVersionId: initial.id });
+    expect(initial.isActive).toBe(false);
+
+    const restored = await api.studio.restoreVersion({ projectKey: created.projectKey, position: 1, versionId: initial.id });
+    expect(restored).toMatchObject({ status: "completed", version: 1, url: initial.url });
+    expect(script.resultUrl).toBe(initial.url);
+    expect(initial.isActive).toBe(true);
+    expect(refined.isActive).toBe(false);
   });
 });

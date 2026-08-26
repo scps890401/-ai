@@ -2,8 +2,8 @@
 
 **建立日期：** 2026-08-26（GMT+8）  
 **專案目錄：** `/home/ubuntu/sticker-tycoon-replica`  
-**技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2。  
-**目前工作階段 checkpoint 基線：** `804b35b7`（本交接包包含其後未保存的廣泛研究與角色錨點改良。）
+**技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
+**目前工作階段 checkpoint 基線：** `6ec42fba`（本交接包包含第二階段 Agent 升級、已套用 migration 與待保存的完整來源。）
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
@@ -14,10 +14,10 @@
 | 層面 | 現行做法 |
 | --- | --- |
 | 角色理解與規劃 | GPT-5 mini LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認的角色錨點不會被後續純文字對話覆寫；若 LLM 額度不足，改用可編輯備援腳本。 |
-| 角色一致性生成 | Gemini 3.1 Flash Image 優先接受最多 4 張已保存角色參考圖；每張任務 checkpoint 保存參考圖順序、模型、初稿與 Gemini interaction ID；若 Gemini 額度暫停，嘗試 GPT Image 2 後備。 |
-| 圖像修改與透明背景 | GPT Image 2 對初稿做語意去背與單張修改；修改 instruction、原圖版本與位置也會在暫停時保存，輸入「繼續製作」可只續跑該修改。 |
+| 角色一致性與 Router | 角色、已確認角色、姿勢與風格圖會依優先序建立最多 4 張參考快照；Agent 逐張保存 Provider 候選、嘗試歷程、品質報告、初稿與 Gemini interaction ID。新生成優先 Gemini、修改優先 GPT Image；FLUX.2 僅為未設定憑證的候選。 |
+| 圖像修改、品質與版本 | GPT Image 2 處理語意去背與單張修改；透明 PNG 會寫入品質報告。每次生成、重試與修改建立父子版本鏈與 active version，可直接回復指定舊版。 |
 | 繁體中文 | 圖像模型不負責最後文字；LINE 匯出時以伺服器端 Noto Sans CJK TC SVG 疊字，檢查 10 px 安全邊距、兩行換行與文字 bounding box。 |
-| 保存與續作 | MySQL 保存專案、對話、附件、角色設定、腳本、任務、版本與匯出紀錄；S3 保存檔案；projectKey 保存在瀏覽器並可跨裝置輸入恢復。 |
+| 保存與續作 | MySQL 保存專案、對話、附件、角色／風格 Anchor、腳本、Agent 事件、任務 Router、版本與匯出紀錄；S3 保存檔案；projectKey 保存在瀏覽器並可跨裝置輸入恢復。 |
 | LINE 輸出 | 單張輸出 370×320 透明 PNG；整套 ZIP 包含 sticker、main、tab 與品質報告，並檢查 alpha、尺寸、單圖 1 MB、套組 60 MB。 |
 
 ## 2. 外部服務狀態與必讀限制
@@ -44,13 +44,15 @@
 - `research/chat-first-ui-visual-findings.md`：桌面、Android 真實額度中斷、受控成功路徑的驗證紀錄。
 - `research/wide-research-2026.md`：2026-08-26 的官方模型、LINE、額度與 HEIC 廣泛研究及選型結論。
 - `research/wide-research-gap-analysis.md`：研究結果與現有程式直接對照的能力缺口及本輪改良範圍。
+- `research/phase-2-model-router-research.md`：Gemini、GPT Image、FLUX.2 的能力、商業部署與 Router 邊界研究。
+- `docs/phase-2-agent-design.md`：資料模型、錯誤與 fallback、品質檢查、Anchor、版本與對話內 Agent 工作卡設計。
 
 ## 5. 驗證摘要
 
 | 驗證 | 結果 |
 | --- | --- |
 | `pnpm check` | 通過。 |
-| `pnpm test` | 通過；共 14 項單元／整合測試，覆蓋 LINE 文字安全邊距、角色錨點、Gemini interaction checkpoint、單張修改暫停與續作。 |
+| `pnpm test` | 通過；共 19 項單元／整合測試，覆蓋 LINE 文字安全邊距、角色錨點、Gemini interaction checkpoint、Model Router、參考圖角色、版本 V1→V2→回復、單張修改暫停與續作。 |
 | `pnpm build` | 通過；Vite 提示部分 chunk 大於 500 kB，屬效能優化建議而非建置失敗。建置時應停止多餘 watcher 以降低 sandbox 記憶體壓力。 |
 | 真實 Android server route | 通過自然語言建案、projectKey、8 個任務、額度暫停與「繼續製作」續作；外部服務額度不足被正確保存與呈現。 |
 | 受控 Android 成功路徑 | 通過 HEIC→JPEG、8 張生成、指定單張修改、單張 PNG 下載、LINE ZIP 下載與重新載入恢復；未攔截 UI、tRPC、DB、S3、LINE 合成或下載。 |
@@ -80,7 +82,7 @@ git push -u github main
 
 ## 8. 可分享原始碼與設定
 
-本章收錄 153 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 158 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -238,8 +240,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787717297291,
-  "version": "3cfbe89b"
+  "timestamp": 1787719354557,
+  "version": "eb4dca61"
 }
 ````
 
@@ -398,8 +400,20 @@ export default App;
 ### `client/src/chat-studio.css`
 
 ````css
-.chat-studio-shell{min-height:100svh;background:radial-gradient(circle at 90% 0,rgba(31,126,181,.27),transparent 32rem),linear-gradient(135deg,#061325,#0a2542 52%,#071527);color:#edf8ff}.chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;padding:0 clamp(18px,4vw,58px);border-bottom:1px solid rgba(130,195,229,.14);background:rgba(6,18,35,.74);backdrop-filter:blur(16px);position:sticky;top:0;z-index:20}.chat-brand{display:flex;gap:10px;align-items:center}.brand-spark{display:grid;place-items:center;width:35px;height:35px;color:#071426;border-radius:11px;background:linear-gradient(135deg,var(--cyan),var(--violet))}.chat-brand div{display:grid;gap:2px}.chat-brand strong{font-size:15px}.chat-brand small{color:#91abc0;font-size:10px;letter-spacing:.04em}.project-chip{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 9px 7px 12px;border:1px solid rgba(106,197,237,.2);border-radius:12px;background:rgba(10,39,66,.56);font-size:11px}.project-chip span{color:#7c9cb3}.project-chip strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-chip button{color:#91e6f8;background:rgba(57,178,211,.13);border-radius:7px;padding:4px 6px;cursor:pointer;font:10px 'Space Grotesk',sans-serif}.chat-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(310px,390px);width:min(1320px,100%);min-height:calc(100svh - 68px);margin:0 auto}.conversation-column{display:flex;flex-direction:column;min-width:0;padding:clamp(22px,4vw,54px) clamp(18px,5vw,72px) 26px;border-right:1px solid rgba(128,191,224,.12)}.chat-welcome{max-width:780px;margin:auto 0}.chat-welcome h1{max-width:650px;margin:14px 0;color:#f5fbff;font-size:clamp(40px,5.6vw,72px);line-height:1.07;letter-spacing:-.065em}.chat-welcome p{max-width:620px;margin:0;color:#adc2d5;font-size:15px;line-height:1.9}.suggestion-list{display:grid;gap:9px;max-width:590px;margin-top:32px}.suggestion-list button{display:flex;align-items:center;gap:10px;padding:13px 15px;color:#c9dce9;text-align:left;border:1px solid rgba(111,185,222,.18);border-radius:15px;background:rgba(12,42,70,.45);cursor:pointer;transition:transform .18s ease,border-color .18s ease}.suggestion-list button svg{color:var(--cyan)}.suggestion-list button:hover{border-color:rgba(51,212,246,.6);transform:translateX(3px)}.message-list{display:grid;gap:20px;max-width:820px;width:100%;margin:0 auto auto}.chat-message{display:flex;gap:10px;align-items:flex-start}.chat-message.user{flex-direction:row-reverse}.message-avatar{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;border-radius:10px;color:#072039;background:linear-gradient(135deg,#82e8f9,#987cff);font-size:11px;font-weight:800}.chat-message.user .message-avatar{color:#d8e9f4;background:#1a3d60}.message-content{max-width:min(88%,650px);padding:12px 14px;border:1px solid rgba(120,188,224,.16);border-radius:5px 16px 16px;background:rgba(12,42,71,.6);color:#e6f2fb;font-size:13px;line-height:1.7}.chat-message.user .message-content{border-radius:16px 5px 16px 16px;background:linear-gradient(135deg,rgba(33,124,156,.78),rgba(45,69,137,.77))}.message-content p{margin:0}.message-content .prose{color:inherit}.message-attachments{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.message-attachments img{width:66px;height:66px;object-fit:cover;border:1px solid rgba(166,226,249,.28);border-radius:9px}.message-attachments span{display:inline-flex;align-items:center;gap:5px;padding:6px 8px;color:#aeeaf7;background:rgba(6,20,38,.4);border-radius:8px;font-size:10px}.composer-wrap{width:100%;max-width:820px;margin:28px auto 0}.queued-files{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}.queued-file{display:flex;align-items:center;gap:6px;max-width:180px;padding:5px 7px 5px 5px;border:1px solid rgba(111,197,231,.22);border-radius:10px;background:rgba(11,45,71,.76);font-size:10px}.queued-file img{width:24px;height:24px;border-radius:6px;object-fit:cover}.queued-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queued-file button{display:grid;place-items:center;margin-left:auto;padding:2px;color:#9cb8c9;background:transparent;cursor:pointer}.composer{display:flex;align-items:flex-end;gap:8px;padding:9px;border:1px solid rgba(97,193,231,.34);border-radius:20px;background:rgba(4,20,38,.83);box-shadow:0 16px 38px rgba(0,0,0,.2)}.attach-button{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;color:#8ee7fb;border-radius:11px;background:rgba(42,145,180,.18);cursor:pointer}.attach-button input{display:none}.composer textarea{flex:1;max-height:150px;min-height:38px;padding:8px 1px;resize:none;color:#edf8ff;border:0;outline:0;background:transparent;font-size:13px;line-height:1.5}.composer textarea::placeholder{color:#718ea5}.send-button{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;color:#071426;border-radius:12px;background:linear-gradient(135deg,var(--cyan),var(--violet));cursor:pointer}.send-button:disabled{opacity:.45;cursor:not-allowed}.composer-wrap>small{display:block;margin:8px 9px 0;color:#7695ab;font-size:10px;line-height:1.45}.task-panel{padding:29px 18px 26px;background:linear-gradient(180deg,rgba(7,25,45,.72),rgba(7,19,35,.86))}.task-panel-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin:0 6px 18px}.task-panel-head h2{margin:7px 0 0;font-size:21px;letter-spacing:-.04em}.continue-button{display:inline-flex;align-items:center;gap:5px;margin-top:2px;padding:8px 10px;color:#d1f9ff;border:1px solid rgba(75,214,244,.35);border-radius:10px;background:rgba(39,150,185,.12);cursor:pointer;font-size:11px}.continue-button:disabled{opacity:.45}.panel-loading,.task-empty{display:grid;place-items:center;gap:9px;min-height:220px;padding:22px;color:#8aa5b9;text-align:center;border:1px dashed rgba(110,187,224,.18);border-radius:18px;font-size:12px}.task-empty svg{color:var(--cyan)}.task-empty strong{color:#d7e9f5;font-size:14px}.task-empty span{line-height:1.6}.task-grid{display:grid;gap:10px}.sticker-task{display:grid;grid-template-columns:88px minmax(0,1fr);overflow:hidden;border:1px solid rgba(105,180,221,.16);border-radius:15px;background:rgba(12,42,69,.58)}.task-image{position:relative;display:grid;place-items:center;min-height:88px;overflow:hidden;background:repeating-conic-gradient(#163750 0 25%,#0e2a44 0 50%) 50%/16px 16px}.task-image>span{color:#7ca6bf;font:700 22px 'Space Grotesk',sans-serif}.task-image img{width:100%;height:100%;object-fit:contain}.task-status{position:absolute;right:5px;bottom:5px;padding:3px 5px;color:#c5d8e5;border-radius:6px;background:rgba(3,15,29,.78);font-style:normal;font-size:9px}.task-status.completed,.task-status.ready{color:#9cf0c6}.task-status.paused_quota,.task-status.failed,.task-status.error{color:#ffcf7b}.task-status.generating,.task-status.retrying{color:#94eafd}.task-meta{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:10px}.task-meta small{color:#89a8bd;font-size:10px}.task-meta strong{overflow:hidden;max-width:100%;color:#edf8ff;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.task-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:auto;padding-top:6px}.task-actions button{display:inline-flex;align-items:center;gap:4px;padding:5px 6px;color:#aee9f6;border:1px solid rgba(108,194,225,.16);border-radius:7px;background:rgba(5,24,43,.45);cursor:pointer;font-size:9px}.task-actions button:disabled{opacity:.36;cursor:not-allowed}.spin{animation:chat-spin 1s linear infinite}@keyframes chat-spin{to{transform:rotate(360deg)}}
-@media(max-width:900px){.chat-layout{grid-template-columns:1fr}.conversation-column{min-height:calc(100svh - 68px);border-right:0}.task-panel{border-top:1px solid rgba(128,191,224,.12)}.task-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sticker-task{grid-template-columns:78px minmax(0,1fr)}}@media(max-width:560px){.chat-topbar{min-height:61px;padding:0 14px}.project-chip{max-width:190px;gap:5px;padding:5px 6px 5px 8px}.project-chip strong{max-width:65px}.project-chip span{display:none}.conversation-column{padding:34px 15px 17px}.chat-welcome h1{font-size:42px}.chat-welcome p{font-size:13px}.suggestion-list{margin-top:24px}.suggestion-list button{padding:12px;font-size:12px}.message-list{gap:15px}.message-content{max-width:calc(100% - 38px);font-size:12px}.composer-wrap{margin-top:20px}.task-panel{padding:24px 13px}.task-grid{grid-template-columns:1fr}.sticker-task{grid-template-columns:92px minmax(0,1fr)}.composer-wrap>small{font-size:9px}}@media(prefers-reduced-motion:reduce){.spin{animation:none}.suggestion-list button{transition:none}}
+.chat-studio-shell{min-height:100svh;background:radial-gradient(circle at 90% 0,rgba(31,126,181,.27),transparent 32rem),linear-gradient(135deg,#061325,#0a2542 52%,#071527);color:#edf8ff}
+.chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;padding:0 clamp(18px,4vw,58px);border-bottom:1px solid rgba(130,195,229,.14);background:rgba(6,18,35,.74);backdrop-filter:blur(16px);position:sticky;top:0;z-index:20}.chat-brand{display:flex;gap:10px;align-items:center}.brand-spark{display:grid;place-items:center;width:35px;height:35px;color:#071426;border-radius:11px;background:linear-gradient(135deg,var(--cyan),var(--violet))}.chat-brand div{display:grid;gap:2px}.chat-brand strong{font-size:15px}.chat-brand small{color:#91abc0;font-size:10px;letter-spacing:.04em}.project-chip{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 9px 7px 12px;border:1px solid rgba(106,197,237,.2);border-radius:12px;background:rgba(10,39,66,.56);font-size:11px}.project-chip span{color:#7c9cb3}.project-chip strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-chip button{color:#91e6f8;background:rgba(57,178,211,.13);border-radius:7px;padding:4px 6px;cursor:pointer;font:10px 'Space Grotesk',sans-serif}
+.chat-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(310px,390px);width:min(1320px,100%);min-height:calc(100svh - 68px);margin:0 auto}.conversation-column{display:flex;flex-direction:column;min-width:0;padding:clamp(22px,4vw,54px) clamp(18px,5vw,72px) 26px;border-right:1px solid rgba(128,191,224,.12)}.chat-welcome{max-width:780px;margin:auto 0}.chat-welcome h1{max-width:650px;margin:14px 0;color:#f5fbff;font-size:clamp(40px,5.6vw,72px);line-height:1.07;letter-spacing:-.065em}.chat-welcome p{max-width:620px;margin:0;color:#adc2d5;font-size:15px;line-height:1.9}.eyebrow{color:#7fe4f7;font-size:10px;letter-spacing:.11em}.suggestion-list{display:grid;gap:9px;max-width:590px;margin-top:32px}.suggestion-list button{display:flex;align-items:center;gap:10px;padding:13px 15px;color:#c9dce9;text-align:left;border:1px solid rgba(111,185,222,.18);border-radius:15px;background:rgba(12,42,70,.45);cursor:pointer;transition:transform .18s ease,border-color .18s ease}.suggestion-list button svg{color:var(--cyan)}.suggestion-list button:hover{border-color:rgba(51,212,246,.6);transform:translateX(3px)}
+.message-list{display:grid;gap:20px;max-width:820px;width:100%;margin:0 auto auto}.chat-message{display:flex;gap:10px;align-items:flex-start}.chat-message.user{flex-direction:row-reverse}.message-avatar{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;border-radius:10px;color:#072039;background:linear-gradient(135deg,#82e8f9,#987cff);font-size:11px;font-weight:800}.chat-message.user .message-avatar{color:#d8e9f4;background:#1a3d60}.message-content{max-width:min(88%,650px);padding:12px 14px;border:1px solid rgba(120,188,224,.16);border-radius:5px 16px 16px;background:rgba(12,42,71,.6);color:#e6f2fb;font-size:13px;line-height:1.7}.chat-message.user .message-content{border-radius:16px 5px 16px 16px;background:linear-gradient(135deg,rgba(33,124,156,.78),rgba(45,69,137,.77))}.message-content p{margin:0}.message-content .prose{color:inherit}.message-attachments{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.message-attachments img{width:66px;height:66px;object-fit:cover;border:1px solid rgba(166,226,249,.28);border-radius:9px}.message-attachments span{display:inline-flex;align-items:center;gap:5px;padding:6px 8px;color:#aeeaf7;background:rgba(6,20,38,.4);border-radius:8px;font-size:10px}
+.agent-inline-card{width:100%;max-width:820px;margin:18px auto 0;padding:14px;border:1px solid rgba(95,206,240,.2);border-radius:17px;background:linear-gradient(135deg,rgba(16,57,87,.64),rgba(37,28,94,.4));box-shadow:0 14px 32px rgba(0,0,0,.14)}.agent-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.agent-card-head>div{display:grid;gap:4px}.agent-card-head strong{font-size:14px;letter-spacing:-.02em}.agent-card-head>svg{color:#89e9fb}.agent-card-copy{margin:11px 0 0;color:#a9c0d0;font-size:12px;line-height:1.6}.agent-events{display:grid;gap:6px;margin-top:11px}.agent-event{display:flex;align-items:flex-start;gap:8px;color:#b7ccda;font-size:11px;line-height:1.45}.agent-event i{width:7px;height:7px;flex:0 0 7px;margin-top:5px;border-radius:50%;background:#7996a8}.agent-event.working i{background:#7fe6fa;box-shadow:0 0 0 4px rgba(91,221,246,.11)}.agent-event.completed i{background:#87dfad}.agent-event.paused_quota i,.agent-event.failed i{background:#ffcb78}.agent-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.agent-quick-actions button{display:inline-flex;align-items:center;gap:5px;padding:7px 8px;color:#c5edf5;border:1px solid rgba(118,211,236,.2);border-radius:8px;background:rgba(5,25,45,.3);cursor:pointer;font-size:10px}.agent-quick-actions button:hover{border-color:rgba(112,231,251,.55);background:rgba(58,153,194,.13)}.agent-quick-actions button:disabled{opacity:.4;cursor:not-allowed}
+.agent-result-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}.agent-result-strip article{display:grid;grid-template-columns:38px minmax(0,1fr);gap:6px;align-items:center;min-width:0;padding:5px;border:1px solid rgba(120,209,237,.14);border-radius:9px;background:rgba(4,24,44,.34)}.agent-result-strip img{width:38px;height:38px;object-fit:contain;border-radius:6px;background:repeating-conic-gradient(#163750 0 25%,#0e2a44 0 50%) 50%/10px 10px}.agent-result-strip strong{display:block;overflow:hidden;color:#cbeefa;text-overflow:ellipsis;white-space:nowrap;font-size:9px}.agent-result-strip span{display:flex;gap:4px;margin-top:3px}.agent-result-strip button{padding:2px 4px;color:#90ddeb;border:1px solid rgba(122,212,239,.15);border-radius:4px;background:rgba(2,16,31,.32);cursor:pointer;font-size:8px}.agent-result-strip button:disabled{opacity:.4;cursor:not-allowed}
+.composer-wrap{width:100%;max-width:820px;margin:28px auto 0}.queued-files{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}.queued-file{display:flex;align-items:center;gap:6px;max-width:180px;padding:5px 7px 5px 5px;border:1px solid rgba(111,197,231,.22);border-radius:10px;background:rgba(11,45,71,.76);font-size:10px}.queued-file img{width:24px;height:24px;border-radius:6px;object-fit:cover}.queued-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queued-file button{display:grid;place-items:center;margin-left:auto;padding:2px;color:#9cb8c9;background:transparent;cursor:pointer}.composer{display:flex;align-items:flex-end;gap:8px;padding:9px;border:1px solid rgba(97,193,231,.34);border-radius:20px;background:rgba(4,20,38,.83);box-shadow:0 16px 38px rgba(0,0,0,.2)}.attach-button{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;color:#8ee7fb;border-radius:11px;background:rgba(42,145,180,.18);cursor:pointer}.attach-button input{display:none}.composer textarea{flex:1;max-height:150px;min-height:38px;padding:8px 1px;resize:none;color:#edf8ff;border:0;outline:0;background:transparent;font-size:13px;line-height:1.5}.composer textarea::placeholder{color:#718ea5}.send-button{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;color:#071426;border-radius:12px;background:linear-gradient(135deg,var(--cyan),var(--violet));cursor:pointer}.send-button:disabled{opacity:.45;cursor:not-allowed}.composer-wrap>small{display:block;margin:8px 9px 0;color:#7695ab;font-size:10px;line-height:1.45}
+.task-panel{padding:29px 18px 26px;background:linear-gradient(180deg,rgba(7,25,45,.72),rgba(7,19,35,.86))}.task-panel-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin:0 6px 18px}.task-panel-head h2{margin:7px 0 0;font-size:21px;letter-spacing:-.04em}.panel-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.continue-button{display:inline-flex;align-items:center;gap:5px;margin-top:2px;padding:8px 10px;color:#d1f9ff;border:1px solid rgba(75,214,244,.35);border-radius:10px;background:rgba(39,150,185,.12);cursor:pointer;font-size:11px}.continue-button:disabled{opacity:.45}.panel-loading,.task-empty{display:grid;place-items:center;gap:9px;min-height:220px;padding:22px;color:#8aa5b9;text-align:center;border:1px dashed rgba(110,187,224,.18);border-radius:18px;font-size:12px}.task-empty svg{color:var(--cyan)}.task-empty strong{color:#d7e9f5;font-size:14px}.task-empty span{line-height:1.6}
+.reference-tray{margin:0 6px 16px;padding:10px;border:1px solid rgba(109,193,229,.14);border-radius:13px;background:rgba(5,24,42,.32)}.reference-tray-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;color:#d7eff8;font-size:11px}.reference-tray-head small{color:#7797aa;font-size:9px}.reference-list{display:grid;gap:7px}.reference-card{display:grid;grid-template-columns:38px minmax(0,1fr);gap:8px;align-items:center;padding:5px;border-radius:9px;background:rgba(16,48,74,.48)}.reference-card img{width:38px;height:38px;border-radius:7px;object-fit:cover}.reference-card strong{display:block;color:#b9e5ef;font-size:10px}.reference-card.accepted_character strong{color:#9bf0c4}.reference-actions{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}.reference-actions button{padding:3px 4px;color:#8fcadd;border:1px solid rgba(105,196,228,.16);border-radius:5px;background:rgba(3,17,32,.35);cursor:pointer;font-size:8px}.reference-actions button:disabled{opacity:.4;cursor:not-allowed}
+.task-grid{display:grid;gap:10px}.sticker-task{display:grid;grid-template-columns:88px minmax(0,1fr);overflow:hidden;border:1px solid rgba(105,180,221,.16);border-radius:15px;background:rgba(12,42,69,.58)}.task-image{position:relative;display:grid;place-items:center;min-height:88px;overflow:hidden;background:repeating-conic-gradient(#163750 0 25%,#0e2a44 0 50%) 50%/16px 16px}.task-image>span{color:#7ca6bf;font:700 22px 'Space Grotesk',sans-serif}.task-image img{width:100%;height:100%;object-fit:contain}.task-status{position:absolute;right:5px;bottom:5px;padding:3px 5px;color:#c5d8e5;border-radius:6px;background:rgba(3,15,29,.78);font-style:normal;font-size:9px}.task-status.completed,.task-status.ready{color:#9cf0c6}.task-status.paused_quota,.task-status.failed,.task-status.error{color:#ffcf7b}.task-status.generating,.task-status.retrying,.task-status.removing_background{color:#94eafd}.task-meta{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:10px}.task-meta small{color:#89a8bd;font-size:10px}.task-meta strong{overflow:hidden;max-width:100%;color:#edf8ff;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.task-router{overflow:hidden;max-width:100%;color:#78b9cd;text-overflow:ellipsis;white-space:nowrap;font-size:9px}.task-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:auto;padding-top:6px}.task-actions button{display:inline-flex;align-items:center;gap:4px;padding:5px 6px;color:#aee9f6;border:1px solid rgba(108,194,225,.16);border-radius:7px;background:rgba(5,24,43,.45);cursor:pointer;font-size:9px}.task-actions button:disabled{opacity:.36;cursor:not-allowed}.version-rail{display:flex;flex-wrap:wrap;gap:4px;width:100%;padding-top:7px}.version-rail button{padding:4px 5px;color:#a9dbe7;border:1px solid rgba(123,200,224,.18);border-radius:6px;background:rgba(4,21,38,.45);cursor:pointer;font-size:8px}.version-rail button.active{color:#93eec0;border-color:rgba(102,224,166,.36);cursor:default}.version-rail button:disabled{opacity:.56}
+.toast{position:fixed;right:18px;bottom:18px;z-index:30;display:flex;align-items:center;gap:7px;max-width:min(420px,calc(100vw - 36px));padding:11px 13px;color:#d9f8ff;border:1px solid rgba(105,227,248,.34);border-radius:12px;background:rgba(5,28,48,.94);box-shadow:0 16px 38px rgba(0,0,0,.3);font-size:12px}.toast svg{color:#86efff}.spin{animation:chat-spin 1s linear infinite}@keyframes chat-spin{to{transform:rotate(360deg)}}
+@media(max-width:900px){.chat-layout{grid-template-columns:1fr}.conversation-column{min-height:calc(100svh - 68px);border-right:0}.task-panel{border-top:1px solid rgba(128,191,224,.12)}.task-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sticker-task{grid-template-columns:78px minmax(0,1fr)}}
+@media(max-width:560px){.chat-topbar{min-height:61px;padding:0 14px}.project-chip{max-width:190px;gap:5px;padding:5px 6px 5px 8px}.project-chip strong{max-width:65px}.project-chip span{display:none}.conversation-column{padding:34px 15px 17px}.chat-welcome h1{font-size:42px}.chat-welcome p{font-size:13px}.suggestion-list{margin-top:24px}.suggestion-list button{padding:12px;font-size:12px}.message-list{gap:15px}.message-content{max-width:calc(100% - 38px);font-size:12px}.agent-inline-card{margin-top:14px;padding:12px}.agent-card-head strong{font-size:13px}.agent-result-strip{grid-template-columns:1fr}.agent-quick-actions button{padding:7px}.composer-wrap{margin-top:20px}.task-panel{padding:24px 13px}.task-grid{grid-template-columns:1fr}.sticker-task{grid-template-columns:92px minmax(0,1fr)}.composer-wrap>small{font-size:9px}.toast{right:12px;bottom:12px}}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}.suggestion-list button{transition:none}}
 
 ````
 
@@ -9725,13 +9739,14 @@ export default function ComponentsShowcase() {
 
 ````tsx
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Download, ImagePlus, Loader2, Paperclip, Play, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import { Check, Download, History, ImagePlus, Loader2, Paperclip, Play, RefreshCw, Send, Sparkles, WandSparkles, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { trpc } from "@/lib/trpc";
 import "../chat-studio.css";
 import "../line-export.css";
 
 type LocalAttachment = { id: string; dataUrl: string; fileName: string; mimeType: string; preview?: string };
+type JsonRecord = Record<string, unknown>;
 const STORAGE_KEY = "sticker-tycoon-chat-project-key";
 
 const suggestions = [
@@ -9758,13 +9773,25 @@ async function normaliseFile(file: File) {
   return new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
 }
 
+function parseJson(value: string | null | undefined): JsonRecord {
+  if (!value) return {};
+  try { return JSON.parse(value) as JsonRecord; } catch { return {}; }
+}
+
 function statusLabel(status: string | undefined) {
   if (status === "generating") return "正在生成";
+  if (status === "removing_background") return "整理透明背景";
   if (status === "completed" || status === "ready") return "已完成";
   if (status === "paused_quota") return "額度暫停";
   if (status === "failed" || status === "error") return "需要重試";
   if (status === "retrying") return "正在重試";
   return "等待中";
+}
+
+function providerLabel(value: unknown) {
+  if (value === "gemini-3.1-flash-image") return "Gemini";
+  if (value === "gpt-image-2") return "GPT Image";
+  return "AI Router";
 }
 
 export default function Home() {
@@ -9774,28 +9801,38 @@ export default function Home() {
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [versionInspector, setVersionInspector] = useState<number | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const studio = trpc.studio.get.useQuery({ projectKey: projectKey || "no-project" }, { enabled: Boolean(projectKey), refetchInterval: projectKey ? 8_000 : false });
   const sendMessage = trpc.studio.sendMessage.useMutation();
   const runPending = trpc.studio.runPending.useMutation();
   const retrySticker = trpc.studio.retrySticker.useMutation();
   const editSticker = trpc.studio.editSticker.useMutation();
+  const restoreVersion = trpc.studio.restoreVersion.useMutation();
+  const setReferenceRole = trpc.studio.setReferenceRole.useMutation();
   const exportLineSingle = trpc.studio.exportLineSingle.useMutation();
   const exportLinePack = trpc.studio.exportLinePack.useMutation();
-  const busy = sendMessage.isPending || runPending.isPending || retrySticker.isPending || editSticker.isPending || exportLineSingle.isPending || exportLinePack.isPending || uploading;
+  const busy = sendMessage.isPending || runPending.isPending || retrySticker.isPending || editSticker.isPending || restoreVersion.isPending || setReferenceRole.isPending || exportLineSingle.isPending || exportLinePack.isPending || uploading;
   const project = studio.data?.project;
   const messages = studio.data?.messages ?? [];
+  const events = (studio.data?.events ?? []).slice(0, 5).reverse();
   const attachmentsByMessage = useMemo(() => {
     const grouped = new Map<number, NonNullable<typeof studio.data>["attachments"]>();
     for (const attachment of studio.data?.attachments ?? []) grouped.set(attachment.messageId, [...(grouped.get(attachment.messageId) ?? []), attachment]);
     return grouped;
   }, [studio.data?.attachments]);
+  const versionsByScript = useMemo(() => {
+    const grouped = new Map<number, NonNullable<typeof studio.data>["versions"]>();
+    for (const version of studio.data?.versions ?? []) grouped.set(version.scriptId, [...(grouped.get(version.scriptId) ?? []), version]);
+    return grouped;
+  }, [studio.data?.versions]);
 
   useEffect(() => {
     if (projectKey) localStorage.setItem(STORAGE_KEY, projectKey);
   }, [projectKey]);
 
-  const toast = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(""), 5000); };
+  const toast = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(""), 5_000); };
   const refreshStudio = async (key = projectKey) => { if (key) await utils.studio.get.invalidate({ projectKey: key }); };
   const drainPending = async (key: string, position?: number) => {
     const result = await runPending.mutateAsync({ projectKey: key, maxJobs: position ? 1 : 2, position });
@@ -9841,6 +9878,18 @@ export default function Home() {
     try { const result = await retrySticker.mutateAsync({ projectKey, position }); await refreshStudio(projectKey); if (result.completed.some((item) => item.status === "paused_quota")) toast("AI 額度目前已用完，這張貼圖與其他進度都已保存。"); } catch (error) { toast(error instanceof Error ? error.message : "重新生成失敗"); }
   };
   const requestEdit = (position: number) => { setInput(`第 ${position} 張請修改：`); composerRef.current?.focus(); };
+  const restore = async (position: number, versionId: number) => {
+    if (!projectKey || busy) return;
+    try { const result = await restoreVersion.mutateAsync({ projectKey, position, versionId }); await refreshStudio(); setVersionInspector(null); toast(`第 ${position} 張已回復至 V${result.version}。`); } catch (error) { toast(error instanceof Error ? error.message : "版本回復失敗"); }
+  };
+  const classifyReference = async (referenceId: number, role: "accepted_character" | "pose" | "style") => {
+    if (!projectKey || busy) return;
+    try {
+      await setReferenceRole.mutateAsync({ projectKey, referenceId, role, accepted: role === "accepted_character" });
+      await refreshStudio();
+      toast(role === "pose" ? "已設為姿勢參考。" : role === "style" ? "已設為風格參考。" : "已設為已確認角色參考。 ");
+    } catch (error) { toast(error instanceof Error ? error.message : "參考圖設定失敗"); }
+  };
   const download = async (url: string, fileName: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`無法準備下載檔案（${response.status}）`);
@@ -9862,15 +9911,28 @@ export default function Home() {
     try { const result = await exportLinePack.mutateAsync({ projectKey }); await download(result.url, result.fileName); toast(`LINE 套組 ZIP 已建立（${Math.ceil(result.zipBytes / 1024)} KB）。`); await refreshStudio(); } catch (error) { toast(error instanceof Error ? error.message : "LINE 套組輸出失敗"); }
   };
 
+  const quickPlan = (count: number) => void submit(`請依照目前角色設定，規劃 ${count} 張不重複的繁體中文 LINE 貼圖並開始製作。`);
+  const completedCount = studio.data?.scripts.filter((script) => Boolean(script.resultUrl)).length ?? 0;
+  const recentResults = studio.data?.scripts.filter((script) => Boolean(script.resultUrl)).slice(-3) ?? [];
+
   return <main className="chat-studio-shell">
     {notice && <div className="toast"><Sparkles size={15} />{notice}</div>}
     <header className="chat-topbar"><div className="chat-brand"><span className="brand-spark"><Sparkles size={17} /></span><div><strong>貼圖大亨</strong><small>AI LINE 貼圖工作室</small></div></div>{project && <div className="project-chip"><span>專案</span><strong>{project.title}</strong><button onClick={() => { navigator.clipboard.writeText(project.projectKey); toast("專案代碼已複製，可在其他裝置續作"); }}>{project.projectKey}</button></div>}</header>
     <section className="chat-layout">
       <div className="conversation-column">
-        {messages.length === 0 ? <div className="chat-welcome"><span className="eyebrow">AI STICKER STUDIO</span><h1>像聊天一樣，完成一整套貼圖。</h1><p>傳照片、描述角色，或直接告訴我你想做幾張 LINE 貼圖。角色理解、規劃、生成、修改與保存都會自動處理。</p><div className="suggestion-list">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setInput(suggestion); composerRef.current?.focus(); }}><Sparkles size={14} />{suggestion}</button>)}</div></div> : <div className="message-list">{messages.map((message) => <article key={message.id} className={`chat-message ${message.role}`}><div className="message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "你"}</div><div className="message-content">{message.role === "assistant" ? <Streamdown>{message.content}</Streamdown> : <p>{message.content}</p>}{(attachmentsByMessage.get(message.id) ?? []).length > 0 && <div className="message-attachments">{attachmentsByMessage.get(message.id)!.map((attachment) => attachment.mimeType.startsWith("image/") ? <img key={attachment.id} src={attachment.url} alt={attachment.fileName} /> : <span key={attachment.id}><Paperclip size={13} />{attachment.fileName}</span>)}</div>}</div></article>)}</div>}
-        <div className="composer-wrap"><div className="queued-files">{attachments.map((attachment) => <div className="queued-file" key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt="" /> : <Paperclip size={15} />}<span>{attachment.fileName}</span><button aria-label={`移除 ${attachment.fileName}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}><X size={14} /></button></div>)}</div><div className="composer"><label className="attach-button" aria-label="上傳圖片或檔案"><ImagePlus size={19} /><input type="file" accept="image/*,.heic,.heif,.pdf" multiple onChange={handleFiles} /></label><textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder="例如：幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。" rows={1} disabled={busy} /><button className="send-button" onClick={() => void submit()} disabled={busy || (!input.trim() && !attachments.length)}>{busy ? <Loader2 className="spin" size={18} /> : <Send size={18} />}</button></div><small>可上傳多張角色照片；HEIC 會在手機／瀏覽器端轉檔。按 Enter 送出，Shift + Enter 換行。</small></div>
+        {messages.length === 0 ? <div className="chat-welcome"><span className="eyebrow">AI STICKER AGENT</span><h1>像聊天一樣，完成一整套貼圖。</h1><p>傳照片、描述角色，或直接告訴我你想做幾張 LINE 貼圖。Agent 會理解角色、規劃、生成、檢查與保存，並在額度中斷時安全續作。</p><div className="suggestion-list">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setInput(suggestion); composerRef.current?.focus(); }}><Sparkles size={14} />{suggestion}</button>)}</div></div> : <div className="message-list">{messages.map((message) => <article key={message.id} className={`chat-message ${message.role}`}><div className="message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "你"}</div><div className="message-content">{message.role === "assistant" ? <Streamdown>{message.content}</Streamdown> : <p>{message.content}</p>}{(attachmentsByMessage.get(message.id) ?? []).length > 0 && <div className="message-attachments">{attachmentsByMessage.get(message.id)!.map((attachment) => attachment.mimeType.startsWith("image/") ? <img key={attachment.id} src={attachment.url} alt={attachment.fileName} /> : <span key={attachment.id}><Paperclip size={13} />{attachment.fileName}</span>)}</div>}</div></article>)}</div>}
+        <section className="agent-inline-card" aria-label="AI 製作狀態與快捷操作">
+          <div className="agent-card-head"><div><span className="eyebrow">AGENT WORKSPACE</span><strong>{project ? `${completedCount} / ${studio.data?.scripts.length ?? 0} 張完成` : "從一句話或幾張照片開始"}</strong></div><WandSparkles size={18} /></div>
+          {events.length > 0 ? <div className="agent-events">{events.map((event) => <div className={`agent-event ${event.status}`} key={event.id}><i /><span>{event.message}</span></div>)}</div> : <p className="agent-card-copy">上傳角色照後，可在這裡確認角色、挑選姿勢或風格，再交給 Agent 自動規劃。</p>}
+          {recentResults.length > 0 && <div className="agent-result-strip">{recentResults.map((script) => <article key={script.id}><img src={script.resultUrl!} alt={`第 ${script.position} 張 ${script.phrase}`} /><div><strong>第 {script.position} 張 · {script.phrase}</strong><span><button onClick={() => requestEdit(script.position)} disabled={busy}>修改</button><button onClick={() => void exportSingle(script.position)} disabled={busy}>下載</button></span></div></article>)}</div>}
+          <div className="agent-quick-actions"><button onClick={() => fileInputRef.current?.click()} disabled={busy}><ImagePlus size={14} />上傳角色照</button><button onClick={() => quickPlan(8)} disabled={busy}><Sparkles size={14} />規劃 8 張</button><button onClick={() => quickPlan(16)} disabled={busy}><Sparkles size={14} />規劃 16 張</button>{project && <button onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button>}</div>
+        </section>
+        <div className="composer-wrap"><div className="queued-files">{attachments.map((attachment) => <div className="queued-file" key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt="" /> : <Paperclip size={15} />}<span>{attachment.fileName}</span><button aria-label={`移除 ${attachment.fileName}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}><X size={14} /></button></div>)}</div><div className="composer"><label className="attach-button" aria-label="上傳圖片或檔案"><ImagePlus size={19} /><input ref={fileInputRef} type="file" accept="image/*,.heic,.heif,.pdf" multiple onChange={handleFiles} /></label><textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder="例如：幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。" rows={1} disabled={busy} /><button className="send-button" onClick={() => void submit()} disabled={busy || (!input.trim() && !attachments.length)}>{busy ? <Loader2 className="spin" size={18} /> : <Send size={18} />}</button></div><small>可上傳多張角色照片；HEIC 會在手機／瀏覽器端轉檔。輸入「用這張做姿勢參考」或「後續全部照這個風格」即可調整 Anchor。</small></div>
       </div>
-      <aside className="task-panel"><div className="task-panel-head"><div><span className="eyebrow">STICKER TASKS</span><h2>{project ? "製作進度" : "等待你的需求"}</h2></div>{project && <div className="panel-buttons"><button className="line-export-button" onClick={() => void exportPack()} disabled={busy || (studio.data?.scripts.some((script) => !script.resultUrl) ?? true)}><Download size={14} />LINE ZIP</button><button className="continue-button" onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button></div>}</div>{studio.isLoading ? <div className="panel-loading"><Loader2 className="spin" />正在載入專案…</div> : (studio.data?.scripts.length ?? 0) === 0 ? <div className="task-empty"><ImagePlus size={24} /><strong>從一段對話開始</strong><span>AI 會自動建立角色設定與貼圖清單。</span></div> : <div className="task-grid">{studio.data!.scripts.map((script) => { const job = studio.data!.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1); const taskStatus = job?.status ?? script.status; return <article className="sticker-task" key={script.id}><div className="task-image">{script.resultUrl ? <img src={script.resultUrl} alt={`第 ${script.position} 張 ${script.phrase}`} /> : <span>{script.position}</span>}<em className={`task-status ${taskStatus}`}>{statusLabel(taskStatus)}</em></div><div className="task-meta"><small>第 {script.position} 張 · {script.emotion}</small><strong>{script.phrase}</strong><div className="task-actions">{script.resultUrl && <button onClick={() => void exportSingle(script.position)} aria-label={`匯出第 ${script.position} 張 LINE PNG`} disabled={busy}><Download size={14} /></button>}<button onClick={() => requestEdit(script.position)} disabled={!script.resultUrl || busy}>告訴 AI 修改</button>{["failed", "error", "paused_quota"].includes(taskStatus) && <button onClick={() => void retry(script.position)} disabled={busy}><RefreshCw size={13} />重試</button>}</div></div></article>; })}</div>}</aside>
+      <aside className="task-panel"><div className="task-panel-head"><div><span className="eyebrow">STICKER TASKS</span><h2>{project ? "製作進度" : "等待你的需求"}</h2></div>{project && <div className="panel-buttons"><button className="line-export-button" onClick={() => void exportPack()} disabled={busy || (studio.data?.scripts.some((script) => !script.resultUrl) ?? true)}><Download size={14} />LINE ZIP</button><button className="continue-button" onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button></div>}</div>
+        {(studio.data?.references.length ?? 0) > 0 && <section className="reference-tray"><div className="reference-tray-head"><span>參考圖錨點</span><small>角色／姿勢／風格</small></div><div className="reference-list">{studio.data!.references.slice(0, 6).map((reference) => <article key={reference.id} className={`reference-card ${reference.role}`}><img src={reference.url} alt={reference.fileName} /><div><strong>{reference.role === "accepted_character" ? "已確認角色" : reference.role === "pose" ? "姿勢" : reference.role === "style" || reference.role === "accepted_style" ? "風格" : "角色"}</strong><div className="reference-actions"><button onClick={() => void classifyReference(reference.id, "accepted_character")} disabled={busy}><Check size={11} />角色</button><button onClick={() => void classifyReference(reference.id, "pose")} disabled={busy}>姿勢</button><button onClick={() => void classifyReference(reference.id, "style")} disabled={busy}>風格</button></div></div></article>)}</div></section>}
+        {studio.isLoading ? <div className="panel-loading"><Loader2 className="spin" />正在載入專案…</div> : (studio.data?.scripts.length ?? 0) === 0 ? <div className="task-empty"><ImagePlus size={24} /><strong>從一段對話開始</strong><span>AI 會自動建立角色設定與貼圖清單。</span></div> : <div className="task-grid">{studio.data!.scripts.map((script) => { const job = studio.data!.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1); const taskStatus = job?.status ?? script.status; const router = parseJson(job?.routerJson); const quality = parseJson(script.qualityReport); const versions = versionsByScript.get(script.id) ?? []; return <article className="sticker-task" key={script.id}><div className="task-image">{script.resultUrl ? <img src={script.resultUrl} alt={`第 ${script.position} 張 ${script.phrase}`} /> : <span>{script.position}</span>}<em className={`task-status ${taskStatus}`}>{statusLabel(taskStatus)}</em></div><div className="task-meta"><small>第 {script.position} 張 · {script.emotion}</small><strong>{script.phrase}</strong><span className="task-router">{providerLabel(router.selectedProvider)} · {quality.alphaVerified ? "透明已檢查" : "待品質檢查"}</span><div className="task-actions">{script.resultUrl && <button onClick={() => void exportSingle(script.position)} aria-label={`匯出第 ${script.position} 張 LINE PNG`} disabled={busy}><Download size={14} /></button>}<button onClick={() => requestEdit(script.position)} disabled={!script.resultUrl || busy}>告訴 AI 修改</button>{versions.length > 0 && <button onClick={() => setVersionInspector(versionInspector === script.id ? null : script.id)} disabled={busy}><History size={13} />V{versions.length}</button>}{["failed", "error", "paused_quota"].includes(taskStatus) && <button onClick={() => void retry(script.position)} disabled={busy}><RefreshCw size={13} />重試</button>}</div>{versionInspector === script.id && <div className="version-rail">{versions.map((version) => <button key={version.id} className={version.isActive ? "active" : ""} onClick={() => !version.isActive && void restore(script.position, version.id)} disabled={busy || version.isActive}>V{version.version}{version.isActive ? " · 使用中" : " · 回復"}</button>)}</div>}</div></article>; })}</div>}
+      </aside>
     </section>
   </main>;
 }
@@ -10129,6 +10191,45 @@ CREATE TABLE `stickerMessages` (
 
 ````
 
+### `drizzle/0003_grey_sentinel.sql`
+
+````sql
+CREATE TABLE `stickerAgentEvents` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`projectId` int NOT NULL,
+	`jobId` int,
+	`kind` varchar(64) NOT NULL,
+	`status` varchar(40) NOT NULL DEFAULT 'queued',
+	`message` text NOT NULL,
+	`detailJson` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `stickerAgentEvents_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `stickerStyleAnchors` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`projectId` int NOT NULL,
+	`summaryJson` text NOT NULL,
+	`anchorUrl` text,
+	`status` varchar(40) NOT NULL DEFAULT 'draft',
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `stickerStyleAnchors_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+ALTER TABLE `stickerJobs` ADD `routerJson` text;--> statement-breakpoint
+ALTER TABLE `stickerJobs` ADD `qualityReportJson` text;--> statement-breakpoint
+ALTER TABLE `stickerReferences` ADD `role` varchar(40) DEFAULT 'character' NOT NULL;--> statement-breakpoint
+ALTER TABLE `stickerReferences` ADD `priority` int DEFAULT 50 NOT NULL;--> statement-breakpoint
+ALTER TABLE `stickerReferences` ADD `accepted` boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE `stickerReferences` ADD `metadataJson` text;--> statement-breakpoint
+ALTER TABLE `stickerScripts` ADD `planJson` text;--> statement-breakpoint
+ALTER TABLE `stickerVersions` ADD `parentVersionId` int;--> statement-breakpoint
+ALTER TABLE `stickerVersions` ADD `isActive` boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE `stickerVersions` ADD `qualityReportJson` text;--> statement-breakpoint
+ALTER TABLE `stickerVersions` ADD `provider` varchar(64);
+````
+
 ### `drizzle/meta/_journal.json`
 
 ````json
@@ -10155,6 +10256,13 @@ CREATE TABLE `stickerMessages` (
       "version": "5",
       "when": 1787687225138,
       "tag": "0002_sweet_serpent_society",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787733720540,
+      "tag": "0003_grey_sentinel",
       "breakpoints": true
     }
   ]
@@ -11887,6 +11995,1099 @@ CREATE TABLE `stickerMessages` (
 }
 ````
 
+### `drizzle/meta/0003_snapshot.json`
+
+````json
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "27d583b4-ab7c-4033-be57-fd5c7bc83dcc",
+  "prevId": "d9cbf714-574c-4adf-9ef4-896519d9215f",
+  "tables": {
+    "stickerAgentEvents": {
+      "name": "stickerAgentEvents",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "jobId": {
+          "name": "jobId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'queued'"
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "detailJson": {
+          "name": "detailJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerAgentEvents_id": {
+          "name": "stickerAgentEvents_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerAttachments": {
+      "name": "stickerAttachments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "messageId": {
+          "name": "messageId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fileKey": {
+          "name": "fileKey",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fileName": {
+          "name": "fileName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mimeType": {
+          "name": "mimeType",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sortOrder": {
+          "name": "sortOrder",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerAttachments_id": {
+          "name": "stickerAttachments_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerCharacterProfiles": {
+      "name": "stickerCharacterProfiles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "profileJson": {
+          "name": "profileJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "anchorUrl": {
+          "name": "anchorUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerCharacterProfiles_id": {
+          "name": "stickerCharacterProfiles_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerConversations": {
+      "name": "stickerConversations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "lastActiveAt": {
+          "name": "lastActiveAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerConversations_id": {
+          "name": "stickerConversations_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerExports": {
+      "name": "stickerExports",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "qualityReportJson": {
+          "name": "qualityReportJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerExports_id": {
+          "name": "stickerExports_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerJobs": {
+      "name": "stickerJobs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scriptId": {
+          "name": "scriptId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'queued'"
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "errorCode": {
+          "name": "errorCode",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "errorMessage": {
+          "name": "errorMessage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "checkpointJson": {
+          "name": "checkpointJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "routerJson": {
+          "name": "routerJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "qualityReportJson": {
+          "name": "qualityReportJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerJobs_id": {
+          "name": "stickerJobs_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerMessages": {
+      "name": "stickerMessages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "conversationId": {
+          "name": "conversationId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('user','assistant','system')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "intentJson": {
+          "name": "intentJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerMessages_id": {
+          "name": "stickerMessages_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerProjects": {
+      "name": "stickerProjects",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectKey": {
+          "name": "projectKey",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "brief": {
+          "name": "brief",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "characterProfile": {
+          "name": "characterProfile",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "style": {
+          "name": "style",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stickerCount": {
+          "name": "stickerCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 10
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('draft','generating','ready','error')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerProjects_id": {
+          "name": "stickerProjects_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "stickerProjects_projectKey_unique": {
+          "name": "stickerProjects_projectKey_unique",
+          "columns": [
+            "projectKey"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "stickerReferences": {
+      "name": "stickerReferences",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fileName": {
+          "name": "fileName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sortOrder": {
+          "name": "sortOrder",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "role": {
+          "name": "role",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'character'"
+        },
+        "priority": {
+          "name": "priority",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 50
+        },
+        "accepted": {
+          "name": "accepted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "metadataJson": {
+          "name": "metadataJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerReferences_id": {
+          "name": "stickerReferences_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerScripts": {
+      "name": "stickerScripts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "emotion": {
+          "name": "emotion",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phrase": {
+          "name": "phrase",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scene": {
+          "name": "scene",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('draft','queued','generating','ready','error')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "resultUrl": {
+          "name": "resultUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "errorMessage": {
+          "name": "errorMessage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "qualityReport": {
+          "name": "qualityReport",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "planJson": {
+          "name": "planJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerScripts_id": {
+          "name": "stickerScripts_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerStyleAnchors": {
+      "name": "stickerStyleAnchors",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "projectId": {
+          "name": "projectId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summaryJson": {
+          "name": "summaryJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "anchorUrl": {
+          "name": "anchorUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerStyleAnchors_id": {
+          "name": "stickerStyleAnchors_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "stickerVersions": {
+      "name": "stickerVersions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "scriptId": {
+          "name": "scriptId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parentVersionId": {
+          "name": "parentVersionId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "qualityReportJson": {
+          "name": "qualityReportJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "stickerVersions_id": {
+          "name": "stickerVersions_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "openId": {
+          "name": "openId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "loginMethod": {
+          "name": "loginMethod",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('user','admin')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        },
+        "lastSignedIn": {
+          "name": "lastSignedIn",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "users_id": {
+          "name": "users_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "users_openId_unique": {
+          "name": "users_openId_unique",
+          "columns": [
+            "openId"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    }
+  },
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}
+````
+
 ### `drizzle/relations.ts`
 
 ````typescript
@@ -11897,7 +13098,7 @@ import {} from "./schema";
 ### `drizzle/schema.ts`
 
 ````typescript
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -11930,6 +13131,10 @@ export const stickerReferences = mysqlTable("stickerReferences", {
   url: text("url").notNull(),
   fileName: varchar("fileName", { length: 255 }).notNull(),
   sortOrder: int("sortOrder").notNull().default(0),
+  role: varchar("role", { length: 40 }).notNull().default("character"),
+  priority: int("priority").notNull().default(50),
+  accepted: boolean("accepted").notNull().default(false),
+  metadataJson: text("metadataJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -11944,6 +13149,7 @@ export const stickerScripts = mysqlTable("stickerScripts", {
   resultUrl: text("resultUrl"),
   errorMessage: text("errorMessage"),
   qualityReport: text("qualityReport"),
+  planJson: text("planJson"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -11953,6 +13159,10 @@ export const stickerVersions = mysqlTable("stickerVersions", {
   version: int("version").notNull().default(1),
   url: text("url").notNull(),
   mode: varchar("mode", { length: 40 }).notNull(),
+  parentVersionId: int("parentVersionId"),
+  isActive: boolean("isActive").notNull().default(true),
+  qualityReportJson: text("qualityReportJson"),
+  provider: varchar("provider", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -11995,6 +13205,16 @@ export const stickerCharacterProfiles = mysqlTable("stickerCharacterProfiles", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const stickerStyleAnchors = mysqlTable("stickerStyleAnchors", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  summaryJson: text("summaryJson").notNull(),
+  anchorUrl: text("anchorUrl"),
+  status: varchar("status", { length: 40 }).notNull().default("draft"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const stickerJobs = mysqlTable("stickerJobs", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId").notNull(),
@@ -12006,6 +13226,8 @@ export const stickerJobs = mysqlTable("stickerJobs", {
   errorCode: varchar("errorCode", { length: 120 }),
   errorMessage: text("errorMessage"),
   checkpointJson: text("checkpointJson"),
+  routerJson: text("routerJson"),
+  qualityReportJson: text("qualityReportJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -12016,6 +13238,17 @@ export const stickerExports = mysqlTable("stickerExports", {
   kind: varchar("kind", { length: 64 }).notNull(),
   url: text("url").notNull(),
   qualityReportJson: text("qualityReportJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const stickerAgentEvents = mysqlTable("stickerAgentEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  jobId: int("jobId"),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  status: varchar("status", { length: 40 }).notNull().default("queued"),
+  message: text("message").notNull(),
+  detailJson: text("detailJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -12030,7 +13263,9 @@ export type StickerConversation = typeof stickerConversations.$inferSelect;
 export type StickerMessage = typeof stickerMessages.$inferSelect;
 export type StickerAttachment = typeof stickerAttachments.$inferSelect;
 export type StickerCharacterProfile = typeof stickerCharacterProfiles.$inferSelect;
+export type StickerStyleAnchor = typeof stickerStyleAnchors.$inferSelect;
 export type StickerJob = typeof stickerJobs.$inferSelect;
+export type StickerAgentEvent = typeof stickerAgentEvents.$inferSelect;
 export type StickerExport = typeof stickerExports.$inferSelect;
 
 ````
@@ -21020,6 +22255,10 @@ snapshots:
 | 角色一致性 | Gemini 3.1 Flash Image 作為多參考角色生成的優先提供者；GPT Image 2 作為語意去背、單張修改與後備。 |
 | 獨立貼圖任務 | 每張貼圖具獨立 `queued`、`generating`、`completed`、`failed`、`paused_quota` 狀態；重試第 3 張不影響其他張。 |
 | 中斷續作 | API 額度中斷時保存專案、對話、角色設定、初稿 checkpoint、任務狀態和已完成圖片；輸入「繼續製作」只續跑未完成工作。 |
+| Agent Model Router | 每張任務保存 Provider 候選、已嘗試歷程、參考圖快照、品質報告與 checkpoint。新生成優先 Gemini；單張編修優先 GPT Image；FLUX.2 僅作為尚未設定憑證的候選，不宣稱已啟用。 |
+| 參考圖與 Style Anchor | 上傳圖可被設為角色、已確認角色、姿勢或風格參考；已接受圖與畫風錨點會在後續任務中優先排序。 |
+| 版本回復 | 每次生成／重試／修改均保存不可覆蓋版本鏈、父版本、活動版本、Provider 與品質結果；可在聊天工作室回復單張舊版本。 |
+| 對話內工作狀態 | 聊天欄顯示 Agent 工作事件、最近成果、修改／下載快捷操作與規劃／續作按鈕；桌面與手機均保留獨立任務總覽。 |
 | 中文文字可靠性 | 圖像模型不負責最終中文字；伺服器端用 `Noto Sans CJK TC` SVG 後製，避免亂碼、錯字與文字截斷。 |
 | LINE 輸出 | 產生透明 PNG、主圖、聊天室縮圖與 ZIP；檢查 370×320、透明 alpha、偶數尺寸、單圖 1 MB、套組 60 MB 等規格。 |
 
@@ -21027,7 +22266,7 @@ snapshots:
 
 - **前端：** React 19、Tailwind 4、tRPC React、手機優先 CSS。
 - **後端：** Express、tRPC 11、TypeScript。
-- **資料：** MySQL／Drizzle，保存專案、對話、附件、角色設定檔、貼圖腳本、工作、版本和輸出紀錄。
+- **資料：** MySQL／Drizzle，保存專案、對話、附件、角色／風格 Anchor、貼圖腳本、Agent 事件、Router／品質工作紀錄、可回復版本和輸出紀錄。
 - **檔案：** S3；資料庫只保存檔案參照，不保存圖片 bytes。
 - **圖像：** Gemini Image API 生成角色初稿；GPT Image 2 去背與修改；Sharp 合成 PNG、驗證 alpha、後製 LINE 文字。
 
@@ -21057,7 +22296,7 @@ Schema 位於 `drizzle/schema.ts`。產生 migration 後，必須先閱讀 SQL�
 pnpm drizzle-kit generate
 ```
 
-目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerJobs`、`stickerExports`。
+目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerStyleAnchors`、`stickerAgentEvents`、`stickerJobs`、`stickerExports`。第二階段 migration 為 `drizzle/0003_grey_sentinel.sql`，僅新增欄位／表格，未刪除既有資料。
 
 ## 測試與驗證
 
@@ -21077,7 +22316,7 @@ STICKER_E2E_TEST_MODE=1 PORT=3001 NODE_ENV=development npx tsx server/_core/inde
 BASE_URL=http://localhost:3001 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-android-controlled-success.mjs
 ```
 
-HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳與額度暫停提示。
+HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳、額度暫停、Model Router、參考圖角色切換、版本 V1→V2→回復、對話內成果操作與 Android 手機回歸。
 
 `STICKER_E2E_TEST_MODE=1` 是**僅供測試**的受控圖像提供者；它讓 Android 瀏覽器可驗證真實 UI、tRPC、資料庫、S3、修改與下載成功路徑，並不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
@@ -21116,6 +22355,8 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`research/chat-first-line-sticker-architecture.md`](research/chat-first-line-sticker-architecture.md)：模型比較、角色一致性、中文字策略與 LINE 規格研究。
 - [`research/chat-first-line-sticker-implementation-plan.md`](research/chat-first-line-sticker-implementation-plan.md)：資料模型、任務狀態、對話編排、輸出與續作架構。
 - [`research/chat-first-ui-visual-findings.md`](research/chat-first-ui-visual-findings.md)：桌面與 Android 初始視覺驗證結果。
+- [`research/phase-2-model-router-research.md`](research/phase-2-model-router-research.md)：Gemini、GPT Image、FLUX.2 的可部署邊界與 Router 決策。
+- [`docs/phase-2-agent-design.md`](docs/phase-2-agent-design.md)：Agent 資料模型、錯誤／fallback、品質、Anchor、版本與聊天室設計。
 
 ## 重要限制
 
@@ -21313,6 +22554,61 @@ Google Gemini API 整合需要一個專案專用的 `GEMINI_API_KEY`，並應透
 ## 本輪研究改良後複驗
 
 在角色錨點保存、指定修改續作與 LINE 文字品質檢查改良後，再次於桌面 `1280 × 720` 及 Android `390 × 844` 檢視首頁。桌面保留左側單一對話工作區與右側任務區，不出現表格式設定；手機維持從需求提示、附件／對話輸入到任務區的單欄順序。兩種尺寸皆能看見足夠大的附件按鈕、送出按鈕和繁中提示文字，沒有水平捲動或不可讀的文字重疊。
+
+````
+
+### `research/phase-2-model-router-research.md`
+
+````markdown
+# 第二階段：多模型貼圖 Agent Router 研究
+
+**作者：Manus AI**
+**更新日期：2026-08-26**
+
+## 結論摘要
+
+本工作室不應把使用者操作綁定至任一圖像模型，而應以**任務能力、可用參考圖、Provider 健康狀態與錯誤類型**作為路由依據。Gemini 3.1 Flash Image 適合以多張角色／風格參考建立整套貼圖的一致性；GPT Image 2 是已整合的精細圖像編修與高保真參考輸入後備；FLUX.2 應設計為可插拔候選 Provider，但在尚未提供 Black Forest Labs 或相容平台的 API 憑證、商業授權與配額前，不得標示為已啟用或納入真實 fallback。[1] [2] [3]
+
+> Router 的目標不是「三個模型的下拉選單」，而是讓 Agent 根據工作種類自行選擇並記錄決策理由；使用者仍只需以自然語言對話。
+
+## 候選能力比較
+
+| Provider | 目前角色 | 實作優勢 | 已知限制／風險 | Router 決策 |
+|---|---|---|---|---|
+| Gemini 3.1 Flash Image | 角色／風格一致性優先 | 官方文件列出可用多張角色與風格參考，支援多輪 interaction；適合作為角色錨點、姿勢變體與整套生成的首選。[1] | 當前專案 API 可能回傳 `429 RESOURCE_EXHAUSTED`；圖片中文字不可作為繁中正式字稿唯一來源。 | 角色新建、姿勢／情境變體時優先；長期額度耗盡直接 checkpoint。 |
+| GPT Image 2（Forge） | 影像修改與後備生成 | 支援單張與多參考圖的圖像生成／編修；官方說明多輪圖像工作流與透明輸出。已由既有服務整合。[2] | 當前 Forge 可能回傳 `412 usage exhausted`；官方仍承認角色一致性、精準構圖與字位有侷限。 | 單張精修、重試與 Gemini 暫時不可用時的可用後備；同樣於額度耗盡時保存而非無限重試。 |
+| FLUX.2 | 預留可插拔 Provider | 官方宣稱多參考控制、姿勢引導、可達 4MP 與 JSON 控制；獨立報導指出可同時處理多張參考圖，適合未來評估角色／風格工作流。[3] [4] | 本專案未提供 BFL 或相容代理憑證，且不同權重／供應商的商業授權不同；不可假稱已串接。 | 建立 Provider 介面與健康狀態欄位，預設 `disabled_unconfigured`；取得憑證與授權後才啟用。 |
+
+## 路由與 fallback 原則
+
+| 情況 | Agent 動作 | 不應做的事 |
+|---|---|---|
+| 新建角色套組、角色／姿勢／風格參考齊全 | 選擇具有多參考能力的可用 Provider，依角色、接受圖、風格、姿勢優先序組合輸入。 | 僅憑文字重建角色，或把所有上傳圖未分類地一起傳送。 |
+| 指定單張修正、延續已存在圖像 | 優先使用能接受目前圖片與修改指令的 Provider；保存版本父子關係與可復原版本。 | 重新生成全套貼圖，或覆蓋既有成功版本。 |
+| 429、短暫網路／逾時、5xx | 記錄 provider attempt 與可退避資訊；僅在備援 Provider 已啟用且錯誤可轉移時，進行有限次 fallback。 | 無上限重試或將同一額度錯誤迅速重送。 |
+| 412 usage exhausted 或所有可用 Provider 均不可用 | 將 job 標記為 `paused_quota`，保留參考圖快照、Router 決策、prompt、版本與未完成清單。 | 把 API 限制宣稱成生成成功，或丟失任務狀態。 |
+| 生成後品質不通過 | 以輕量規則檢查 LINE 規格、alpha、文字邊界、可見主體；再以有明確失敗理由的單張 retry。 | 把視覺判斷包裝成絕對正確，或自動重做已被使用者接受的圖片。 |
+
+## Character 與 Style Anchor 優先序
+
+每一張貼圖在送往 Provider 前，將建立可序列化的 `ReferenceSelection`：**使用者原始角色照片 → 已確認角色 anchor → 使用者接受的代表性生成圖 → 目前修改的圖 → 姿勢參考 → 風格參考**。每筆輸入都保存 `role`、`priority`、`accepted` 與來源，令續作與版本還原能重現同一決策。姿勢圖只傳達動作／構圖，不應當作角色身份來源。
+
+## 文字與品質策略
+
+繁中貼圖文案持續以既有 Noto Sans CJK TC／Sharp SVG 後製為正式輸出，模型只生成角色、場景、動作與表情。這個決策同時避免模型文本的拼寫與排版變異，並讓 LINE 370×320、透明背景、10px 安全邊距、字數與換行檢查可以以確定性規則驗證。OpenAI 官方文件亦提醒，GPT Image 的精確字位與一致性仍有侷限。[2]
+
+## 實作邊界與可驗證承諾
+
+本輪會實作真實的 Agent 路由介面、Provider 能力／健康紀錄、可用 Provider fallback、參考優先序、版本還原、品質檢查與 checkpoint。Gemini 與 Forge 的真實外部呼叫會保留；若其帳戶額度不足，系統應測得並顯示「已保存、可續作」，不會用測試模式輸出冒充真實 API 成功。FLUX.2 將以明確未設定狀態保留介面；取得使用者授權之憑證後才安排安全啟用。
+
+## 參考資料
+
+[1]: [Google Gemini API — Image generation](https://ai.google.dev/gemini-api/docs/image-generation)
+[2]: [OpenAI — Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+[3]: [Black Forest Labs — FLUX.2 model overview](https://bfl.ai/models/flux-2)
+[4]: [The Decoder — FLUX 2 multi-reference feature report](https://the-decoder.com/black-forest-labs-launches-flux-2-with-a-new-multi-reference-feature/)
+[5]: [MindStudio — GPT Image 2 vs Gemini comparison, 30-prompt third-party test](https://www.mindstudio.ai/blog/gpt-image-2-vs-gemini-image-generation)
+[6]: [YouTube — How to Create Consistent AI Characters, ComfyUI + Nano Banana](https://www.youtube.com/watch?v=JNJt1OjpX0Y)
 
 ````
 
@@ -21893,15 +23189,17 @@ const projectKey = "chatStudio1";
 let sent = false;
 let generated = false;
 let zipExports = 0;
+let referenceUpdates = 0;
+let versionRestores = 0;
 const consoleErrors = [];
 
-const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: null, updatedAt: new Date().toISOString() }));
-const jobs = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, scriptId: index + 1, kind: "generate", status: generated || index < 2 ? "completed" : "queued", attempt: 0, provider: "gemini", errorCode: null, errorMessage: null, checkpointJson: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: true, outputReady: true }), planJson: null, updatedAt: new Date().toISOString() }));
+const jobs = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, scriptId: index + 1, kind: "generate", status: generated || index < 2 ? "completed" : "queued", attempt: 0, provider: "gemini-3.1-flash-image", errorCode: null, errorMessage: null, checkpointJson: null, routerJson: JSON.stringify({ selectedProvider: "gemini-3.1-flash-image" }), qualityReportJson: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
 const studio = () => sent ? {
   project: { id: 1, projectKey, title: "橘貓店長日常貼圖", brief: "幫我把橘貓做成 8 張可愛貼圖", characterProfile: "橘貓店長，圓眼睛，深藍圍裙", style: "可愛", stickerCount: 8, status: "generating", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   conversation: { id: 1, projectId: 1, status: "active", lastActiveAt: new Date().toISOString(), createdAt: new Date().toISOString() },
   messages: [{ id: 1, conversationId: 1, role: "user", content: "幫我把這隻橘貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。", intentJson: null, createdAt: new Date().toISOString() }, { id: 2, conversationId: 1, role: "assistant", content: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", intentJson: "{}", createdAt: new Date().toISOString() }],
-  attachments: [], characterProfile: { id: 1, projectId: 1, profileJson: "{}", anchorUrl: image, status: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, scripts: scripts(), jobs: jobs(), exports: [],
+  attachments: [], characterProfile: { id: 1, projectId: 1, profileJson: "{}", anchorUrl: image, status: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, styleAnchor: null, references: [{ id: 90, projectId: 1, url: image, fileName: "cat.png", sortOrder: 0, role: "accepted_character", priority: 10, accepted: true, metadataJson: "{}", createdAt: new Date().toISOString() }], versions: [{ id: 91, scriptId: 1, version: 1, url: image, mode: "generate", parentVersionId: null, isActive: false, qualityReportJson: "{}", provider: "gemini-3.1-flash-image", createdAt: new Date().toISOString() }, { id: 92, scriptId: 1, version: 2, url: image, mode: "refine", parentVersionId: 91, isActive: true, qualityReportJson: "{}", provider: "gpt-image-2", createdAt: new Date().toISOString() }], events: [{ id: 93, projectId: 1, jobId: 1, kind: "quality", status: "completed", message: "第 1 張已完成並通過基本品質檢查。", detailJson: "{}", createdAt: new Date().toISOString() }], scripts: scripts(), jobs: jobs(), exports: [],
 } : null;
 
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
@@ -21911,7 +23209,7 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 await page.route("**/api/trpc/**", async (route) => {
   const url = route.request().url();
-  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
+  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.setReferenceRole") ? (referenceUpdates += 1, { id: 90, projectId: 1, url: image, role: "pose", accepted: false }) : url.includes("studio.restoreVersion") ? (versionRestores += 1, { position: 1, url: image, version: 1, status: "completed" }) : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
   if (data === null) return route.continue();
   return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ result: { data: { json: data } } }]) });
 });
@@ -21923,11 +23221,23 @@ try {
   await page.locator(".send-button").click();
   await page.getByText("我已建立角色設定與 8 張日常貼圖計畫").waitFor({ timeout: 10_000 });
   await page.getByText("第 1 張 · 早安").waitFor();
+  await page.getByText("AGENT WORKSPACE").waitFor();
+  await page.getByText("參考圖錨點").waitFor();
+  await page.getByText("Gemini · 透明已檢查").first().waitFor();
+  await page.locator(".agent-result-strip").waitFor();
   const taskCount = await page.locator(".sticker-task").count();
   if (taskCount !== 8) throw new Error("Expected eight independently rendered sticker tasks");
   await page.reload({ waitUntil: "networkidle" });
   await page.getByText("橘貓店長日常貼圖").waitFor();
   if (await page.locator(".sticker-task").count() !== 8) throw new Error("Saved projectKey must restore independently tracked sticker tasks after reload");
+  await page.locator(".reference-tray").getByRole("button", { name: "姿勢" }).click();
+  await page.waitForTimeout(200);
+  if (referenceUpdates !== 1) throw new Error("Expected one reference role update request");
+  const firstTask = page.locator(".sticker-task").first();
+  await firstTask.getByRole("button", { name: /V2/ }).click();
+  await firstTask.getByRole("button", { name: /V1.*回復/ }).click();
+  await page.waitForTimeout(200);
+  if (versionRestores !== 1) throw new Error("Expected one version restore request");
   await page.getByRole("button", { name: "告訴 AI 修改" }).first().click();
   const editPrompt = await page.getByPlaceholder(/幫我把這隻貓做成/).inputValue();
   if (!editPrompt.includes("第 1 張請修改")) throw new Error("Single sticker edit must target the selected position");
@@ -21935,7 +23245,7 @@ try {
   await page.waitForTimeout(500);
   if (zipExports !== 1) throw new Error("Expected one LINE ZIP export request");
   if (consoleErrors.length) throw new Error(`Unexpected browser console errors: ${consoleErrors.join(" | ")}`);
-  const result = { ok: true, viewport: viewportName, taskCount, editPrompt, projectRestoredAfterReload: true, zipExports, consoleErrors };
+  const result = { ok: true, viewport: viewportName, taskCount, editPrompt, projectRestoredAfterReload: true, zipExports, referenceUpdates, versionRestores, consoleErrors };
   await writeFile(`/home/ubuntu/sticker-tycoon-replica/chat-studio-flow-${viewportName}.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 } finally {
@@ -24842,6 +26152,7 @@ import {
   InsertUser,
   stickerProjects,
   stickerAttachments,
+  stickerAgentEvents,
   stickerCharacterProfiles,
   stickerConversations,
   stickerExports,
@@ -24849,6 +26160,7 @@ import {
   stickerMessages,
   stickerReferences,
   stickerScripts,
+  stickerStyleAnchors,
   stickerVersions,
   users,
 } from "../drizzle/schema";
@@ -24910,23 +26222,31 @@ export async function getStickerProject(projectKey: string) {
   return { project, references, scripts };
 }
 
-export async function addStickerReference(input: { projectId: number; url: string; fileName: string; sortOrder: number }) {
+export async function addStickerReference(input: { projectId: number; url: string; fileName: string; sortOrder: number; role?: string; priority?: number; accepted?: boolean; metadataJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerReferences).values(input);
+  await db.insert(stickerReferences).values({ ...input, role: input.role ?? "character", priority: input.priority ?? 50, accepted: input.accepted ?? false, metadataJson: input.metadataJson ?? null });
   const result = await db.select().from(stickerReferences).where(and(eq(stickerReferences.projectId, input.projectId), eq(stickerReferences.fileName, input.fileName))).orderBy(asc(stickerReferences.sortOrder)).limit(1);
   return result[0];
 }
 
-export async function addStickerScript(input: { projectId: number; position: number; emotion: string; phrase: string; scene?: string }) {
+export async function updateStickerReference(input: { id: number; role?: string; priority?: number; accepted?: boolean; metadataJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerScripts).values({ ...input, scene: input.scene ?? null });
+  const { id, ...updates } = input;
+  await db.update(stickerReferences).set(updates).where(eq(stickerReferences.id, id));
+  return (await db.select().from(stickerReferences).where(eq(stickerReferences.id, id)).limit(1))[0];
+}
+
+export async function addStickerScript(input: { projectId: number; position: number; emotion: string; phrase: string; scene?: string; planJson?: string | null }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.insert(stickerScripts).values({ ...input, scene: input.scene ?? null, planJson: input.planJson ?? null });
   const result = await db.select().from(stickerScripts).where(and(eq(stickerScripts.projectId, input.projectId), eq(stickerScripts.position, input.position))).limit(1);
   return result[0];
 }
 
-export async function updateStickerScript(input: { id: number; status?: "draft" | "queued" | "generating" | "ready" | "error"; resultUrl?: string | null; errorMessage?: string | null; qualityReport?: string | null }) {
+export async function updateStickerScript(input: { id: number; status?: "draft" | "queued" | "generating" | "ready" | "error"; resultUrl?: string | null; errorMessage?: string | null; qualityReport?: string | null; planJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
   const { id, ...updates } = input;
@@ -24935,12 +26255,30 @@ export async function updateStickerScript(input: { id: number; status?: "draft" 
   return result[0];
 }
 
-export async function addStickerVersion(input: { scriptId: number; version: number; url: string; mode: string }) {
+export async function addStickerVersion(input: { scriptId: number; version: number; url: string; mode: string; parentVersionId?: number | null; isActive?: boolean; qualityReportJson?: string | null; provider?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerVersions).values(input);
+  if (input.isActive ?? true) await db.update(stickerVersions).set({ isActive: false }).where(eq(stickerVersions.scriptId, input.scriptId));
+  await db.insert(stickerVersions).values({ ...input, parentVersionId: input.parentVersionId ?? null, isActive: input.isActive ?? true, qualityReportJson: input.qualityReportJson ?? null, provider: input.provider ?? null });
   const result = await db.select().from(stickerVersions).where(and(eq(stickerVersions.scriptId, input.scriptId), eq(stickerVersions.version, input.version))).limit(1);
   return result[0];
+}
+
+export async function getStickerVersions(scriptId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(stickerVersions).where(eq(stickerVersions.scriptId, scriptId)).orderBy(asc(stickerVersions.version), asc(stickerVersions.id));
+}
+
+export async function restoreStickerVersion(input: { scriptId: number; versionId: number }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const version = (await db.select().from(stickerVersions).where(and(eq(stickerVersions.id, input.versionId), eq(stickerVersions.scriptId, input.scriptId))).limit(1))[0];
+  if (!version) return undefined;
+  await db.update(stickerVersions).set({ isActive: false }).where(eq(stickerVersions.scriptId, input.scriptId));
+  await db.update(stickerVersions).set({ isActive: true }).where(eq(stickerVersions.id, version.id));
+  await db.update(stickerScripts).set({ status: "ready", resultUrl: version.url, errorMessage: null }).where(eq(stickerScripts.id, input.scriptId));
+  return version;
 }
 
 export async function updateStickerProject(input: { id: number; title?: string; brief?: string | null; characterProfile?: string | null; style?: string; stickerCount?: number; status?: "draft" | "generating" | "ready" | "error" }) {
@@ -24985,19 +26323,39 @@ export async function saveStickerCharacterProfile(input: { projectId: number; pr
   return (await db.select().from(stickerCharacterProfiles).where(eq(stickerCharacterProfiles.projectId, input.projectId)).orderBy(desc(stickerCharacterProfiles.id)).limit(1))[0];
 }
 
-export async function createStickerJob(input: { projectId: number; scriptId?: number | null; kind: string; status?: string; attempt?: number; provider?: string | null; checkpointJson?: string | null }) {
+export async function saveStickerStyleAnchor(input: { projectId: number; summaryJson: string; anchorUrl?: string | null; status?: string }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerJobs).values({ projectId: input.projectId, scriptId: input.scriptId ?? null, kind: input.kind, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, checkpointJson: input.checkpointJson ?? null });
+  await db.insert(stickerStyleAnchors).values({ projectId: input.projectId, summaryJson: input.summaryJson, anchorUrl: input.anchorUrl ?? null, status: input.status ?? "ready" });
+  return (await db.select().from(stickerStyleAnchors).where(eq(stickerStyleAnchors.projectId, input.projectId)).orderBy(desc(stickerStyleAnchors.id)).limit(1))[0];
+}
+
+export async function getLatestStickerStyleAnchor(projectId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  return (await db.select().from(stickerStyleAnchors).where(eq(stickerStyleAnchors.projectId, projectId)).orderBy(desc(stickerStyleAnchors.id)).limit(1))[0];
+}
+
+export async function createStickerJob(input: { projectId: number; scriptId?: number | null; kind: string; status?: string; attempt?: number; provider?: string | null; checkpointJson?: string | null; routerJson?: string | null; qualityReportJson?: string | null }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.insert(stickerJobs).values({ projectId: input.projectId, scriptId: input.scriptId ?? null, kind: input.kind, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, checkpointJson: input.checkpointJson ?? null, routerJson: input.routerJson ?? null, qualityReportJson: input.qualityReportJson ?? null });
   return (await db.select().from(stickerJobs).where(eq(stickerJobs.projectId, input.projectId)).orderBy(desc(stickerJobs.id)).limit(1))[0];
 }
 
-export async function updateStickerJob(input: { id: number; status?: string; attempt?: number; provider?: string | null; errorCode?: string | null; errorMessage?: string | null; checkpointJson?: string | null }) {
+export async function updateStickerJob(input: { id: number; status?: string; attempt?: number; provider?: string | null; errorCode?: string | null; errorMessage?: string | null; checkpointJson?: string | null; routerJson?: string | null; qualityReportJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
   const { id, ...updates } = input;
   await db.update(stickerJobs).set(updates).where(eq(stickerJobs.id, id));
   return (await db.select().from(stickerJobs).where(eq(stickerJobs.id, id)).limit(1))[0];
+}
+
+export async function addStickerAgentEvent(input: { projectId: number; jobId?: number | null; kind: string; status: string; message: string; detailJson?: string | null }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.insert(stickerAgentEvents).values({ projectId: input.projectId, jobId: input.jobId ?? null, kind: input.kind, status: input.status, message: input.message, detailJson: input.detailJson ?? null });
+  return (await db.select().from(stickerAgentEvents).where(eq(stickerAgentEvents.projectId, input.projectId)).orderBy(desc(stickerAgentEvents.id)).limit(1))[0];
 }
 
 export async function addStickerExport(input: { projectId: number; kind: string; url: string; qualityReportJson?: string | null }) {
@@ -25016,10 +26374,14 @@ export async function getStickerStudio(projectKey: string) {
   const messages = conversation ? await db.select().from(stickerMessages).where(eq(stickerMessages.conversationId, conversation.id)).orderBy(asc(stickerMessages.createdAt), asc(stickerMessages.id)) : [];
   const attachments = await db.select().from(stickerAttachments).where(eq(stickerAttachments.projectId, project.id)).orderBy(asc(stickerAttachments.createdAt), asc(stickerAttachments.sortOrder));
   const characterProfile = (await db.select().from(stickerCharacterProfiles).where(eq(stickerCharacterProfiles.projectId, project.id)).orderBy(desc(stickerCharacterProfiles.id)).limit(1))[0];
+  const styleAnchor = (await db.select().from(stickerStyleAnchors).where(eq(stickerStyleAnchors.projectId, project.id)).orderBy(desc(stickerStyleAnchors.id)).limit(1))[0];
+  const references = await db.select().from(stickerReferences).where(eq(stickerReferences.projectId, project.id)).orderBy(asc(stickerReferences.priority), asc(stickerReferences.sortOrder));
   const scripts = await db.select().from(stickerScripts).where(eq(stickerScripts.projectId, project.id)).orderBy(asc(stickerScripts.position));
+  const versions = scripts.length ? await db.select().from(stickerVersions).where(inArray(stickerVersions.scriptId, scripts.map((script) => script.id))).orderBy(asc(stickerVersions.scriptId), asc(stickerVersions.version), asc(stickerVersions.id)) : [];
   const jobs = await db.select().from(stickerJobs).where(eq(stickerJobs.projectId, project.id)).orderBy(asc(stickerJobs.createdAt), asc(stickerJobs.id));
+  const events = await db.select().from(stickerAgentEvents).where(eq(stickerAgentEvents.projectId, project.id)).orderBy(desc(stickerAgentEvents.createdAt), desc(stickerAgentEvents.id)).limit(80);
   const exports = await db.select().from(stickerExports).where(eq(stickerExports.projectId, project.id)).orderBy(desc(stickerExports.createdAt));
-  return { project, conversation, messages, attachments, characterProfile, scripts, jobs, exports };
+  return { project, conversation, messages, attachments, characterProfile, styleAnchor, references, scripts, versions, jobs, events, exports };
 }
 
 ````
@@ -25495,6 +26857,14 @@ export const appRouter = router({
       const { editStudioSticker } = await import("./studio");
       return editStudioSticker(input);
     }),
+    restoreVersion: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40), versionId: z.number().int().positive() })).mutation(async ({ input }) => {
+      const { restoreStudioStickerVersion } = await import("./studio");
+      return restoreStudioStickerVersion(input);
+    }),
+    setReferenceRole: publicProcedure.input(z.object({ projectKey: z.string().min(1), referenceId: z.number().int().positive(), role: z.enum(["character", "pose", "style", "accepted_character", "accepted_style", "current_edit"]), accepted: z.boolean().default(false) })).mutation(async ({ input }) => {
+      const { setStudioReferenceRole } = await import("./studio");
+      return setStudioReferenceRole(input);
+    }),
     exportLineSingle: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40) })).mutation(async ({ input }) => {
       const studio = await getStickerStudio(input.projectKey);
       if (!studio) throw new Error("找不到要輸出的專案");
@@ -25530,6 +26900,210 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+
+````
+
+### `server/stickerAgent.test.ts`
+
+````typescript
+import sharp from "sharp";
+import { describe, expect, it } from "vitest";
+import { buildReferenceSelection, classifyImageError, evaluateStickerQuality, routeImageTask } from "./stickerAgent";
+
+describe("貼圖 Agent Router", () => {
+  it("依目前修改圖、接受角色、角色、姿勢、風格的優先序建立可重現參考快照", () => {
+    const selection = buildReferenceSelection({
+      currentEditUrl: "/manus-storage/current.png",
+      references: [
+        { url: "/manus-storage/style.png", role: "style" },
+        { url: "/manus-storage/pose.png", role: "pose" },
+        { url: "/manus-storage/character.png", role: "character" },
+        { url: "/manus-storage/accepted.png", role: "accepted_character", accepted: true },
+      ],
+      maxReferences: 4,
+    });
+    expect(selection.map((item) => item.url)).toEqual([
+      "/manus-storage/current.png",
+      "/manus-storage/accepted.png",
+      "/manus-storage/character.png",
+      "/manus-storage/pose.png",
+    ]);
+  });
+
+  it("對新生成優先選 Gemini，對單張修改優先選 GPT Image，且明確標示未設定的 FLUX.2", () => {
+    const generate = routeImageTask({ taskKind: "generate", references: [] });
+    const edit = routeImageTask({ taskKind: "edit", references: [], currentEditUrl: "/manus-storage/sticker.png" });
+    expect(generate.selectedProvider).toBe("gemini-3.1-flash-image");
+    expect(edit.selectedProvider).toBe("gpt-image-2");
+    expect(generate.candidates.find((item) => item.provider === "flux-2")).toMatchObject({ enabled: false });
+  });
+
+  it("將 quota、暫時性、政策與無效請求區分為安全的 fallback 決策", () => {
+    expect(classifyImageError(new Error("429 resource_exhausted quota"))).toMatchObject({ kind: "quota", fallbackEligible: true });
+    expect(classifyImageError(new Error("network timeout"))).toMatchObject({ kind: "transient", fallbackEligible: true });
+    expect(classifyImageError(new Error("content policy blocked"))).toMatchObject({ kind: "policy", fallbackEligible: false });
+    expect(classifyImageError(new Error("unsupported format"))).toMatchObject({ kind: "invalid_request", fallbackEligible: false });
+  });
+
+  it("品質檢查確認透明 PNG 與尺寸，並將極小受控測試素材標示為需要人工注意而非盲目重試", async () => {
+    const png = await sharp({ create: { width: 32, height: 32, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const report = await evaluateStickerQuality(png);
+    expect(report).toMatchObject({ alphaVerified: true, dimensions: "32×32", outputReady: true, retryRecommended: false, textOverlayPending: true });
+    expect(report.reasons).toContain("來源圖尺寸過小，僅適合作為受控測試素材。");
+  });
+});
+
+````
+
+### `server/stickerAgent.ts`
+
+````typescript
+import sharp from "sharp";
+
+export type AgentReferenceRole = "character" | "pose" | "style" | "accepted_character" | "accepted_style" | "current_edit";
+export type ImageTaskKind = "generate" | "edit" | "cutout";
+export type ImageProvider = "gemini-3.1-flash-image" | "gpt-image-2" | "flux-2";
+
+export type AgentReference = {
+  url: string;
+  role: AgentReferenceRole;
+  priority?: number;
+  accepted?: boolean;
+  source?: "upload" | "anchor" | "version" | "current";
+  mimeType?: string;
+};
+
+export type RouterCandidate = {
+  provider: ImageProvider;
+  enabled: boolean;
+  reason: string;
+  maxReferences: number;
+};
+
+export type RouterAttempt = {
+  provider: ImageProvider;
+  startedAt: string;
+  outcome: "selected" | "completed" | "failed" | "paused";
+  errorKind?: ImageErrorKind;
+  message?: string;
+};
+
+export type RouterDecision = {
+  taskKind: ImageTaskKind;
+  selectedProvider: ImageProvider | null;
+  candidates: RouterCandidate[];
+  referenceSnapshot: AgentReference[];
+  attempts: RouterAttempt[];
+  reason: string;
+  resumeSafe: true;
+};
+
+export type ImageErrorKind = "quota" | "transient" | "policy" | "invalid_request" | "unknown";
+
+export type StickerQualityReport = {
+  alphaVerified: boolean;
+  dimensions: string;
+  outputReady: boolean;
+  retryRecommended: boolean;
+  reasons: string[];
+  textOverlayPending: true;
+};
+
+const roleRank: Record<AgentReferenceRole, number> = {
+  current_edit: 0,
+  accepted_character: 1,
+  character: 2,
+  pose: 3,
+  accepted_style: 4,
+  style: 5,
+};
+
+export function inferAttachmentRole(message: string): AgentReferenceRole {
+  if (/姿勢|動作|pose|站姿|跳躍|跳起|參考動作/i.test(message)) return "pose";
+  if (/畫風|風格|style|照這個風格|全部照這個/i.test(message)) return "style";
+  return "character";
+}
+
+export function buildReferenceSelection(input: { references: AgentReference[]; currentEditUrl?: string; maxReferences?: number }) {
+  const candidates = [
+    ...(input.currentEditUrl ? [{ url: input.currentEditUrl, role: "current_edit" as const, source: "current" as const }] : []),
+    ...input.references,
+  ].filter((reference) => Boolean(reference.url));
+
+  const selected = candidates
+    .sort((a, b) => {
+      const rank = roleRank[a.role] - roleRank[b.role];
+      if (rank !== 0) return rank;
+      if (Boolean(a.accepted) !== Boolean(b.accepted)) return a.accepted ? -1 : 1;
+      return (a.priority ?? 50) - (b.priority ?? 50);
+    })
+    .filter((reference, index, list) => list.findIndex((candidate) => candidate.url === reference.url) === index)
+    .slice(0, input.maxReferences ?? 4);
+  return selected;
+}
+
+export function routeImageTask(input: { taskKind: ImageTaskKind; references: AgentReference[]; currentEditUrl?: string }): RouterDecision {
+  const candidates: RouterCandidate[] = input.taskKind === "cutout"
+    ? [
+      { provider: "gpt-image-2", enabled: true, maxReferences: 1, reason: "已整合的影像編修服務可處理語意去背。" },
+      { provider: "gemini-3.1-flash-image", enabled: true, maxReferences: 1, reason: "可在主要去背服務不可用時協助維持角色輪廓。" },
+      { provider: "flux-2", enabled: false, maxReferences: 1, reason: "尚未設定 BFL 或相容平台憑證與商業授權。" },
+    ]
+    : input.taskKind === "edit"
+      ? [
+        { provider: "gpt-image-2", enabled: true, maxReferences: 4, reason: "優先以目前圖片進行局部修改與版本延續。" },
+        { provider: "gemini-3.1-flash-image", enabled: true, maxReferences: 4, reason: "可支援多輪影像修改與角色參考。" },
+        { provider: "flux-2", enabled: false, maxReferences: 6, reason: "尚未設定 BFL 或相容平台憑證與商業授權。" },
+      ]
+      : [
+        { provider: "gemini-3.1-flash-image", enabled: true, maxReferences: 4, reason: "優先處理角色、姿勢與風格多參考的一致性貼圖生成。" },
+        { provider: "gpt-image-2", enabled: true, maxReferences: 4, reason: "作為已整合的高保真參考圖後備生成服務。" },
+        { provider: "flux-2", enabled: false, maxReferences: 6, reason: "尚未設定 BFL 或相容平台憑證與商業授權。" },
+      ];
+  const selectedProvider = candidates.find((candidate) => candidate.enabled)?.provider ?? null;
+  const maxReferences = candidates.find((candidate) => candidate.provider === selectedProvider)?.maxReferences ?? 4;
+  return {
+    taskKind: input.taskKind,
+    selectedProvider,
+    candidates,
+    referenceSnapshot: buildReferenceSelection({ references: input.references, currentEditUrl: input.currentEditUrl, maxReferences }),
+    attempts: selectedProvider ? [{ provider: selectedProvider, startedAt: new Date().toISOString(), outcome: "selected" }] : [],
+    reason: selectedProvider ? candidates.find((candidate) => candidate.provider === selectedProvider)!.reason : "沒有已設定的影像 Provider。",
+    resumeSafe: true,
+  };
+}
+
+export function classifyImageError(error: unknown): { kind: ImageErrorKind; fallbackEligible: boolean; message: string } {
+  const message = error instanceof Error ? error.message : String(error ?? "未知錯誤");
+  if (/content policy|safety|blocked|moderation|prohibited/i.test(message)) return { kind: "policy", fallbackEligible: false, message };
+  if (/usage exhausted|failed_precondition|resource_exhausted|quota/i.test(message)) return { kind: "quota", fallbackEligible: true, message };
+  if (/\b429\b|\b5\d\d\b|timeout|timed out|network|abort/i.test(message)) return { kind: "transient", fallbackEligible: true, message };
+  if (/invalid|unsupported|format|too large|400/i.test(message)) return { kind: "invalid_request", fallbackEligible: false, message };
+  return { kind: "unknown", fallbackEligible: false, message };
+}
+
+export function appendRouterAttempt(decision: RouterDecision, attempt: RouterAttempt): RouterDecision {
+  return { ...decision, attempts: [...decision.attempts.filter((item) => item.outcome !== "selected" || item.provider !== attempt.provider), attempt] };
+}
+
+export async function evaluateStickerQuality(buffer: Buffer): Promise<StickerQualityReport> {
+  const metadata = await sharp(buffer).metadata();
+  const reasons: string[] = [];
+  const alphaVerified = metadata.hasAlpha === true;
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+  if (!alphaVerified) reasons.push("生成結果尚未驗證透明背景，需進入語意去背。");
+  if (!width || !height) reasons.push("無法取得圖像尺寸。");
+  if (width && height && (width < 64 || height < 64)) reasons.push("來源圖尺寸過小，僅適合作為受控測試素材。");
+  return {
+    alphaVerified,
+    dimensions: width && height ? `${width}×${height}` : "未知",
+    outputReady: alphaVerified && width > 0 && height > 0,
+    retryRecommended: !width || !height,
+    reasons,
+    textOverlayPending: true,
+  };
+}
 
 ````
 
@@ -25650,9 +27224,11 @@ const memory = vi.hoisted(() => ({
   attachments: [] as any[],
   references: [] as any[],
   profile: null as any,
+  styleAnchor: null as any,
   scripts: [] as any[],
   jobs: [] as any[],
   versions: [] as any[],
+  events: [] as any[],
   exports: [] as any[],
   imageDataUrl: "",
   forceQuota: false,
@@ -25668,14 +27244,18 @@ vi.mock("./db", () => ({
   addStickerMessage: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, intentJson: input.intentJson ?? null, createdAt: new Date() }; memory.messages.push(row); return row; }),
   addStickerAttachments: vi.fn(async (rows: any[]) => { const saved = rows.map((row) => ({ id: memory.nextId++, ...row, createdAt: new Date() })); memory.attachments.push(...saved); return saved; }),
   addStickerReference: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.references.push(row); return row; }),
+  updateStickerReference: vi.fn(async (input: any) => { const row = memory.references.find((item) => item.id === input.id); Object.assign(row, input); return row; }),
   saveStickerCharacterProfile: vi.fn(async (input: any) => (memory.profile = { id: 1, ...input, createdAt: new Date(), updatedAt: new Date() })),
+  saveStickerStyleAnchor: vi.fn(async (input: any) => (memory.styleAnchor = { id: memory.nextId++, ...input, createdAt: new Date(), updatedAt: new Date() })),
   addStickerScript: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, status: "draft", resultUrl: null, errorMessage: null, qualityReport: null, updatedAt: new Date() }; memory.scripts.push(row); return row; }),
   createStickerJob: vi.fn(async (input: any) => { const row = { id: memory.nextId++, scriptId: input.scriptId ?? null, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, errorCode: null, errorMessage: null, checkpointJson: input.checkpointJson ?? null, createdAt: new Date(), updatedAt: new Date(), ...input }; memory.jobs.push(row); return row; }),
   updateStickerJob: vi.fn(async (input: any) => { const row = memory.jobs.find((item) => item.id === input.id); Object.assign(row, input, { updatedAt: new Date() }); return row; }),
   updateStickerScript: vi.fn(async (input: any) => { const row = memory.scripts.find((item) => item.id === input.id); Object.assign(row, input, { updatedAt: new Date() }); return row; }),
-  addStickerVersion: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.versions.push(row); return row; }),
+  addStickerAgentEvent: vi.fn(async (input: any) => ({ id: memory.nextId++, ...input, createdAt: new Date() })),
+  addStickerVersion: vi.fn(async (input: any) => { if (input.isActive ?? true) memory.versions.filter((item) => item.scriptId === input.scriptId).forEach((item) => { item.isActive = false; }); const row = { id: memory.nextId++, isActive: input.isActive ?? true, ...input, createdAt: new Date() }; memory.versions.push(row); return row; }),
+  restoreStickerVersion: vi.fn(async (input: any) => { const row = memory.versions.find((item) => item.id === input.versionId && item.scriptId === input.scriptId); if (!row) return undefined; memory.versions.filter((item) => item.scriptId === input.scriptId).forEach((item) => { item.isActive = false; }); row.isActive = true; const script = memory.scripts.find((item) => item.id === input.scriptId); if (script) Object.assign(script, { status: "ready", resultUrl: row.url, errorMessage: null }); return row; }),
   addStickerExport: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.exports.push(row); return row; }),
-  getStickerStudio: vi.fn(async (projectKey: string) => memory.project?.projectKey === projectKey ? ({ project: memory.project, conversation: memory.conversation, messages: memory.messages, attachments: memory.attachments, characterProfile: memory.profile, scripts: memory.scripts, jobs: memory.jobs, exports: memory.exports }) : undefined),
+  getStickerStudio: vi.fn(async (projectKey: string) => memory.project?.projectKey === projectKey ? ({ project: memory.project, conversation: memory.conversation, messages: memory.messages, attachments: memory.attachments, characterProfile: memory.profile, styleAnchor: memory.styleAnchor, references: memory.references, scripts: memory.scripts, versions: memory.versions, jobs: memory.jobs, events: memory.events, exports: memory.exports }) : undefined),
   getDb: vi.fn(),
 }));
 
@@ -25709,9 +27289,11 @@ beforeEach(async () => {
   memory.attachments = [];
   memory.references = [];
   memory.profile = null;
+  memory.styleAnchor = null;
   memory.scripts = [];
   memory.jobs = [];
   memory.versions = [];
+  memory.events = [];
   memory.exports = [];
   memory.forceQuota = false;
   memory.nextId = 1;
@@ -25794,6 +27376,31 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.jobs.filter((item) => item.kind === "edit")).toHaveLength(1);
     expect(editJob.status).toBe("completed");
   });
+
+  it("可保存參考圖角色設定並在回復版本時切換 active version 與目前貼圖成果", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我把這隻橘貓做成 8 張 LINE 貼圖", attachments: [{ dataUrl: memory.imageDataUrl, fileName: "cat.png", mimeType: "image/png" }] });
+    const reference = memory.references[0];
+    await api.studio.setReferenceRole({ projectKey: created.projectKey, referenceId: reference.id, role: "accepted_character", accepted: true });
+    expect(reference).toMatchObject({ role: "accepted_character", priority: 10, accepted: true });
+
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    const script = memory.scripts.find((item) => item.position === 1);
+    const initial = memory.versions.find((item) => item.scriptId === script.id && item.version === 1);
+    expect(initial).toMatchObject({ isActive: true });
+
+    await api.studio.editSticker({ projectKey: created.projectKey, position: 1, instruction: "第 1 張眼睛大一點" });
+    const refined = memory.versions.find((item) => item.scriptId === script.id && item.version === 2);
+    expect(refined).toMatchObject({ isActive: true, parentVersionId: initial.id });
+    expect(initial.isActive).toBe(false);
+
+    const restored = await api.studio.restoreVersion({ projectKey: created.projectKey, position: 1, versionId: initial.id });
+    expect(restored).toMatchObject({ status: "completed", version: 1, url: initial.url });
+    expect(script.resultUrl).toBe(initial.url);
+    expect(initial.isActive).toBe(true);
+    expect(refined.isActive).toBe(false);
+  });
 });
 
 ````
@@ -25805,26 +27412,29 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import sharp from "sharp";
 import { buildFallbackProjectPlan, buildRefinementPrompt, buildStickerPrompt } from "./routers";
-import { addStickerReference, addStickerScript, addStickerVersion, addStickerAttachments, addStickerMessage, createStickerConversation, createStickerJob, createStickerProject, getLatestStickerConversation, getStickerProject, getStickerStudio, saveStickerCharacterProfile, updateStickerJob, updateStickerProject, updateStickerScript } from "./db";
+import { addStickerAgentEvent, addStickerReference, addStickerScript, addStickerVersion, addStickerAttachments, addStickerMessage, createStickerConversation, createStickerJob, createStickerProject, getLatestStickerConversation, getStickerProject, getStickerStudio, restoreStickerVersion, saveStickerCharacterProfile, saveStickerStyleAnchor, updateStickerJob, updateStickerProject, updateStickerReference, updateStickerScript } from "./db";
 import { GeminiImageError, generateGeminiImage } from "./geminiImage";
 import { generateImage } from "./_core/imageGeneration";
 import { invokeLLM } from "./_core/llm";
 import { storageGetSignedUrl, storagePut } from "./storage";
+import { appendRouterAttempt, buildReferenceSelection, classifyImageError, evaluateStickerQuality, inferAttachmentRole, routeImageTask, type AgentReference, type AgentReferenceRole, type RouterDecision } from "./stickerAgent";
 
 const plannerSchema = z.object({
-  intent: z.enum(["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "continue_project", "general" ]),
+  intent: z.enum(["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "continue_project", "accept_image", "use_as_style", "use_as_pose", "restore_version", "download_pack", "general" ]),
   reply: z.string().min(1).max(800),
   projectTitle: z.string().min(1).max(160),
   stickerCount: z.number().int().min(8).max(40),
   characterProfile: z.string().min(1).max(2000),
   scripts: z.array(z.object({ position: z.number().int().min(1).max(40), emotion: z.string().min(1).max(80), phrase: z.string().min(1).max(160), scene: z.string().max(300) })).max(40),
   targetPosition: z.number().int().min(0).max(40),
+  targetVersion: z.number().int().min(0).max(99).default(0),
   editInstruction: z.string().max(500),
 });
 
 type StudioPlan = z.infer<typeof plannerSchema>;
 type IncomingAttachment = { dataUrl: string; fileName: string; mimeType: string };
 type CharacterAnchor = { summary: string; referenceUrls: string[]; version: number; updatedAt: string };
+type StyleAnchor = { summary: string; referenceUrls: string[]; version: number; updatedAt: string };
 
 const e2eImageMode = () => process.env.STICKER_E2E_TEST_MODE === "1";
 
@@ -25870,6 +27480,15 @@ function selectCharacterReferences(urls: string[]) {
   return Array.from(new Set(urls.filter(Boolean))).slice(0, 4);
 }
 
+function parseStyleAnchor(value: string | null | undefined): StyleAnchor | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as Partial<StyleAnchor>;
+    if (typeof parsed.summary === "string") return { summary: parsed.summary, referenceUrls: Array.isArray(parsed.referenceUrls) ? parsed.referenceUrls.filter((url): url is string => typeof url === "string") : [], version: typeof parsed.version === "number" ? parsed.version : 1, updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString() };
+  } catch { /* Legacy style summary is normalized below. */ }
+  return { summary: value, referenceUrls: [], version: 1, updatedAt: new Date(0).toISOString() };
+}
+
 function isQuotaError(error: unknown) {
   return error instanceof GeminiImageError ? error.code === "USAGE_EXHAUSTED" : /usage exhausted|failed_precondition|quota|resource_exhausted/i.test(error instanceof Error ? error.message : "");
 }
@@ -25878,6 +27497,29 @@ async function signedReference(url: string, mimeType = "image/jpeg") {
   if (/^https?:\/\//.test(url)) return { url, mimeType };
   if (!url.startsWith("/manus-storage/")) throw new Error("角色參考圖網址無法辨識");
   return { url: await storageGetSignedUrl(url.replace(/^\/manus-storage\//, "")), mimeType };
+}
+
+function safeJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try { return JSON.parse(value) as T; } catch { return fallback; }
+}
+
+async function recordAgentEvent(input: { projectId: number; jobId?: number | null; kind: string; status: string; message: string; detail?: Record<string, unknown> }) {
+  try {
+    await addStickerAgentEvent({ ...input, detailJson: input.detail ? JSON.stringify(input.detail) : null });
+  } catch (error) {
+    console.warn("[Sticker Agent] 無法寫入工作事件", error);
+  }
+}
+
+function toAgentReferences(references: Array<{ url: string; role?: string | null; priority?: number | null; accepted?: boolean | null }>): AgentReference[] {
+  return references.map((reference) => ({
+    url: reference.url,
+    role: (["character", "pose", "style", "accepted_character", "accepted_style", "current_edit"].includes(reference.role ?? "") ? reference.role : "character") as AgentReferenceRole,
+    priority: reference.priority ?? 50,
+    accepted: Boolean(reference.accepted),
+    source: "upload",
+  }));
 }
 
 async function persistAttachments(projectId: number, messageId: number, attachments: IncomingAttachment[]) {
@@ -25898,14 +27540,25 @@ async function persistAttachments(projectId: number, messageId: number, attachme
 function fallbackPlan(message: string): StudioPlan {
   const stickerCount = extractStickerCount(message);
   const fallback = buildFallbackProjectPlan({ brief: message, style: "可愛、清晰、適合日常溝通的 LINE 貼圖", stickerCount, characterProfile: message });
+  const restoreMatch = message.match(/(?:回復|回到|還原).{0,12}(?:V|版本)\s*(\d+)/i);
+  const intent = restoreMatch ? "restore_version" as const
+    : /我喜歡這張|照這個風格|設為風格|全部照這個/i.test(message) ? "use_as_style" as const
+    : /確認角色|設為角色|接受這張|就用這張/i.test(message) ? "accept_image" as const
+    : /姿勢參考|用這個姿勢|照這個動作/i.test(message) ? "use_as_pose" as const
+    : /下載全部|下載套組|下載 ZIP/i.test(message) ? "download_pack" as const
+    : /繼續製作|繼續生成/.test(message) ? "continue_project" as const
+    : /修改|第\s*\d+\s*張/.test(message) ? "edit_sticker" as const
+    : /幫我|做成|製作|生成|開始/.test(message) ? "generate_pending" as const
+    : "plan_pack" as const;
   return {
-    intent: /繼續製作|繼續生成/.test(message) ? "continue_project" : /修改|第\s*\d+\s*張/.test(message) ? "edit_sticker" : /幫我|做成|製作|生成|開始/.test(message) ? "generate_pending" : "plan_pack",
+    intent,
     reply: fallback.fallbackMessage,
     projectTitle: fallback.title,
     stickerCount,
     characterProfile: fallback.characterProfile,
     scripts: fallback.scripts,
     targetPosition: Number(message.match(/第\s*(\d+)\s*張/)?.[1] ?? 0),
+    targetVersion: Number(restoreMatch?.[1] ?? 0),
     editInstruction: message,
   };
 }
@@ -25916,7 +27569,7 @@ async function createPlan(message: string, referenceUrls: string[], existingChar
     const response = await invokeLLM({
       model: "gpt-5-mini",
       messages: [
-        { role: "system", content: `你是 LINE 貼圖工作室的中文創作總監。使用者只用自然語言操作。分析他們的需求與參考圖片，輸出一份務實的 JSON 計畫。只有在使用者明確要求生成、繼續或重試時才設定 generate_pending、continue_project 或 retry_sticker。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。${existingCharacterProfile ? `\n已確認的角色設定如下，除非使用者上傳新角色照片並明確要求重設，後續對話必須保留這些不可變特徵：${existingCharacterProfile}` : ""}` },
+        { role: "system", content: `你是 LINE 貼圖工作室的中文創作 Agent。使用者只用自然語言操作。分析需求與參考圖片，輸出務實 JSON 計畫。只有明確要求生成、繼續或重試才設定 generate_pending、continue_project 或 retry_sticker；使用者確認圖片可用 accept_image，指定「以後照這個」可用 use_as_style，指定姿勢可用 use_as_pose，要求 V2／V3 回復可用 restore_version，要求下載整套可用 download_pack。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。${existingCharacterProfile ? `\n已確認的角色設定如下，除非使用者上傳新角色照片並明確要求重設，後續對話必須保留這些不可變特徵：${existingCharacterProfile}` : ""}` },
         { role: "user", content: [{ type: "text", text: message }, ...visionContent] },
       ],
       response_format: {
@@ -25927,12 +27580,12 @@ async function createPlan(message: string, referenceUrls: string[], existingChar
           schema: {
             type: "object",
             properties: {
-              intent: { type: "string", enum: ["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "continue_project", "general"] },
+              intent: { type: "string", enum: ["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "continue_project", "accept_image", "use_as_style", "use_as_pose", "restore_version", "download_pack", "general"] },
               reply: { type: "string" }, projectTitle: { type: "string" }, stickerCount: { type: "integer" }, characterProfile: { type: "string" },
               scripts: { type: "array", items: { type: "object", properties: { position: { type: "integer" }, emotion: { type: "string" }, phrase: { type: "string" }, scene: { type: "string" } }, required: ["position", "emotion", "phrase", "scene"], additionalProperties: false } },
-              targetPosition: { type: "integer" }, editInstruction: { type: "string" },
+              targetPosition: { type: "integer" }, targetVersion: { type: "integer" }, editInstruction: { type: "string" },
             },
-            required: ["intent", "reply", "projectTitle", "stickerCount", "characterProfile", "scripts", "targetPosition", "editInstruction"], additionalProperties: false,
+            required: ["intent", "reply", "projectTitle", "stickerCount", "characterProfile", "scripts", "targetPosition", "targetVersion", "editInstruction"], additionalProperties: false,
           },
         },
       },
@@ -25969,13 +27622,23 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
   const conversation = await ensureConversation(project.id);
   const before = await getStickerStudio(project.projectKey);
   const previousAnchor = parseCharacterAnchor(before?.characterProfile?.profileJson ?? project.characterProfile);
+  const previousStyle = parseStyleAnchor(before?.styleAnchor?.summaryJson);
   const userMessage = await addStickerMessage({ conversationId: conversation.id, role: "user", content: input.content });
   if (!userMessage) throw new Error("無法保存你的訊息");
+  await recordAgentEvent({ projectId: project.id, kind: "intent", status: "working", message: "正在理解你的需求與附件用途。" });
   const attachmentRows = await persistAttachments(project.id, userMessage.id, input.attachments);
-  for (const attachment of attachmentRows.filter((item) => item.mimeType.startsWith("image/"))) await addStickerReference({ projectId: project.id, url: attachment.url, fileName: attachment.fileName, sortOrder: attachment.sortOrder });
+  const attachmentRole = inferAttachmentRole(input.content);
+  for (const attachment of attachmentRows.filter((item) => item.mimeType.startsWith("image/"))) {
+    await addStickerReference({ projectId: project.id, url: attachment.url, fileName: attachment.fileName, sortOrder: attachment.sortOrder, role: attachmentRole, priority: attachmentRole === "character" ? 20 : attachmentRole === "pose" ? 60 : 70, metadataJson: JSON.stringify({ source: "upload", requestedBy: attachmentRole }) });
+  }
   const existing = await getStickerProject(project.projectKey);
   const newReferenceUrls = attachmentRows.filter((item) => item.mimeType.startsWith("image/")).map((item) => item.url);
-  const selectedReferenceUrls = selectCharacterReferences([...newReferenceUrls, ...(existing?.references.map((reference) => reference.url) ?? []), ...(previousAnchor?.referenceUrls ?? [])]);
+  const orderedReferences = buildReferenceSelection({ references: [
+    ...toAgentReferences(existing?.references ?? []),
+    ...(previousAnchor?.referenceUrls ?? []).map((url) => ({ url, role: "accepted_character" as const, priority: 10, accepted: true, source: "anchor" as const })),
+    ...(previousStyle?.referenceUrls ?? []).map((url) => ({ url, role: "accepted_style" as const, priority: 40, accepted: true, source: "anchor" as const })),
+  ], maxReferences: 4 });
+  const selectedReferenceUrls = selectCharacterReferences([...newReferenceUrls, ...orderedReferences.map((reference) => reference.url)]);
   const plan = await createPlan(input.content, selectedReferenceUrls, previousAnchor?.summary);
   const preserveCharacter = Boolean(previousAnchor && newReferenceUrls.length === 0);
   const nextAnchor: CharacterAnchor = preserveCharacter
@@ -25983,10 +27646,21 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
     : { summary: plan.characterProfile, referenceUrls: selectedReferenceUrls, version: (previousAnchor?.version ?? 0) + 1, updatedAt: new Date().toISOString() };
   await updateStickerProject({ id: project.id, title: preserveCharacter ? project.title : plan.projectTitle, brief: preserveCharacter ? project.brief : input.content, characterProfile: nextAnchor.summary, stickerCount: preserveCharacter ? project.stickerCount : plan.stickerCount });
   const character = await saveStickerCharacterProfile({ projectId: project.id, profileJson: JSON.stringify(nextAnchor), anchorUrl: nextAnchor.referenceUrls[0], status: nextAnchor.referenceUrls.length ? "ready" : "needs_reference" });
+  await recordAgentEvent({ projectId: project.id, kind: "character_anchor", status: nextAnchor.referenceUrls.length ? "completed" : "needs_reference", message: nextAnchor.referenceUrls.length ? "已建立可續作的角色設定與參考圖錨點。" : "尚未收到角色照片；會先依文字需求建立角色設定。", detail: { anchorVersion: nextAnchor.version, references: nextAnchor.referenceUrls.length } });
+  if (plan.intent === "use_as_style") {
+    const styleUrls = newReferenceUrls.length ? newReferenceUrls : previousStyle?.referenceUrls ?? [];
+    const styleAnchor: StyleAnchor = { summary: `使用者確認：${input.content.slice(0, 500)}`, referenceUrls: styleUrls, version: (previousStyle?.version ?? 0) + 1, updatedAt: new Date().toISOString() };
+    await saveStickerStyleAnchor({ projectId: project.id, summaryJson: JSON.stringify(styleAnchor), anchorUrl: styleUrls[0] ?? null, status: styleUrls.length ? "ready" : "text_only" });
+    await recordAgentEvent({ projectId: project.id, kind: "style_anchor", status: "completed", message: "已將這個風格加入後續貼圖的風格錨點。", detail: { references: styleUrls.length } });
+  }
   if (plan.scripts.length && !(existing?.scripts.length)) {
+    await recordAgentEvent({ projectId: project.id, kind: "planning", status: "completed", message: `已規劃 ${plan.scripts.slice(0, plan.stickerCount).length} 張貼圖內容。` });
     for (const script of plan.scripts.slice(0, plan.stickerCount)) {
-      const row = await addStickerScript({ projectId: project.id, ...script });
-      if (row) await createStickerJob({ projectId: project.id, scriptId: row.id, kind: "generate", status: "queued", provider: "gemini" });
+      const row = await addStickerScript({ projectId: project.id, ...script, planJson: JSON.stringify({ ...script, generationStatus: "queued" }) });
+      if (row) {
+        const decision = routeImageTask({ taskKind: "generate", references: orderedReferences });
+        await createStickerJob({ projectId: project.id, scriptId: row.id, kind: "generate", status: "queued", provider: decision.selectedProvider, routerJson: JSON.stringify(decision) });
+      }
     }
   }
   let reply = plan.reply;
@@ -25997,6 +27671,22 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
     } catch (error) {
       reply = `我已記錄修改要求，但目前無法套用到指定貼圖：${error instanceof Error ? error.message : "請稍後再試"}`;
     }
+  }
+  if (plan.intent === "accept_image") {
+    const target = (plan.targetPosition ? existing?.scripts.find((script) => script.position === plan.targetPosition) : existing?.scripts.find((script) => script.resultUrl)) ?? undefined;
+    if (target?.resultUrl) {
+      await addStickerReference({ projectId: project.id, url: target.resultUrl, fileName: `accepted-sticker-${String(target.position).padStart(2, "0")}.png`, sortOrder: 0, role: "accepted_character", priority: 10, accepted: true, metadataJson: JSON.stringify({ source: "sticker_version", position: target.position }) });
+      reply = `已將第 ${target.position} 張設為已確認的角色參考；後續生成會優先保留它的外觀與比例。`;
+    } else if (newReferenceUrls.length) {
+      for (const reference of existing?.references.filter((reference) => newReferenceUrls.includes(reference.url)) ?? []) await updateStickerReference({ id: reference.id, role: "accepted_character", priority: 10, accepted: true });
+      reply = "已將你剛上傳的圖片設為角色錨點；後續貼圖會優先參考它。";
+    }
+  }
+  if (plan.intent === "restore_version" && plan.targetPosition > 0 && plan.targetVersion > 0) {
+    const script = existing?.scripts.find((item) => item.position === plan.targetPosition);
+    const version = script ? before?.versions?.find((item) => item.scriptId === script.id && item.version === plan.targetVersion) : undefined;
+    const restored = version && script ? await restoreStickerVersion({ scriptId: script.id, versionId: version.id }) : undefined;
+    reply = restored ? `已回復第 ${plan.targetPosition} 張的 V${restored.version}，其他版本仍會完整保留。` : `找不到第 ${plan.targetPosition} 張的 V${plan.targetVersion}；請先在版本記錄確認可回復版本。`;
   }
   const assistant = await addStickerMessage({ conversationId: conversation.id, role: "assistant", content: reply, intentJson: JSON.stringify(plan) });
   return { projectKey: project.projectKey, intent: plan.intent, reply, character, assistantMessageId: assistant?.id, autoRun: plan.intent === "generate_pending" || plan.intent === "continue_project" || (plan.scripts.length > 0 && /幫我|做成|製作|生成|開始/.test(input.content)) };
@@ -26012,7 +27702,35 @@ async function storeTransparentPng(b64Json: string) {
   const normalized = await sharp(Buffer.from(b64Json, "base64")).ensureAlpha().png().toBuffer();
   const metadata = await sharp(normalized).metadata();
   const saved = await storagePut(`generated/studio-${Date.now()}-${nanoid(8)}.png`, normalized, "image/png");
-  return { ...saved, hasAlpha: metadata.hasAlpha === true };
+  return { ...saved, hasAlpha: metadata.hasAlpha === true, buffer: normalized };
+}
+
+async function generateDraftWithRouter(input: { prompt: string; references: Array<{ url: string; mimeType: string }>; decision: RouterDecision }) {
+  let decision = input.decision;
+  let lastError: unknown = new Error("沒有可用的圖像 Provider");
+  for (const candidate of decision.candidates.filter((item) => item.enabled)) {
+    try {
+      if (candidate.provider === "gemini-3.1-flash-image") {
+        const result = await generateGeminiImage({ prompt: input.prompt, references: input.references });
+        const draft = await storeGeneratedDraft(result.b64Json, result.mimeType);
+        decision = appendRouterAttempt(decision, { provider: candidate.provider, startedAt: new Date().toISOString(), outcome: "completed" });
+        return { draft, provider: candidate.provider, decision, geminiInteractionId: result.interactionId };
+      }
+      if (candidate.provider === "gpt-image-2") {
+        const result = await generateImage({ prompt: input.prompt, originalImages: input.references, quality: "medium" });
+        if (!result.b64Json) throw new Error("GPT Image 沒有回傳可保存的影像資料");
+        const draft = await storeGeneratedDraft(result.b64Json, result.mimeType ?? "image/png");
+        decision = appendRouterAttempt(decision, { provider: candidate.provider, startedAt: new Date().toISOString(), outcome: "completed" });
+        return { draft, provider: candidate.provider, decision };
+      }
+    } catch (error) {
+      lastError = error;
+      const classified = classifyImageError(error);
+      decision = appendRouterAttempt(decision, { provider: candidate.provider, startedAt: new Date().toISOString(), outcome: classified.kind === "quota" ? "paused" : "failed", errorKind: classified.kind, message: classified.message });
+      if (!classified.fallbackEligible) break;
+    }
+  }
+  throw Object.assign(lastError instanceof Error ? lastError : new Error(String(lastError)), { routerDecision: decision });
 }
 
 export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, position?: number) {
@@ -26020,6 +27738,7 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
   if (!studio) throw new Error("找不到要繼續的專案");
   const references = (await getStickerProject(projectKey))?.references ?? [];
   const anchor = parseCharacterAnchor(studio.characterProfile?.profileJson ?? studio.project.characterProfile);
+  const styleAnchor = parseStyleAnchor(studio.styleAnchor?.summaryJson);
   const profile = anchor?.summary ?? "請維持所有角色外觀特徵一致";
   const candidates = studio.jobs.filter((job) => {
     if (job.kind !== "generate" || !["queued", "retrying", "paused_quota"].includes(job.status)) return false;
@@ -26029,30 +27748,32 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
   for (const job of candidates) {
     const script = studio.scripts.find((item) => item.id === job.scriptId);
     if (!script) continue;
-    await updateStickerJob({ id: job.id, status: "generating", attempt: job.attempt + 1, provider: "gemini", errorCode: null, errorMessage: null });
-    await updateStickerScript({ id: script.id, status: "generating", errorMessage: null });
-    const prompt = buildStickerPrompt({ style: "可愛、清晰、適合日常溝通的 LINE 貼圖", emotion: script.emotion, phrase: script.phrase, scene: script.scene ?? undefined, characterProfile: profile, prompt: "使用乾淨的淺色背景與約 10 像素安全邊距。不要直接生成文字；最終繁體中文字將由程式後製。" });
+    const seededReferences: AgentReference[] = [
+      ...toAgentReferences(references),
+      ...(anchor?.referenceUrls ?? []).map((url) => ({ url, role: "accepted_character" as const, priority: 10, accepted: true, source: "anchor" as const })),
+      ...(styleAnchor?.referenceUrls ?? []).map((url) => ({ url, role: "accepted_style" as const, priority: 40, accepted: true, source: "anchor" as const })),
+    ];
+    const storedRouter = safeJson<RouterDecision | null>(job.routerJson, null);
+    let routerDecision = storedRouter ?? routeImageTask({ taskKind: "generate", references: seededReferences });
+    const selectedReferences = buildReferenceSelection({ references: routerDecision.referenceSnapshot.length ? routerDecision.referenceSnapshot : seededReferences, maxReferences: 4 });
+    const referenceUrls = selectedReferences.map((reference) => reference.url);
+    await updateStickerJob({ id: job.id, status: "generating", attempt: job.attempt + 1, provider: routerDecision.selectedProvider, errorCode: null, errorMessage: null, routerJson: JSON.stringify(routerDecision) });
+    await updateStickerScript({ id: script.id, status: "generating", errorMessage: null, planJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(script.planJson, {}), generationStatus: "generating", referenceCount: referenceUrls.length }) });
+    await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "generation", status: "working", message: `正在生成第 ${script.position} 張貼圖。`, detail: { position: script.position, provider: routerDecision.selectedProvider, references: referenceUrls.length } });
+    const prompt = buildStickerPrompt({ style: styleAnchor?.summary || "可愛、清晰、適合日常溝通的 LINE 貼圖", emotion: script.emotion, phrase: script.phrase, scene: script.scene ?? undefined, characterProfile: profile, prompt: "使用乾淨的淺色背景與約 10 像素安全邊距。不要直接生成文字；最終繁體中文字將由程式後製。" });
     try {
-      const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { draftUrl?: string; referenceUrls?: string[]; geminiInteractionId?: string; model?: string; draftProvider?: string } : {};
+      const checkpoint = safeJson<{ draftUrl?: string; referenceUrls?: string[]; geminiInteractionId?: string; draftProvider?: string; routerDecision?: RouterDecision }>(job.checkpointJson, {});
       let draftUrl = checkpoint.draftUrl;
-      let draftProvider = "gemini";
-      const referenceUrls = selectCharacterReferences(checkpoint.referenceUrls?.length ? checkpoint.referenceUrls : [...(anchor?.referenceUrls ?? []), ...references.map((reference) => reference.url)]);
+      let draftProvider = checkpoint.draftProvider ?? routerDecision.selectedProvider ?? "unknown";
       if (!draftUrl) {
         const referenceImages = await Promise.all(referenceUrls.map(async (url) => ({ ...(await signedReference(url)), mimeType: "image/jpeg" })));
-        let draft: Awaited<ReturnType<typeof storeGeneratedDraft>>;
-        try {
-          const result = await generateGeminiImage({ prompt, references: referenceImages });
-          draft = await storeGeneratedDraft(result.b64Json, result.mimeType);
-          checkpoint.geminiInteractionId = result.interactionId;
-        } catch (geminiError) {
-          if (!isQuotaError(geminiError)) throw geminiError;
-          const fallback = await generateImage({ prompt, originalImages: referenceImages, quality: "medium" });
-          if (!fallback.b64Json) throw geminiError;
-          draftProvider = "gpt-image-2-fallback";
-          draft = await storeGeneratedDraft(fallback.b64Json, "image/png");
-        }
-        draftUrl = draft.url;
-        await updateStickerJob({ id: job.id, status: "removing_background", provider: draftProvider, checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, referenceUrls, stage: "removing_background", draftProvider, model: draftProvider === "gemini" ? "gemini-3.1-flash-image" : "gpt-image-2" }) });
+        const routed = await generateDraftWithRouter({ prompt, references: referenceImages, decision: routerDecision });
+        draftUrl = routed.draft.url;
+        draftProvider = routed.provider;
+        routerDecision = routed.decision;
+        checkpoint.geminiInteractionId = routed.geminiInteractionId;
+        await updateStickerJob({ id: job.id, status: "removing_background", provider: draftProvider, routerJson: JSON.stringify(routerDecision), checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, referenceUrls, stage: "removing_background", draftProvider, routerDecision }) });
+        await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "background", status: "working", message: `第 ${script.position} 張已完成草稿，正在整理透明背景。`, detail: { provider: draftProvider } });
       }
       const draftReference = await signedReference(draftUrl, "image/jpeg");
       const cutout = e2eImageMode()
@@ -26060,21 +27781,27 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
         : await generateImage({ prompt: "Remove the background from this supplied sticker character. Preserve the same character, pose, proportions, linework and accessories. Return only the character on a transparent background. Do not add any text or objects.", originalImages: [draftReference], quality: "medium" });
       if (!cutout.b64Json) throw new Error("語意去背服務沒有回傳可保存的透明圖片");
       const saved = await storeTransparentPng(cutout.b64Json);
-      await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: saved.hasAlpha, provider: "gemini+gpt-image", textOverlayPending: true }) });
-      await addStickerVersion({ scriptId: script.id, version: 1, url: saved.url, mode: "generate" });
-      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image`, checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, url: saved.url, referenceUrls, stage: "completed", draftProvider }) });
+      const quality = await evaluateStickerQuality(saved.buffer);
+      const existingVersions = (studio.versions ?? []).filter((version) => version.scriptId === script.id);
+      const parentVersion = existingVersions.find((version) => version.isActive) ?? existingVersions.at(-1);
+      const nextVersion = Math.max(0, ...existingVersions.map((version) => version.version)) + 1;
+      await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify({ ...quality, provider: `${draftProvider}+gpt-image-2` }), planJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(script.planJson, {}), generationStatus: "ready" }) });
+      await addStickerVersion({ scriptId: script.id, version: nextVersion, url: saved.url, mode: nextVersion === 1 ? "generate" : "retry", parentVersionId: parentVersion?.id ?? null, qualityReportJson: JSON.stringify(quality), provider: `${draftProvider}+gpt-image-2` });
+      routerDecision = appendRouterAttempt(routerDecision, { provider: draftProvider as RouterDecision["selectedProvider"] extends infer T ? Exclude<T, null> : never, startedAt: new Date().toISOString(), outcome: "completed" });
+      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image-2`, routerJson: JSON.stringify(routerDecision), qualityReportJson: JSON.stringify(quality), checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, url: saved.url, referenceUrls, stage: "completed", draftProvider, routerDecision }) });
+      await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "quality", status: quality.outputReady ? "completed" : "needs_attention", message: `第 ${script.position} 張已完成${quality.outputReady ? "並通過基本品質檢查" : "，但需要人工確認"}。`, detail: quality });
       completed.push({ jobId: job.id, scriptId: script.id, status: "completed", url: saved.url });
     } catch (error) {
       const message = error instanceof Error ? error.message : "貼圖生成失敗";
-      const paused = isQuotaError(error);
-      let checkpointJson = job.checkpointJson;
-      if (paused) {
-        let priorCheckpoint: Record<string, unknown> = {};
-        try { priorCheckpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as Record<string, unknown> : {}; } catch { priorCheckpoint = {}; }
-        checkpointJson = JSON.stringify({ ...priorCheckpoint, stage: "paused_quota", position: script.position, resumeCommand: "繼續製作" });
-      }
-      await updateStickerJob({ id: job.id, status: paused ? "paused_quota" : "failed", errorCode: paused ? "USAGE_EXHAUSTED" : "GENERATION_FAILED", errorMessage: message, checkpointJson });
-      await updateStickerScript({ id: script.id, status: paused ? "queued" : "error", errorMessage: message });
+      const routedDecision = (error as Error & { routerDecision?: RouterDecision }).routerDecision;
+      if (routedDecision) routerDecision = routedDecision;
+      const classified = classifyImageError(error);
+      const paused = classified.kind === "quota";
+      const checkpoint = safeJson<Record<string, unknown>>(job.checkpointJson, {});
+      const checkpointJson = JSON.stringify({ ...checkpoint, referenceUrls, routerDecision, stage: paused ? "paused_quota" : "failed", position: script.position, resumeCommand: paused ? "繼續製作" : undefined });
+      await updateStickerJob({ id: job.id, status: paused ? "paused_quota" : "failed", errorCode: paused ? "USAGE_EXHAUSTED" : classified.kind === "policy" ? "POLICY_REJECTED" : "GENERATION_FAILED", errorMessage: message, checkpointJson, routerJson: JSON.stringify(routerDecision) });
+      await updateStickerScript({ id: script.id, status: paused ? "queued" : "error", errorMessage: message, planJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(script.planJson, {}), generationStatus: paused ? "paused_quota" : "error" }) });
+      await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "generation", status: paused ? "paused_quota" : "failed", message: paused ? `第 ${script.position} 張已保存，等待額度恢復後可繼續。` : `第 ${script.position} 張需要處理：${classified.kind === "policy" ? "請調整需求後再試" : "可單獨重試"}。`, detail: { errorKind: classified.kind } });
       completed.push({ jobId: job.id, scriptId: script.id, status: paused ? "paused_quota" : "failed", message });
       if (paused) break;
     }
@@ -26093,7 +27820,8 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
     completed.push({ jobId: job.id, scriptId: job.scriptId, status: resumed.status, url: resumed.url, message: resumed.message });
     if (resumed.status === "paused_quota") break;
   }
-  const remaining = studio.jobs.filter((job) => ["generate", "edit"].includes(job.kind) && ["queued", "retrying", "paused_quota"].includes(job.status)).length - completed.length;
+  const refreshed = await getStickerStudio(projectKey);
+  const remaining = refreshed?.jobs.filter((job) => ["generate", "edit"].includes(job.kind) && ["queued", "retrying", "paused_quota"].includes(job.status)).length ?? 0;
   return { projectKey, completed, remaining };
 }
 
@@ -26104,10 +27832,38 @@ export async function retryStudioSticker(projectKey: string, position: number) {
   if (!script) throw new Error(`找不到第 ${position} 張貼圖`);
   let job = studio.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1);
   if (job) await updateStickerJob({ id: job.id, status: "retrying", errorCode: null, errorMessage: null });
-  else job = await createStickerJob({ projectId: studio.project.id, scriptId: script.id, kind: "generate", status: "retrying", provider: "gemini" });
+  else {
+    const decision = routeImageTask({ taskKind: "generate", references: toAgentReferences(studio.references ?? []) });
+    job = await createStickerJob({ projectId: studio.project.id, scriptId: script.id, kind: "generate", status: "retrying", provider: decision.selectedProvider, routerJson: JSON.stringify(decision) });
+  }
   await updateStickerScript({ id: script.id, status: "queued", errorMessage: null });
+  await recordAgentEvent({ projectId: studio.project.id, jobId: job?.id, kind: "retry", status: "queued", message: `已排入第 ${position} 張的單獨重試，不會影響其他貼圖。` });
   if (!job) throw new Error("無法建立重試工作");
   return runPendingStudioJobs(projectKey, 1, position);
+}
+
+export async function restoreStudioStickerVersion(input: { projectKey: string; position: number; versionId: number }) {
+  const studio = await getStickerStudio(input.projectKey);
+  if (!studio) throw new Error("找不到要回復版本的專案");
+  const script = studio.scripts.find((item) => item.position === input.position);
+  if (!script) throw new Error(`找不到第 ${input.position} 張貼圖`);
+  const version = (studio.versions ?? []).find((item) => item.id === input.versionId && item.scriptId === script.id);
+  if (!version) throw new Error("找不到指定版本，請重新開啟版本記錄後再試");
+  const restored = await restoreStickerVersion({ scriptId: script.id, versionId: version.id });
+  if (!restored) throw new Error("無法回復指定版本");
+  await recordAgentEvent({ projectId: studio.project.id, kind: "restore_version", status: "completed", message: `已回復第 ${input.position} 張的 V${restored.version}。`, detail: { versionId: restored.id } });
+  return { position: input.position, url: restored.url, version: restored.version, status: "completed" as const };
+}
+
+export async function setStudioReferenceRole(input: { projectKey: string; referenceId: number; role: AgentReferenceRole; accepted: boolean }) {
+  const studio = await getStickerStudio(input.projectKey);
+  if (!studio) throw new Error("找不到要設定參考圖的專案");
+  const reference = (studio.references ?? []).find((item) => item.id === input.referenceId);
+  if (!reference) throw new Error("找不到指定參考圖片");
+  const priority = input.role === "accepted_character" ? 10 : input.role === "character" ? 20 : input.role === "pose" ? 60 : 70;
+  const updated = await updateStickerReference({ id: reference.id, role: input.role, accepted: input.accepted, priority, metadataJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(reference.metadataJson, {}), updatedBy: "studio_agent", updatedAt: new Date().toISOString() }) });
+  await recordAgentEvent({ projectId: studio.project.id, kind: "reference", status: "completed", message: input.role === "pose" ? "已將圖片設定為姿勢參考。" : input.role.includes("style") ? "已將圖片設定為風格參考。" : "已將圖片設定為角色參考。", detail: { referenceId: reference.id, role: input.role, accepted: input.accepted } });
+  return updated;
 }
 
 export async function editStudioSticker(input: { projectKey: string; position: number; instruction: string; resumeJobId?: number }) {
@@ -26118,22 +27874,35 @@ export async function editStudioSticker(input: { projectKey: string; position: n
   const current = await signedReference(script.resultUrl, "image/png");
   const studio = await getStickerStudio(input.projectKey);
   const previousJob = input.resumeJobId ? studio?.jobs.find((item) => item.id === input.resumeJobId && item.kind === "edit") : undefined;
-  const job = previousJob ?? await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: "gpt-image-2" });
-  if (previousJob) await updateStickerJob({ id: previousJob.id, status: "generating", errorCode: null, errorMessage: null });
+  const seededReferences = toAgentReferences(project.references).filter((reference) => reference.role !== "pose");
+  let routerDecision = previousJob ? safeJson<RouterDecision | null>(previousJob.routerJson, null) ?? routeImageTask({ taskKind: "edit", references: seededReferences, currentEditUrl: script.resultUrl }) : routeImageTask({ taskKind: "edit", references: seededReferences, currentEditUrl: script.resultUrl });
+  const job = previousJob ?? await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: routerDecision.selectedProvider, routerJson: JSON.stringify(routerDecision) });
+  if (previousJob) await updateStickerJob({ id: previousJob.id, status: "generating", provider: routerDecision.selectedProvider, errorCode: null, errorMessage: null, routerJson: JSON.stringify(routerDecision) });
+  await recordAgentEvent({ projectId: project.project.id, jobId: job?.id, kind: "edit", status: "working", message: `正在修改第 ${input.position} 張貼圖。`, detail: { instruction: input.instruction } });
   try {
-    const result = e2eImageMode()
-      ? { url: (await storeTransparentPng((await createE2ETransparentPng()).toString("base64"))).url }
+    const source = e2eImageMode()
+      ? { b64Json: (await createE2ETransparentPng()).toString("base64"), provider: "gpt-image-2" }
       : await generateImage({ prompt: buildRefinementPrompt(input.instruction, input.instruction), originalImages: [current], quality: "medium" });
-    if (!result.url) throw new Error("AI 沒有回傳修改後圖片");
-    const nextVersion = (await getStickerStudio(input.projectKey))?.jobs.filter((item) => item.scriptId === script.id && item.kind === "edit").length ?? 1;
-    await addStickerVersion({ scriptId: script.id, version: nextVersion + 1, url: result.url, mode: "refine" });
-    await updateStickerScript({ id: script.id, status: "ready", resultUrl: result.url, errorMessage: null });
-    if (job) await updateStickerJob({ id: job.id, status: "completed", checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, url: result.url, stage: "completed" }) });
-    return { position: input.position, url: result.url, status: "completed" as const };
+    if (!source.b64Json) throw new Error("AI 沒有回傳可保存的修改圖片");
+    const saved = await storeTransparentPng(source.b64Json);
+    const quality = await evaluateStickerQuality(saved.buffer);
+    const versions = (studio?.versions ?? []).filter((version) => version.scriptId === script.id);
+    const parent = versions.find((version) => version.isActive) ?? versions.at(-1);
+    const nextVersion = Math.max(0, ...versions.map((version) => version.version)) + 1;
+    const provider = routerDecision.selectedProvider ?? "gpt-image-2";
+    routerDecision = appendRouterAttempt(routerDecision, { provider, startedAt: new Date().toISOString(), outcome: "completed" });
+    await addStickerVersion({ scriptId: script.id, version: nextVersion, url: saved.url, mode: "refine", parentVersionId: parent?.id ?? null, qualityReportJson: JSON.stringify(quality), provider });
+    await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify(quality) });
+    if (job) await updateStickerJob({ id: job.id, status: "completed", provider, routerJson: JSON.stringify(routerDecision), qualityReportJson: JSON.stringify(quality), checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, url: saved.url, stage: "completed", routerDecision }) });
+    await recordAgentEvent({ projectId: project.project.id, jobId: job?.id, kind: "edit", status: "completed", message: `第 ${input.position} 張已建立 V${nextVersion}。`, detail: quality });
+    return { position: input.position, url: saved.url, status: "completed" as const, version: nextVersion };
   } catch (error) {
     const message = error instanceof Error ? error.message : "貼圖修改失敗";
-    if (job) await updateStickerJob({ id: job.id, status: isQuotaError(error) ? "paused_quota" : "failed", errorCode: isQuotaError(error) ? "USAGE_EXHAUSTED" : "EDIT_FAILED", errorMessage: message, checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, stage: isQuotaError(error) ? "paused_quota" : "failed", resumeCommand: "繼續製作" }) });
-    return { position: input.position, url: script.resultUrl, status: isQuotaError(error) ? "paused_quota" as const : "failed" as const, message };
+    const classified = classifyImageError(error);
+    const paused = classified.kind === "quota";
+    if (job) await updateStickerJob({ id: job.id, status: paused ? "paused_quota" : "failed", errorCode: paused ? "USAGE_EXHAUSTED" : classified.kind === "policy" ? "POLICY_REJECTED" : "EDIT_FAILED", errorMessage: message, routerJson: JSON.stringify(routerDecision), checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, stage: paused ? "paused_quota" : "failed", resumeCommand: paused ? "繼續製作" : undefined, routerDecision }) });
+    await recordAgentEvent({ projectId: project.project.id, jobId: job?.id, kind: "edit", status: paused ? "paused_quota" : "failed", message: paused ? `第 ${input.position} 張的修改已保存，額度恢復後可繼續。` : `第 ${input.position} 張修改未完成，原版仍已保留。`, detail: { errorKind: classified.kind } });
+    return { position: input.position, url: script.resultUrl, status: paused ? "paused_quota" as const : "failed" as const, message };
   }
 }
 
@@ -26336,9 +28105,20 @@ export * from "./_core/errors";
 
 # 最新原始碼 GitHub 同步
 
-- [ ] 確認 `chat-first-studio` 目標分支的遠端狀態與本機未同步檔案，並掃描敏感資訊。
-- [ ] 建立包含最新完整原始碼、研究文件與安全交接包的 Git commit。
-- [ ] 經使用者確認後推送至 GitHub 並驗證遠端最新提交與文件完整性。
+- [x] 確認 `chat-first-studio` 目標分支的遠端狀態與本機未同步檔案，並掃描敏感資訊。
+- [x] 建立包含最新完整原始碼、研究文件與安全交接包的 Git commit。
+- [x] 經使用者確認後推送至 GitHub 並驗證遠端最新提交與文件完整性。
+
+# 第二階段：AI 對話式 LINE 貼圖 Agent
+
+- [x] 研究可用的 Gemini、GPT Image、FLUX.2 與候選影像 Provider，完成可替換 Model Router 決策與限制記錄。
+- [x] 擴充資料模型與儲存層，保存 Style Anchor、參考圖角色／姿勢／風格角色、接受圖優先序、品質檢查、路由歷程與版本還原狀態。
+- [x] 實作 Agent 指令解析、模型 Router、錯誤分類 fallback、品質檢查、可續作 checkpoint 與單張版本還原。
+- [x] 升級 Chat-first 介面，加入對話內快捷操作、簡潔工作狀態、內嵌成果操作、版本與參考圖操作，並維持 Android 優先體驗。
+- [x] 驗證 `studio.restoreVersion` 與 `studio.setReferenceRole` 的 tRPC 真實整合行為，包含 active version、貼圖結果與參考圖接受狀態。
+- [x] 擴充桌面／Android 瀏覽器回歸，實際操作參考圖角色切換、版本回復與對話內貼圖成果操作。
+- [x] 完成 migration、單元／整合／手機瀏覽器回歸、production build 與安全掃描。
+- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並同步完整可執行原始碼到 `chat-first-studio`。
 
 ````
 

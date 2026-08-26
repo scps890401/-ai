@@ -6,6 +6,7 @@ import {
   InsertUser,
   stickerProjects,
   stickerAttachments,
+  stickerAgentEvents,
   stickerCharacterProfiles,
   stickerConversations,
   stickerExports,
@@ -13,6 +14,7 @@ import {
   stickerMessages,
   stickerReferences,
   stickerScripts,
+  stickerStyleAnchors,
   stickerVersions,
   users,
 } from "../drizzle/schema";
@@ -74,23 +76,31 @@ export async function getStickerProject(projectKey: string) {
   return { project, references, scripts };
 }
 
-export async function addStickerReference(input: { projectId: number; url: string; fileName: string; sortOrder: number }) {
+export async function addStickerReference(input: { projectId: number; url: string; fileName: string; sortOrder: number; role?: string; priority?: number; accepted?: boolean; metadataJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerReferences).values(input);
+  await db.insert(stickerReferences).values({ ...input, role: input.role ?? "character", priority: input.priority ?? 50, accepted: input.accepted ?? false, metadataJson: input.metadataJson ?? null });
   const result = await db.select().from(stickerReferences).where(and(eq(stickerReferences.projectId, input.projectId), eq(stickerReferences.fileName, input.fileName))).orderBy(asc(stickerReferences.sortOrder)).limit(1);
   return result[0];
 }
 
-export async function addStickerScript(input: { projectId: number; position: number; emotion: string; phrase: string; scene?: string }) {
+export async function updateStickerReference(input: { id: number; role?: string; priority?: number; accepted?: boolean; metadataJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerScripts).values({ ...input, scene: input.scene ?? null });
+  const { id, ...updates } = input;
+  await db.update(stickerReferences).set(updates).where(eq(stickerReferences.id, id));
+  return (await db.select().from(stickerReferences).where(eq(stickerReferences.id, id)).limit(1))[0];
+}
+
+export async function addStickerScript(input: { projectId: number; position: number; emotion: string; phrase: string; scene?: string; planJson?: string | null }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.insert(stickerScripts).values({ ...input, scene: input.scene ?? null, planJson: input.planJson ?? null });
   const result = await db.select().from(stickerScripts).where(and(eq(stickerScripts.projectId, input.projectId), eq(stickerScripts.position, input.position))).limit(1);
   return result[0];
 }
 
-export async function updateStickerScript(input: { id: number; status?: "draft" | "queued" | "generating" | "ready" | "error"; resultUrl?: string | null; errorMessage?: string | null; qualityReport?: string | null }) {
+export async function updateStickerScript(input: { id: number; status?: "draft" | "queued" | "generating" | "ready" | "error"; resultUrl?: string | null; errorMessage?: string | null; qualityReport?: string | null; planJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
   const { id, ...updates } = input;
@@ -99,12 +109,30 @@ export async function updateStickerScript(input: { id: number; status?: "draft" 
   return result[0];
 }
 
-export async function addStickerVersion(input: { scriptId: number; version: number; url: string; mode: string }) {
+export async function addStickerVersion(input: { scriptId: number; version: number; url: string; mode: string; parentVersionId?: number | null; isActive?: boolean; qualityReportJson?: string | null; provider?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerVersions).values(input);
+  if (input.isActive ?? true) await db.update(stickerVersions).set({ isActive: false }).where(eq(stickerVersions.scriptId, input.scriptId));
+  await db.insert(stickerVersions).values({ ...input, parentVersionId: input.parentVersionId ?? null, isActive: input.isActive ?? true, qualityReportJson: input.qualityReportJson ?? null, provider: input.provider ?? null });
   const result = await db.select().from(stickerVersions).where(and(eq(stickerVersions.scriptId, input.scriptId), eq(stickerVersions.version, input.version))).limit(1);
   return result[0];
+}
+
+export async function getStickerVersions(scriptId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(stickerVersions).where(eq(stickerVersions.scriptId, scriptId)).orderBy(asc(stickerVersions.version), asc(stickerVersions.id));
+}
+
+export async function restoreStickerVersion(input: { scriptId: number; versionId: number }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const version = (await db.select().from(stickerVersions).where(and(eq(stickerVersions.id, input.versionId), eq(stickerVersions.scriptId, input.scriptId))).limit(1))[0];
+  if (!version) return undefined;
+  await db.update(stickerVersions).set({ isActive: false }).where(eq(stickerVersions.scriptId, input.scriptId));
+  await db.update(stickerVersions).set({ isActive: true }).where(eq(stickerVersions.id, version.id));
+  await db.update(stickerScripts).set({ status: "ready", resultUrl: version.url, errorMessage: null }).where(eq(stickerScripts.id, input.scriptId));
+  return version;
 }
 
 export async function updateStickerProject(input: { id: number; title?: string; brief?: string | null; characterProfile?: string | null; style?: string; stickerCount?: number; status?: "draft" | "generating" | "ready" | "error" }) {
@@ -149,19 +177,39 @@ export async function saveStickerCharacterProfile(input: { projectId: number; pr
   return (await db.select().from(stickerCharacterProfiles).where(eq(stickerCharacterProfiles.projectId, input.projectId)).orderBy(desc(stickerCharacterProfiles.id)).limit(1))[0];
 }
 
-export async function createStickerJob(input: { projectId: number; scriptId?: number | null; kind: string; status?: string; attempt?: number; provider?: string | null; checkpointJson?: string | null }) {
+export async function saveStickerStyleAnchor(input: { projectId: number; summaryJson: string; anchorUrl?: string | null; status?: string }) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.insert(stickerJobs).values({ projectId: input.projectId, scriptId: input.scriptId ?? null, kind: input.kind, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, checkpointJson: input.checkpointJson ?? null });
+  await db.insert(stickerStyleAnchors).values({ projectId: input.projectId, summaryJson: input.summaryJson, anchorUrl: input.anchorUrl ?? null, status: input.status ?? "ready" });
+  return (await db.select().from(stickerStyleAnchors).where(eq(stickerStyleAnchors.projectId, input.projectId)).orderBy(desc(stickerStyleAnchors.id)).limit(1))[0];
+}
+
+export async function getLatestStickerStyleAnchor(projectId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  return (await db.select().from(stickerStyleAnchors).where(eq(stickerStyleAnchors.projectId, projectId)).orderBy(desc(stickerStyleAnchors.id)).limit(1))[0];
+}
+
+export async function createStickerJob(input: { projectId: number; scriptId?: number | null; kind: string; status?: string; attempt?: number; provider?: string | null; checkpointJson?: string | null; routerJson?: string | null; qualityReportJson?: string | null }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.insert(stickerJobs).values({ projectId: input.projectId, scriptId: input.scriptId ?? null, kind: input.kind, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, checkpointJson: input.checkpointJson ?? null, routerJson: input.routerJson ?? null, qualityReportJson: input.qualityReportJson ?? null });
   return (await db.select().from(stickerJobs).where(eq(stickerJobs.projectId, input.projectId)).orderBy(desc(stickerJobs.id)).limit(1))[0];
 }
 
-export async function updateStickerJob(input: { id: number; status?: string; attempt?: number; provider?: string | null; errorCode?: string | null; errorMessage?: string | null; checkpointJson?: string | null }) {
+export async function updateStickerJob(input: { id: number; status?: string; attempt?: number; provider?: string | null; errorCode?: string | null; errorMessage?: string | null; checkpointJson?: string | null; routerJson?: string | null; qualityReportJson?: string | null }) {
   const db = await getDb();
   if (!db) return undefined;
   const { id, ...updates } = input;
   await db.update(stickerJobs).set(updates).where(eq(stickerJobs.id, id));
   return (await db.select().from(stickerJobs).where(eq(stickerJobs.id, id)).limit(1))[0];
+}
+
+export async function addStickerAgentEvent(input: { projectId: number; jobId?: number | null; kind: string; status: string; message: string; detailJson?: string | null }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.insert(stickerAgentEvents).values({ projectId: input.projectId, jobId: input.jobId ?? null, kind: input.kind, status: input.status, message: input.message, detailJson: input.detailJson ?? null });
+  return (await db.select().from(stickerAgentEvents).where(eq(stickerAgentEvents.projectId, input.projectId)).orderBy(desc(stickerAgentEvents.id)).limit(1))[0];
 }
 
 export async function addStickerExport(input: { projectId: number; kind: string; url: string; qualityReportJson?: string | null }) {
@@ -180,8 +228,12 @@ export async function getStickerStudio(projectKey: string) {
   const messages = conversation ? await db.select().from(stickerMessages).where(eq(stickerMessages.conversationId, conversation.id)).orderBy(asc(stickerMessages.createdAt), asc(stickerMessages.id)) : [];
   const attachments = await db.select().from(stickerAttachments).where(eq(stickerAttachments.projectId, project.id)).orderBy(asc(stickerAttachments.createdAt), asc(stickerAttachments.sortOrder));
   const characterProfile = (await db.select().from(stickerCharacterProfiles).where(eq(stickerCharacterProfiles.projectId, project.id)).orderBy(desc(stickerCharacterProfiles.id)).limit(1))[0];
+  const styleAnchor = (await db.select().from(stickerStyleAnchors).where(eq(stickerStyleAnchors.projectId, project.id)).orderBy(desc(stickerStyleAnchors.id)).limit(1))[0];
+  const references = await db.select().from(stickerReferences).where(eq(stickerReferences.projectId, project.id)).orderBy(asc(stickerReferences.priority), asc(stickerReferences.sortOrder));
   const scripts = await db.select().from(stickerScripts).where(eq(stickerScripts.projectId, project.id)).orderBy(asc(stickerScripts.position));
+  const versions = scripts.length ? await db.select().from(stickerVersions).where(inArray(stickerVersions.scriptId, scripts.map((script) => script.id))).orderBy(asc(stickerVersions.scriptId), asc(stickerVersions.version), asc(stickerVersions.id)) : [];
   const jobs = await db.select().from(stickerJobs).where(eq(stickerJobs.projectId, project.id)).orderBy(asc(stickerJobs.createdAt), asc(stickerJobs.id));
+  const events = await db.select().from(stickerAgentEvents).where(eq(stickerAgentEvents.projectId, project.id)).orderBy(desc(stickerAgentEvents.createdAt), desc(stickerAgentEvents.id)).limit(80);
   const exports = await db.select().from(stickerExports).where(eq(stickerExports.projectId, project.id)).orderBy(desc(stickerExports.createdAt));
-  return { project, conversation, messages, attachments, characterProfile, scripts, jobs, exports };
+  return { project, conversation, messages, attachments, characterProfile, styleAnchor, references, scripts, versions, jobs, events, exports };
 }

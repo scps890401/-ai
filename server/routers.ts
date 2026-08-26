@@ -173,6 +173,14 @@ export const appRouter = router({
       const { editStudioSticker } = await import("./studio");
       return editStudioSticker(input);
     }),
+    restoreVersion: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40), versionId: z.number().int().positive() })).mutation(async ({ input }) => {
+      const { restoreStudioStickerVersion } = await import("./studio");
+      return restoreStudioStickerVersion(input);
+    }),
+    setReferenceRole: publicProcedure.input(z.object({ projectKey: z.string().min(1), referenceId: z.number().int().positive(), role: z.enum(["character", "pose", "style", "accepted_character", "accepted_style", "current_edit"]), accepted: z.boolean().default(false) })).mutation(async ({ input }) => {
+      const { setStudioReferenceRole } = await import("./studio");
+      return setStudioReferenceRole(input);
+    }),
     exportLineSingle: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40) })).mutation(async ({ input }) => {
       const studio = await getStickerStudio(input.projectKey);
       if (!studio) throw new Error("找不到要輸出的專案");
