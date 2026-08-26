@@ -291,4 +291,4 @@
 - [x] 補強聊天對姿勢參考、風格採納、下載作品與自然語言修改意圖的結構化分流
 - [x] 補齊第二階段 Vitest、桌面／Android 回歸；真實影像 E2E 應在可用服務額度時以相同 job／version 流程補驗
 - [x] 產出 README、架構、Model Router、Character／Style Anchor、Edit、Quality、Fallback、Quota Resume、安全與 GitHub 交接文件
-- [ ] 將完整可執行專案同步至 GitHub scps890401/-ai 的 chat-first-studio 分支並驗證遠端內容
+- [x] 將完整可執行專案同步至 GitHub scps890401/-ai 的 chat-first-studio 分支並驗證遠端內容；已安全保留原分支歷史並推送／驗證 commit 34b5830184867c3599e7c7dd96794a5ace2c06e4
