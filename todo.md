@@ -310,4 +310,4 @@
 - [x] 建立本地 secret scanning 與測試，避免 API key、私有 S3 URL 或使用者個資出現在公開 preview、GitHub 或前端 bundle
 - [x] 補齊第三階段單元／流程／Preview／手機測試；TypeScript、126 項 Vitest、production build、secret scan、Preview 桌面與 Android 390 × 844 已通過。實圖 Generate → Check → Fix → Check 受上游 usage exhausted／外部憑證限制，待可用額度下以同一 job 流程補驗
 - [x] 更新 README、架構、Adapter、Reference、Edit、Quality、Fallback、Preview／Demo 與安全交接文件
-- [ ] 將第三階段完整原始碼與測試同步至 GitHub `scps890401/-ai` 的 `chat-first-studio` 並驗證遠端 commit
+- [x] 將第三階段完整原始碼與測試同步至 GitHub `scps890401/-ai` 的 `chat-first-studio` 並驗證遠端 commit `9d368fc894d57c387069d09885309290591f2395`
