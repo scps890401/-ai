@@ -136,5 +136,5 @@
 - [x] 建立固定、非個資、零 API 的完整 Demo 對話流程：需求、角色／風格／姿勢 Anchor、8 張生成、單張 V2 修改、品質 Fail→Fix→Pass、Router、quota checkpoint 與 LINE 輸出。
 - [x] 完善 `/preview/inspection` 的 Desktop／Mobile 視圖、開發者檢查資訊與完整流程導航，同時不外露使用者資料、憑證或實際 Provider 請求。
 - [x] 在 Preview 與 README 明確標示「AI Inspection Preview，不代表真實 AI API 生成結果」，列出可匿名開啟的 Preview／Inspection URL 與安全限制。
-- [ ] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
+- [x] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
 - [ ] 安全整合完整修改至 GitHub `chat-first-studio`；若遠端分岔，先檢視差異並徵求使用者同意採用合併或新分支，絕不 force push。

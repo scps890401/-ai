@@ -135,6 +135,7 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`docs/phase-3-delivery.md`](docs/phase-3-delivery.md)：第三階段已交付能力、不可宣稱能力、無 migration 判斷、測試紀錄與真實 API 限制。
 - [`docs/phase-4-preview-component-audit.md`](docs/phase-4-preview-component-audit.md)：正式工作室與公開 Preview 的共用元件盤點及去除平行 UI 的決策。
 - [`docs/phase-4-preview-delivery.md`](docs/phase-4-preview-delivery.md)：公開 Preview／Inspection 的流程覆蓋、安全邊界與驗收紀錄。
+- [`docs/phase-4-public-domain-verification.md`](docs/phase-4-public-domain-verification.md)：正式公開網域的匿名驗證紀錄與新版傳播重新檢查項目。
 
 ## 重要限制
 

@@ -41,5 +41,6 @@ Preview 不複製或另寫平行假 UI。正式首頁與公開頁面共同使用
 | Inspection Desktop／Mobile View | 通過；切換可在同一正式元件流程中運作，Router 摘要只出現在 Inspection。 |
 | 正式首頁桌面／Android 回歸 | 通過；共享元件後仍完成八張工作、修改、續作、參考圖更新、版本回復與 ZIP 匯出。 |
 | 型別與敏感資訊檢查 | 第四階段變更完成後執行 `pnpm check` 與提交前秘密掃描。 |
+| 正式公開網域傳播 | 通過；初次傳播延遲後，以未登入瀏覽器確認 `/preview` 與 `/preview/inspection` 均已載入第四階段 UI，詳見 [`phase-4-public-domain-verification.md`](phase-4-public-domain-verification.md)。 |
 
 真實外部模型是否能完成生成仍取決於伺服器端設定、服務可用性與帳戶額度。Demo 的所有成功結果均為固定流程資料，不應被解讀為實際 Gemini、GPT Image 或 FLUX 生成已成功。

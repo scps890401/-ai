@@ -55,7 +55,7 @@
 
 ## 5. 可分享原始碼與設定
 
-本章收錄 170 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 171 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -213,8 +213,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787748079851,
-  "version": "25e8c0c5"
+  "timestamp": 1787751130450,
+  "version": "e8ae7144"
 }
 ````
 
@@ -10364,8 +10364,35 @@ Preview 不複製或另寫平行假 UI。正式首頁與公開頁面共同使用
 | Inspection Desktop／Mobile View | 通過；切換可在同一正式元件流程中運作，Router 摘要只出現在 Inspection。 |
 | 正式首頁桌面／Android 回歸 | 通過；共享元件後仍完成八張工作、修改、續作、參考圖更新、版本回復與 ZIP 匯出。 |
 | 型別與敏感資訊檢查 | 第四階段變更完成後執行 `pnpm check` 與提交前秘密掃描。 |
+| 正式公開網域傳播 | 通過；初次傳播延遲後，以未登入瀏覽器確認 `/preview` 與 `/preview/inspection` 均已載入第四階段 UI，詳見 [`phase-4-public-domain-verification.md`](phase-4-public-domain-verification.md)。 |
 
 真實外部模型是否能完成生成仍取決於伺服器端設定、服務可用性與帳戶額度。Demo 的所有成功結果均為固定流程資料，不應被解讀為實際 Gemini、GPT Image 或 FLUX 生成已成功。
+
+````
+
+### `docs/phase-4-public-domain-verification.md`
+
+````markdown
+# 第四階段公開網域驗證紀錄
+
+## 驗證範圍
+
+第四階段 checkpoint `9b391b17` 建立後，已在受管開發預覽以桌面 1280px 與 Android 390px 執行 `/preview`、`/preview/inspection` 回歸。回歸驗證固定 Demo 的完整流程、八張任務、V2、Anchor、Quality Fail → Fix → Pass、quota checkpoint、LINE Preflight、Inspection Desktop／Mobile 切換，以及零 `/api/trpc` 與零影像 Provider 請求。
+
+## 公開網域觀察
+
+於 2026-08-26（GMT+8）首次以未登入瀏覽器開啟 `https://stickertyco-wsz8yoes.manus.space/preview` 與快取旁路 URL 時，網域可匿名開啟，但暫時回傳舊版公開示範頁。隨後收到部署成功通知後再以快取旁路 URL 重試，`/preview` 已顯示「DEMO / PREVIEW · 這是 AI Inspection Preview，不代表真實 AI API 生成結果」與 `Demo 製作進度`；`/preview/inspection` 亦已顯示 Desktop View／Mobile View、Selected Model／Fallback、Quality Check／Retry 與 Quota／Resume／Export。
+
+公開部署日誌端點在初次觀察時未提供目前服務的容器日誌，因此本紀錄保留初始傳播延遲作為追蹤脈絡。最終匿名瀏覽器結果確認 checkpoint `9b391b17` 的第四階段 UI 已傳播至公開網域。
+
+## 後續重新驗證清單
+
+| 項目 | 成功條件 |
+| --- | --- |
+| `/preview` | **已通過。**未登入可開啟，並顯示 DEMO／PREVIEW notice、完整聊天、八張共用 Sticker Task、V2、Quality、quota 與 LINE Preflight。 |
+| `/preview/inspection` | **已通過。**未登入可開啟，Desktop／Mobile View 可切換，並有 Selected Model／Fallback、Quality Check／Retry、Quota／Resume／Export 摘要。 |
+| 網路邊界 | **已通過自動回歸。**桌面與 Android 瀏覽器回歸均顯示 0 個 `/api/trpc` 與 0 個 Gemini、GPT Image、Forge、FLUX 等影像 Provider 請求。 |
+| 安全 | **已通過匿名頁面檢查。**不顯示使用者資料、API Key、token、預簽 URL 或登入流程。 |
 
 ````
 
@@ -22726,6 +22753,7 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`docs/phase-3-delivery.md`](docs/phase-3-delivery.md)：第三階段已交付能力、不可宣稱能力、無 migration 判斷、測試紀錄與真實 API 限制。
 - [`docs/phase-4-preview-component-audit.md`](docs/phase-4-preview-component-audit.md)：正式工作室與公開 Preview 的共用元件盤點及去除平行 UI 的決策。
 - [`docs/phase-4-preview-delivery.md`](docs/phase-4-preview-delivery.md)：公開 Preview／Inspection 的流程覆蓋、安全邊界與驗收紀錄。
+- [`docs/phase-4-public-domain-verification.md`](docs/phase-4-public-domain-verification.md)：正式公開網域的匿名驗證紀錄與新版傳播重新檢查項目。
 
 ## 重要限制
 
@@ -29267,7 +29295,7 @@ export * from "./_core/errors";
 - [x] 建立固定、非個資、零 API 的完整 Demo 對話流程：需求、角色／風格／姿勢 Anchor、8 張生成、單張 V2 修改、品質 Fail→Fix→Pass、Router、quota checkpoint 與 LINE 輸出。
 - [x] 完善 `/preview/inspection` 的 Desktop／Mobile 視圖、開發者檢查資訊與完整流程導航，同時不外露使用者資料、憑證或實際 Provider 請求。
 - [x] 在 Preview 與 README 明確標示「AI Inspection Preview，不代表真實 AI API 生成結果」，列出可匿名開啟的 Preview／Inspection URL 與安全限制。
-- [ ] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
+- [x] 實測 `/preview`、`/preview/inspection`、匿名外部瀏覽器與 Android 尺寸；驗證零登入、零 Studio／影像 API 請求、無秘密外洩、完整載入、測試與 production build。
 - [ ] 安全整合完整修改至 GitHub `chat-first-studio`；若遠端分岔，先檢視差異並徵求使用者同意採用合併或新分支，絕不 force push。
 
 ````
