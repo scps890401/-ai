@@ -1,88 +1,55 @@
 # Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交接包
 
-**建立日期：** 2026-08-26（GMT+8）  
-**專案目錄：** `/home/ubuntu/sticker-tycoon-replica`  
+**建立日期：** 2026-08-26（GMT+8）
+**專案目錄：** `sticker-tycoon-replica`
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
-**目前工作階段 checkpoint 基線：** `6ec42fba`（本交接包包含第二階段 Agent 升級、已套用 migration 與待保存的完整來源。）
+**GitHub 安全分支：** `phase2-agent-router`（不改動既有 `chat-first-studio` 與 `main`）
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
 ## 1. 產品目標與現在的使用方式
 
-產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁現在是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。任務卡保留每張圖片的獨立狀態；使用者能要求「第 3 張小貓多一隻腳，請修正」來只修改指定圖片。
+產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。使用者可指定單張修改、設為角色／姿勢／風格參考、檢視版本並回復單張，或於聊天欄直接下載最近完成的成果。
 
 | 層面 | 現行做法 |
 | --- | --- |
-| 角色理解與規劃 | GPT-5 mini LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認的角色錨點不會被後續純文字對話覆寫；若 LLM 額度不足，改用可編輯備援腳本。 |
-| 角色一致性與 Router | 角色、已確認角色、姿勢與風格圖會依優先序建立最多 4 張參考快照；Agent 逐張保存 Provider 候選、嘗試歷程、品質報告、初稿與 Gemini interaction ID。新生成優先 Gemini、修改優先 GPT Image；FLUX.2 僅為未設定憑證的候選。 |
-| 圖像修改、品質與版本 | GPT Image 2 處理語意去背與單張修改；透明 PNG 會寫入品質報告。每次生成、重試與修改建立父子版本鏈與 active version，可直接回復指定舊版。 |
-| 繁體中文 | 圖像模型不負責最後文字；LINE 匯出時以伺服器端 Noto Sans CJK TC SVG 疊字，檢查 10 px 安全邊距、兩行換行與文字 bounding box。 |
-| 保存與續作 | MySQL 保存專案、對話、附件、角色／風格 Anchor、腳本、Agent 事件、任務 Router、版本與匯出紀錄；S3 保存檔案；projectKey 保存在瀏覽器並可跨裝置輸入恢復。 |
-| LINE 輸出 | 單張輸出 370×320 透明 PNG；整套 ZIP 包含 sticker、main、tab 與品質報告，並檢查 alpha、尺寸、單圖 1 MB、套組 60 MB。 |
+| 角色理解與規劃 | LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認角色設定不會被後續純文字對話覆寫；額度不足時改用可編輯備援腳本。 |
+| Agent Router | 每個任務保存 Provider 候選、參考快照、嘗試歷程、品質與 checkpoint。新生成優先 Gemini、單張編修優先 GPT Image；FLUX.2 僅列為未設定憑證的候選。 |
+| Anchor 與一致性 | 角色、已確認角色、姿勢、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
+| 圖像修改、品質與版本 | 透明 PNG 會寫入品質報告；生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
+| 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
+| 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
 
 ## 2. 外部服務狀態與必讀限制
 
-最近實測時，Gemini 圖像端點回傳 HTTP 429，而既有 GPT/Forge 服務回傳 412 usage exhausted。程式會保存 `paused_quota` checkpoint（貼圖序號、暫停階段、續作指令與可能的初稿 URL），顯示「AI 額度目前已用完，已完成與未完成進度都已保存」，並讓使用者輸入「繼續製作」只從未完成工作續跑。**不要把服務額度不足誤稱為功能完成或直接刪除工作。**
+最近實測時，Gemini 圖像端點可能回傳 HTTP 429，而既有 GPT／Forge 服務可能回傳 412 usage exhausted。程式會保存 `paused_quota` checkpoint、參考快照、Router 決策、未完成項目和版本，顯示可續作訊息。**不得把供應端額度不足宣稱為外部模型生成成功，也不得刪除已完成工作。**
 
-受控測試模式 `STICKER_E2E_TEST_MODE=1` 僅供本機瀏覽器／server route 成功路徑驗證；它不會在沒有此環境變數的開發或正式環境取代 Gemini/GPT Image。
+受控測試模式 `STICKER_E2E_TEST_MODE=1` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
-## 3. 可見需求歷程
+## 3. 第二階段研究、設計與驗證
 
-| 階段 | 使用者需求 | 對應實作 |
-| --- | --- | --- |
-| 網站重建與免費化 | 參考貼圖網站、移除付費與 LINE 導流。 | 建立完全網頁內、無付款／外部連結的工作流程。 |
-| 功能擴充 | 真正 AI 生成、語意去背、聊天修改、批次、HEIC、ZIP、續作。 | 既有專案精靈與全端資料保存；HEIC 改用瀏覽器端 heic2any 轉 JPEG。 |
-| 極簡角色樣本 | 曾要求角色需求、動作、文字的兩階段樣本流程。 | 舊精簡流程仍保留後端能力；目前首頁已進一步升級為 ChatGPT 式對話工作室。 |
-| 最新最高優先級 | 極簡介面、AI 理解、生成、角色一致性、聊天修改、保存續作、LINE 輸出與 Android 體驗。 | 實作對話主介面、任務狀態、雙模型、中文字後製、受控 E2E 與真實額度中斷流程。 |
-
-> 最新使用者要求的核心原則：使用者看到的主要操作永遠是「AI 對話框」；複雜的 AI 工作應在後台處理，不要求使用者填大量表格或懂英文。
-
-## 4. 研究與架構文件
-
-- `research/chat-first-line-sticker-architecture.md`：官方來源的模型、角色一致性、LINE 規格與多模型分工研究。
-- `research/chat-first-line-sticker-implementation-plan.md`：資料模型、對話意圖、工作狀態、續作與輸出架構。
-- `research/chat-first-ui-visual-findings.md`：桌面、Android 真實額度中斷、受控成功路徑的驗證紀錄。
-- `research/wide-research-2026.md`：2026-08-26 的官方模型、LINE、額度與 HEIC 廣泛研究及選型結論。
-- `research/wide-research-gap-analysis.md`：研究結果與現有程式直接對照的能力缺口及本輪改良範圍。
-- `research/phase-2-model-router-research.md`：Gemini、GPT Image、FLUX.2 的能力、商業部署與 Router 邊界研究。
-- `docs/phase-2-agent-design.md`：資料模型、錯誤與 fallback、品質檢查、Anchor、版本與對話內 Agent 工作卡設計。
-
-## 5. 驗證摘要
+- `research/phase-2-model-router-research.md`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
+- `docs/phase-2-agent-design.md`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
+- `drizzle/0003_grey_sentinel.sql`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
 
 | 驗證 | 結果 |
 | --- | --- |
 | `pnpm check` | 通過。 |
-| `pnpm test` | 通過；共 19 項單元／整合測試，覆蓋 LINE 文字安全邊距、角色錨點、Gemini interaction checkpoint、Model Router、參考圖角色、版本 V1→V2→回復、單張修改暫停與續作。 |
-| `pnpm build` | 通過；Vite 提示部分 chunk 大於 500 kB，屬效能優化建議而非建置失敗。建置時應停止多餘 watcher 以降低 sandbox 記憶體壓力。 |
-| 真實 Android server route | 通過自然語言建案、projectKey、8 個任務、額度暫停與「繼續製作」續作；外部服務額度不足被正確保存與呈現。 |
-| 受控 Android 成功路徑 | 通過 HEIC→JPEG、8 張生成、指定單張修改、單張 PNG 下載、LINE ZIP 下載與重新載入恢復；未攔截 UI、tRPC、DB、S3、LINE 合成或下載。 |
-| server route 整合 | 直接呼叫真實 tRPC router，覆蓋規劃、生成、修改、單張 PNG、ZIP、paused_quota checkpoint 及只續跑未完成工作。 |
+| `pnpm test` | 通過；19 項單元／整合測試，覆蓋 Router、品質、角色 Anchor、quota resume、參考圖角色、版本 V1→V2→回復、LINE PNG／ZIP。 |
+| `pnpm build` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
+| 桌面與 Android Playwright | 通過：8 任務、reload、對話內成果、參考圖姿勢切換、版本回復、指定修改、LINE ZIP，且無 console error。 |
+| 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
 
-## 6. GitHub 推送指引
+## 4. 給下一位 AI／工程師的優先事項
 
-優先使用管理介面的 **Settings → GitHub** 建立新的 Private repository。若使用命令列，不要覆寫既有 `origin`；新增第二個遠端：
+1. 外部額度恢復後，以有權使用的人物／寵物素材重跑真實影像端到端，人工審查角色一致性、透明邊緣與指定修改差異。
+2. 保存 Provider 的 Retry-After／request ID，將短暫 rate limit 與需等待的 quota／billing 狀態進一步區分。
+3. 針對前端大型 chunk 做 code splitting，尤其是 HEIC 與 Streamdown 相關模組。
+4. 保持 AI 對話為唯一主要入口；不可偽造評價、星等、測試者或使用者見證。
 
-```bash
-cd /home/ubuntu/sticker-tycoon-replica
-git remote add github https://github.com/OWNER/sticker-tycoon.git
-git remote -v
-git add .
-git commit -m "feat: chat-first LINE sticker studio"
-git push -u github main
-```
+## 5. 可分享原始碼與設定
 
-使用 GitHub Personal Access Token、GitHub CLI 登入或 SSH key；不要使用帳號密碼。推送前檢查 `.gitignore`，嚴禁提交 `.env`、API key、OAuth/JWT、使用者照片、S3 presigned URL、node_modules、dist、log、回歸輸出或含敏感資訊的交接包。
-
-## 7. 給下一位 AI／工程師的優先事項
-
-1. 外部額度恢復後，用真實人物／寵物圖片重跑端到端生成，人工審查角色一致性、透明邊緣與指定修改前後差異。
-2. 針對前端大型 chunk 做 code splitting，尤其是 HEIC 與 Streamdown 相關模組。
-3. 保存 provider 的 Retry-After／request ID，將短暫 rate limit 與需等待的 quota／billing 狀態再細分。
-4. 保留 AI 對話為唯一主要入口；設定與技術細節只能按需漸進揭露，且不要偽造評價、星等、測試者或使用者見證。
-
-## 8. 可分享原始碼與設定
-
-本章收錄 158 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 159 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -22755,6 +22722,119 @@ for (const name of files) {
 
 ````
 
+### `scripts/create-gpt-handover.mjs`
+
+````javascript
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const projectRoot = process.env.PROJECT_ROOT ?? path.resolve(import.meta.dirname, "..");
+const outputPath = path.join(projectRoot, "docs", "Sticker-Tycoon_對話優先LINE貼圖工作室_GPT-交接包.md");
+const includeRoots = ["client", "server", "shared", "drizzle", "scripts", "research", "patches"];
+const includeTopLevel = new Set(["package.json", "pnpm-lock.yaml", "tsconfig.json", "tsconfig.node.json", "vite.config.ts", "drizzle.config.ts", "components.json", "template.json", "README.md", "todo.md", ".gitignore"]);
+const excludedDirs = new Set(["node_modules", "dist", ".git", ".manus-logs", "coverage", ".cache", "assets"]);
+const excludedFiles = new Set(["generated-10-stickers.json", "chat-studio-flow-desktop.json", "chat-studio-flow-mobile.json", "chat-heic-upload-result.json", "chat-quota-resume-result.json", "android-real-server-quota-result.json", "android-controlled-success-result.json", "gemini-image-connection-result.json", "research-gemini-video.txt"]);
+const extensions = new Set([".ts", ".tsx", ".css", ".html", ".json", ".mjs", ".sql", ".md", ".patch"]);
+const language = (filename) => ({ ".ts": "typescript", ".tsx": "tsx", ".css": "css", ".html": "html", ".json": "json", ".mjs": "javascript", ".sql": "sql", ".md": "markdown", ".patch": "diff" }[path.extname(filename)] ?? "text");
+
+async function collect(directory) {
+  const output = [];
+  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    const absolute = path.join(directory, entry.name);
+    const relative = path.relative(projectRoot, absolute);
+    if (entry.isDirectory()) {
+      if (!excludedDirs.has(entry.name) && !relative.includes("/__manus__/")) output.push(...await collect(absolute));
+      continue;
+    }
+    if (!entry.isFile() || excludedFiles.has(entry.name) || !extensions.has(path.extname(entry.name))) continue;
+    if ((await stat(absolute)).size <= 350_000) output.push(relative);
+  }
+  return output;
+}
+
+const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交接包
+
+**建立日期：** 2026-08-26（GMT+8）
+**專案目錄：** \`sticker-tycoon-replica\`
+**技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
+**GitHub 安全分支：** \`phase2-agent-router\`（不改動既有 \`chat-first-studio\` 與 \`main\`）
+
+> 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
+
+## 1. 產品目標與現在的使用方式
+
+產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。使用者可指定單張修改、設為角色／姿勢／風格參考、檢視版本並回復單張，或於聊天欄直接下載最近完成的成果。
+
+| 層面 | 現行做法 |
+| --- | --- |
+| 角色理解與規劃 | LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認角色設定不會被後續純文字對話覆寫；額度不足時改用可編輯備援腳本。 |
+| Agent Router | 每個任務保存 Provider 候選、參考快照、嘗試歷程、品質與 checkpoint。新生成優先 Gemini、單張編修優先 GPT Image；FLUX.2 僅列為未設定憑證的候選。 |
+| Anchor 與一致性 | 角色、已確認角色、姿勢、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
+| 圖像修改、品質與版本 | 透明 PNG 會寫入品質報告；生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
+| 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
+| 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
+
+## 2. 外部服務狀態與必讀限制
+
+最近實測時，Gemini 圖像端點可能回傳 HTTP 429，而既有 GPT／Forge 服務可能回傳 412 usage exhausted。程式會保存 \`paused_quota\` checkpoint、參考快照、Router 決策、未完成項目和版本，顯示可續作訊息。**不得把供應端額度不足宣稱為外部模型生成成功，也不得刪除已完成工作。**
+
+受控測試模式 \`STICKER_E2E_TEST_MODE=1\` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
+
+## 3. 第二階段研究、設計與驗證
+
+- \`research/phase-2-model-router-research.md\`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
+- \`docs/phase-2-agent-design.md\`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
+- \`drizzle/0003_grey_sentinel.sql\`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
+
+| 驗證 | 結果 |
+| --- | --- |
+| \`pnpm check\` | 通過。 |
+| \`pnpm test\` | 通過；19 項單元／整合測試，覆蓋 Router、品質、角色 Anchor、quota resume、參考圖角色、版本 V1→V2→回復、LINE PNG／ZIP。 |
+| \`pnpm build\` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
+| 桌面與 Android Playwright | 通過：8 任務、reload、對話內成果、參考圖姿勢切換、版本回復、指定修改、LINE ZIP，且無 console error。 |
+| 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
+
+## 4. 給下一位 AI／工程師的優先事項
+
+1. 外部額度恢復後，以有權使用的人物／寵物素材重跑真實影像端到端，人工審查角色一致性、透明邊緣與指定修改差異。
+2. 保存 Provider 的 Retry-After／request ID，將短暫 rate limit 與需等待的 quota／billing 狀態進一步區分。
+3. 針對前端大型 chunk 做 code splitting，尤其是 HEIC 與 Streamdown 相關模組。
+4. 保持 AI 對話為唯一主要入口；不可偽造評價、星等、測試者或使用者見證。
+
+## 5. 可分享原始碼與設定
+
+`;
+
+const files = [];
+for (const root of includeRoots) files.push(...await collect(path.join(projectRoot, root)));
+for (const file of includeTopLevel) {
+  try {
+    const absolute = path.join(projectRoot, file);
+    if ((await stat(absolute)).isFile() && (await stat(absolute)).size <= 350_000) files.push(file);
+  } catch { /* optional source file */ }
+}
+
+const unique = [...new Set(files)].sort((a, b) => a.localeCompare(b));
+let sources = `本章收錄 ${unique.length} 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。\n\n`;
+const fence = "````";
+for (const relative of unique) {
+  const content = await readFile(path.join(projectRoot, relative), "utf8");
+  const safeContent = content
+    .replace(/\/home\/ubuntu\/upload\/[^'"\s)]+/g, "<已遮蔽使用者測試素材路徑>")
+    .replace(/X-Amz-Signature=<已遮蔽>&\s)]+/g, "X-Amz-Signature=<已遮蔽>)
+    .replace(/X-Goog-Signature=<已遮蔽>&\s)]+/g, "X-Goog-Signature=<已遮蔽>);
+  sources += `### \`${relative}\`\n\n${fence}${language(relative)}\n${safeContent}\n${fence}\n\n`;
+}
+
+const footer = `## 6. 交接結論
+
+此版本已升級為對話優先、手機優先、可保存的 AI LINE 貼圖 Agent 工作室。第二階段新增可追溯多模型 Router、角色／姿勢／風格 Anchor、版本回復、品質檢查、Agent 工作事件和對話內成果操作。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、測試與原始碼作為後續實作依據。\n`;
+
+await writeFile(outputPath, `${overview}${sources}${footer}`, "utf8");
+console.log(JSON.stringify({ outputPath, sourceFileCount: unique.length }));
+
+````
+
 ### `scripts/extract-line-reference.mjs`
 
 ````javascript
@@ -28118,7 +28198,9 @@ export * from "./_core/errors";
 - [x] 驗證 `studio.restoreVersion` 與 `studio.setReferenceRole` 的 tRPC 真實整合行為，包含 active version、貼圖結果與參考圖接受狀態。
 - [x] 擴充桌面／Android 瀏覽器回歸，實際操作參考圖角色切換、版本回復與對話內貼圖成果操作。
 - [x] 完成 migration、單元／整合／手機瀏覽器回歸、production build 與安全掃描。
-- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並同步完整可執行原始碼到 `chat-first-studio`。
+- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並依使用者選擇同步完整可執行原始碼到新安全分支 `phase2-agent-router`（未改動既有 `chat-first-studio`）。
+- [ ] 將第二階段摘要固化至可提交的交接包產生器，重新生成交接包並驗證輸出不需手動修補。
+- [ ] 驗證 GitHub 新安全分支上的 README 與交接包內容為最新且可讀取。
 
 ````
 
@@ -28372,6 +28454,6 @@ export default defineConfig({
 
 ````
 
-## 9. 交接結論
+## 6. 交接結論
 
-此版本已從多欄精靈重構為對話優先、手機優先的可保存 LINE 貼圖工作室。本輪新增角色錨點與參考圖保存、Gemini interaction checkpoint、指定修改的 paused_quota 續作，以及可檢查安全邊距的繁中 LINE 文字品質報告。程式已完整處理外部額度中斷；目前外部 AI 服務的 429／412 是供應端可用量狀態，不是前端、資料庫、續作或輸出流程的阻塞錯誤。請以本文件的架構文件、README、測試與原始碼為後續實作依據。
+此版本已升級為對話優先、手機優先、可保存的 AI LINE 貼圖 Agent 工作室。第二階段新增可追溯多模型 Router、角色／姿勢／風格 Anchor、版本回復、品質檢查、Agent 工作事件和對話內成果操作。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、測試與原始碼作為後續實作依據。

@@ -102,4 +102,6 @@
 - [x] 驗證 `studio.restoreVersion` 與 `studio.setReferenceRole` 的 tRPC 真實整合行為，包含 active version、貼圖結果與參考圖接受狀態。
 - [x] 擴充桌面／Android 瀏覽器回歸，實際操作參考圖角色切換、版本回復與對話內貼圖成果操作。
 - [x] 完成 migration、單元／整合／手機瀏覽器回歸、production build 與安全掃描。
-- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並同步完整可執行原始碼到 `chat-first-studio`。
+- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並依使用者選擇同步完整可執行原始碼到新安全分支 `phase2-agent-router`（未改動既有 `chat-first-studio`）。
+- [ ] 將第二階段摘要固化至可提交的交接包產生器，重新生成交接包並驗證輸出不需手動修補。
+- [ ] 驗證 GitHub 新安全分支上的 README 與交接包內容為最新且可讀取。
