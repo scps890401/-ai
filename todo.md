@@ -105,3 +105,26 @@
 - [x] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並依使用者選擇同步完整可執行原始碼到新安全分支 `phase2-agent-router`（未改動既有 `chat-first-studio`）。
 - [x] 將第二階段摘要固化至可提交的交接包產生器，重新生成交接包並驗證輸出不需手動修補。
 - [x] 驗證 GitHub 新安全分支上的 README 與交接包內容為最新且可讀取。
+
+# 第三階段：AI 核心能力升級
+
+- [x] 盤點 Gemini、GPT Image、FLUX 與既有 Router 的實際可接通能力、憑證與限制，明確標示已實作／部分實作／未實作。
+- [x] 建立統一 Provider Adapter 契約（generate、edit、analyze、healthCheck）與實際 Gemini／GPT 實作，為未設定的 FLUX 保留明確 disabled adapter。
+- [x] 讓 Model Router 依任務、參考圖、文字、數量、速度／成本偏好與 Provider health／quota 自動決策，保存選擇與受限 fallback 原因。
+- [x] 強化 Image Editing Agent，支援角色／姿勢／場景／目前圖語意角色、Character／Style Anchor 優先序與單張／整套自然語言修改。
+- [x] 實作可測試的 Generate → Quality Check → 有限 Fix／Retry → Check 工作流，回傳 pass／fail、reason、suggestedFix，並保留 LINE 文字後製作為可靠策略。
+- [x] 實作並測試整套貼圖的自然語言修改流程（例如「全部變可愛一點」「全部去背」），讓 Agent 僅對需要更新的貼圖建立 edit jobs、保存各自版本與狀態。
+- [x] 為整套修改新增 tRPC／Studio 整合測試，驗證未指定張數時會批次排程修改且不影響其他任務。
+- [x] 為整套修改加入可驗證目標篩選規則，並測試「全部去背」在部分貼圖已符合透明條件時只排程必要項目。
+- [x] 測試整套修改與 queued／retrying／paused_quota 的其他任務並存時，不會誤改、重排或吞掉非目標任務狀態。
+- [x] 為 `sendMessage` 新增整套自然語言修改整合測試，驗證「全部變可愛一點／全部去背」會產生 `edit_pack`、建立對應 edit jobs，並可由 `runPending` 自動續跑。
+- [x] 新增整套修改與 `queued`、`retrying` 生成任務並存的整合測試，確認非目標任務狀態會完整保留且不被重排。
+- [x] 為 `sendMessage` 補上「全部去背，背景改透明」整合測試，驗證 assistant intent／reply、僅排程透明檢查未通過項目、pack scope checkpoint 與非目標不建立 edit job。
+- [x] 建立公開唯讀 `/preview`、`/preview/inspection` 與明確標示的 Demo Mode，安全展示聊天、上傳、規劃、進度、版本、修改與輸出 UI，不呼叫真實 API 或暴露私人資料。
+- [x] 在 `/preview` 補上明確的唯讀上傳示範 UI（附件按鈕、示範檔案列、HEIC／多圖標示），但保持不實際上傳與不呼叫 API。
+- [x] 擴充 Preview 回歸腳本，驗證桌面與 Android 都可見聊天、上傳、規劃、進度、版本、修改與輸出全流程示範。
+- [x] 完善 Chat-first／Android 介面，以精簡操作呈現 Agent 狀態、8／16／24／32／40 規劃、圖片結果、修改、版本與 LINE Preflight。
+- [x] 在主 Chat-first／Android 工作室加入明確 LINE Preflight 摘要，顯示 PNG 尺寸、透明背景、安全邊距、繁中後製與可匯出狀態。
+- [x] 擴充主工作室桌面／Android 回歸，明確驗證 24／32／40 張快捷規劃、Provider health 與 LINE Preflight 區塊均可見且可操作。
+- [x] 確認第三階段未變更資料 schema、無需 migration；增加 Provider／fallback／品質修正／Preview／Demo／秘密掃描的自動測試，並完成全套測試、production build、桌面與 Android 回歸。
+- [ ] 更新 README、Provider／Anchor／品質／Preview 文件、安全交接包與 GitHub 同步紀錄；若 `chat-first-studio` 再次分岔，先徵求使用者選擇安全整合方式。

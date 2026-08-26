@@ -13,7 +13,7 @@ let referenceUpdates = 0;
 let versionRestores = 0;
 const consoleErrors = [];
 
-const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: true, outputReady: true }), planJson: null, updatedAt: new Date().toISOString() }));
+const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: true, touchesCanvasEdge: false, outputReady: true }), planJson: null, updatedAt: new Date().toISOString() }));
 const jobs = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, scriptId: index + 1, kind: "generate", status: generated || index < 2 ? "completed" : "queued", attempt: 0, provider: "gemini-3.1-flash-image", errorCode: null, errorMessage: null, checkpointJson: null, routerJson: JSON.stringify({ selectedProvider: "gemini-3.1-flash-image" }), qualityReportJson: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
 const studio = () => sent ? {
   project: { id: 1, projectKey, title: "橘貓店長日常貼圖", brief: "幫我把橘貓做成 8 張可愛貼圖", characterProfile: "橘貓店長，圓眼睛，深藍圍裙", style: "可愛", stickerCount: 8, status: "generating", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
@@ -29,7 +29,11 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 await page.route("**/api/trpc/**", async (route) => {
   const url = route.request().url();
-  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.setReferenceRole") ? (referenceUpdates += 1, { id: 90, projectId: 1, url: image, role: "pose", accepted: false }) : url.includes("studio.restoreVersion") ? (versionRestores += 1, { position: 1, url: image, version: 1, status: "completed" }) : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
+  if (url.includes("studio.get") && url.includes("studio.providerHealth")) {
+    const health = { "gemini-3.1-flash-image": { status: "healthy" }, "gpt-image-2": { status: "healthy" }, "flux-2": { status: "disabled" } };
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ result: { data: { json: studio() } } }, { result: { data: { json: health } } }]) });
+  }
+  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.setReferenceRole") ? (referenceUpdates += 1, { id: 90, projectId: 1, url: image, role: "pose", accepted: false }) : url.includes("studio.restoreVersion") ? (versionRestores += 1, { position: 1, url: image, version: 1, status: "completed" }) : url.includes("studio.providerHealth") ? { "gemini-3.1-flash-image": { status: "healthy" }, "gpt-image-2": { status: "healthy" }, "flux-2": { status: "disabled" } } : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
   if (data === null) return route.continue();
   return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ result: { data: { json: data } } }]) });
 });
@@ -43,6 +47,12 @@ try {
   await page.getByText("第 1 張 · 早安").waitFor();
   await page.getByText("AGENT WORKSPACE").waitFor();
   await page.getByText("參考圖錨點").waitFor();
+  await page.getByText("LINE PREFLIGHT").waitFor();
+  await page.getByText("PNG 370 × 320（輸出時）").waitFor();
+  await page.getByText("Gemini · 可用").waitFor();
+  await page.getByRole("button", { name: "24 張" }).waitFor();
+  await page.getByRole("button", { name: "32 張" }).waitFor();
+  await page.getByRole("button", { name: "40 張" }).waitFor();
   await page.getByText("Gemini · 透明已檢查").first().waitFor();
   await page.locator(".agent-result-strip").waitFor();
   const taskCount = await page.locator(".sticker-task").count();

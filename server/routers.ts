@@ -9,6 +9,7 @@ import { generateImage } from "./_core/imageGeneration";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { addStickerExport, addStickerReference, addStickerScript, addStickerVersion, createStickerProject, getStickerProject, getDb, getStickerStudio, updateStickerScript } from "./db";
+import { getProviderHealthSnapshot } from "./imageProviders";
 import { renderLinePack, renderLineSticker } from "./lineExport";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { publicProcedure, router } from "./_core/trpc";
@@ -157,6 +158,7 @@ export const appRouter = router({
   }),
   studio: router({
     get: publicProcedure.input(z.object({ projectKey: z.string().min(1) })).query(({ input }) => getStickerStudio(input.projectKey)),
+    providerHealth: publicProcedure.query(async () => getProviderHealthSnapshot()),
     sendMessage: publicProcedure.input(z.object({ projectKey: z.string().min(1).optional(), content: z.string().min(1).max(4000), attachments: z.array(z.object({ dataUrl: z.string().min(32), fileName: z.string().min(1).max(255), mimeType: z.string().min(1).max(120) })).max(10).default([]) })).mutation(async ({ input }) => {
       const { sendStudioMessage } = await import("./studio");
       return sendStudioMessage(input);
@@ -173,11 +175,15 @@ export const appRouter = router({
       const { editStudioSticker } = await import("./studio");
       return editStudioSticker(input);
     }),
+    editPack: publicProcedure.input(z.object({ projectKey: z.string().min(1), instruction: z.string().min(2).max(500) })).mutation(async ({ input }) => {
+      const { queueStudioPackEdit } = await import("./studio");
+      return queueStudioPackEdit(input);
+    }),
     restoreVersion: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40), versionId: z.number().int().positive() })).mutation(async ({ input }) => {
       const { restoreStudioStickerVersion } = await import("./studio");
       return restoreStudioStickerVersion(input);
     }),
-    setReferenceRole: publicProcedure.input(z.object({ projectKey: z.string().min(1), referenceId: z.number().int().positive(), role: z.enum(["character", "pose", "style", "accepted_character", "accepted_style", "current_edit"]), accepted: z.boolean().default(false) })).mutation(async ({ input }) => {
+    setReferenceRole: publicProcedure.input(z.object({ projectKey: z.string().min(1), referenceId: z.number().int().positive(), role: z.enum(["character", "pose", "scene", "style", "accepted_character", "accepted_style", "current_edit"]), accepted: z.boolean().default(false) })).mutation(async ({ input }) => {
       const { setStudioReferenceRole } = await import("./studio");
       return setStudioReferenceRole(input);
     }),

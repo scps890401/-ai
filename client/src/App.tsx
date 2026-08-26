@@ -5,12 +5,23 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Preview from "./pages/Preview";
+
+function PreviewPage() {
+  return <Preview />;
+}
+
+function PreviewInspection() {
+  return <Preview inspection />;
+}
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/preview"} component={PreviewPage} />
+      <Route path={"/preview/inspection"} component={PreviewInspection} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

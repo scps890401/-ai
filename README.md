@@ -11,10 +11,15 @@
 | 角色一致性 | Gemini 3.1 Flash Image 作為多參考角色生成的優先提供者；GPT Image 2 作為語意去背、單張修改與後備。 |
 | 獨立貼圖任務 | 每張貼圖具獨立 `queued`、`generating`、`completed`、`failed`、`paused_quota` 狀態；重試第 3 張不影響其他張。 |
 | 中斷續作 | API 額度中斷時保存專案、對話、角色設定、初稿 checkpoint、任務狀態和已完成圖片；輸入「繼續製作」只續跑未完成工作。 |
-| Agent Model Router | 每張任務保存 Provider 候選、已嘗試歷程、參考圖快照、品質報告與 checkpoint。新生成優先 Gemini；單張編修優先 GPT Image；FLUX.2 僅作為尚未設定憑證的候選，不宣稱已啟用。 |
-| 參考圖與 Style Anchor | 上傳圖可被設為角色、已確認角色、姿勢或風格參考；已接受圖與畫風錨點會在後續任務中優先排序。 |
+| 統一 Provider Adapter | `generate`、`edit`、`analyze`、`healthCheck` 均透過同一伺服器端 Adapter 契約執行。Gemini 與 GPT Image 具實接；FLUX.2 因未設定使用者授權憑證而明確維持 `disabled`。 |
+| Agent Model Router | 每張任務保存 Provider health、候選、已嘗試歷程、參考圖快照、品質報告與 checkpoint。新生成優先 Gemini；修改與去背採 GPT Image／可用後備，只有可轉移錯誤才 fallback。 |
+| 參考圖與 Style Anchor | 上傳圖可被設為角色、已確認角色、姿勢、場景或風格參考；已接受圖與畫風錨點會在後續任務中優先排序。 |
+| 整套自然語言修改 | 「全部變可愛一點」與「全部去背，背景改透明」會建立獨立 edit job 與版本；透明已合格、或仍有 queued／retrying／paused 生成工作的貼圖不會被誤排程。 |
+| Quality Agent | 生成後檢查透明覆蓋、尺寸、安全邊距與文字長度，回傳 `pass`／`fail`、原因與建議。僅在確定性圖檔檢查失敗時執行一次安全 Fix → Recheck；臉部／肢體語意不會在未執行視覺模型時被誤標為已通過。 |
 | 版本回復 | 每次生成／重試／修改均保存不可覆蓋版本鏈、父版本、活動版本、Provider 與品質結果；可在聊天工作室回復單張舊版本。 |
 | 對話內工作狀態 | 聊天欄顯示 Agent 工作事件、最近成果、修改／下載快捷操作與規劃／續作按鈕；桌面與手機均保留獨立任務總覽。 |
+| LINE Preflight | 主工作室顯示 370×320 PNG、透明背景、10 px 安全邊距、繁中 SVG 後製與 ZIP 可匯出狀態。 |
+| 公開 Preview／Inspection | `/preview` 與 `/preview/inspection` 使用原創固定示範資料，展示聊天、唯讀附件／HEIC、多圖語意、規劃、版本、品質與輸出 UI；不呼叫 Studio API、不上傳檔案、不讀取私人專案。 |
 | 中文文字可靠性 | 圖像模型不負責最終中文字；伺服器端用 `Noto Sans CJK TC` SVG 後製，避免亂碼、錯字與文字截斷。 |
 | LINE 輸出 | 產生透明 PNG、主圖、聊天室縮圖與 ZIP；檢查 370×320、透明 alpha、偶數尺寸、單圖 1 MB、套組 60 MB 等規格。 |
 
@@ -24,7 +29,7 @@
 - **後端：** Express、tRPC 11、TypeScript。
 - **資料：** MySQL／Drizzle，保存專案、對話、附件、角色／風格 Anchor、貼圖腳本、Agent 事件、Router／品質工作紀錄、可回復版本和輸出紀錄。
 - **檔案：** S3；資料庫只保存檔案參照，不保存圖片 bytes。
-- **圖像：** Gemini Image API 生成角色初稿；GPT Image 2 去背與修改；Sharp 合成 PNG、驗證 alpha、後製 LINE 文字。
+- **圖像：** `server/imageProviders.ts` 將 Gemini Image API、GPT Image 2 與 disabled FLUX.2 接至共用 Provider Adapter；Sharp 合成 PNG、驗證 alpha、後製 LINE 文字。
 
 ## 本機啟動
 
@@ -52,7 +57,7 @@ Schema 位於 `drizzle/schema.ts`。產生 migration 後，必須先閱讀 SQL�
 pnpm drizzle-kit generate
 ```
 
-目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerStyleAnchors`、`stickerAgentEvents`、`stickerJobs`、`stickerExports`。第二階段 migration 為 `drizzle/0003_grey_sentinel.sql`，僅新增欄位／表格，未刪除既有資料。
+目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerStyleAnchors`、`stickerAgentEvents`、`stickerJobs`、`stickerExports`。第二階段 migration 為 `drizzle/0003_grey_sentinel.sql`，僅新增欄位／表格，未刪除既有資料。**第三階段未新增或變更資料 schema**：Provider health、Router、品質、Scene Reference 與整套修改皆保存於既有文字／JSON 欄位與 Agent 事件中，因此無需產生 migration。
 
 ## 測試與驗證
 
@@ -64,6 +69,8 @@ pnpm build
 # 瀏覽器回歸
 node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
+node scripts/verify-preview-demo.mjs
+VIEWPORT=mobile node scripts/verify-preview-demo.mjs
 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
 
@@ -72,7 +79,7 @@ STICKER_E2E_TEST_MODE=1 PORT=3001 NODE_ENV=development npx tsx server/_core/inde
 BASE_URL=http://localhost:3001 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-android-controlled-success.mjs
 ```
 
-HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳、額度暫停、Model Router、參考圖角色切換、版本 V1→V2→回復、對話內成果操作與 Android 手機回歸。
+HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改與整套修改、HEIC 多媒體上傳、額度暫停、Provider health／fallback、一次品質修正、參考圖角色／姿勢／場景／風格、版本 V1→V2→回復、對話內成果操作、公開 Preview／Inspection 的零 Studio API 呼叫，以及 Android 手機回歸。
 
 `STICKER_E2E_TEST_MODE=1` 是**僅供測試**的受控圖像提供者；它讓 Android 瀏覽器可驗證真實 UI、tRPC、資料庫、S3、修改與下載成功路徑，並不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
@@ -113,6 +120,8 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`research/chat-first-ui-visual-findings.md`](research/chat-first-ui-visual-findings.md)：桌面與 Android 初始視覺驗證結果。
 - [`research/phase-2-model-router-research.md`](research/phase-2-model-router-research.md)：Gemini、GPT Image、FLUX.2 的可部署邊界與 Router 決策。
 - [`docs/phase-2-agent-design.md`](docs/phase-2-agent-design.md)：Agent 資料模型、錯誤／fallback、品質、Anchor、版本與聊天室設計。
+- [`docs/phase-3-capability-audit.md`](docs/phase-3-capability-audit.md)：第三階段 Provider、Agent、品質、Preview 與安全驗收基線。
+- [`docs/phase-3-delivery.md`](docs/phase-3-delivery.md)：第三階段已交付能力、不可宣稱能力、無 migration 判斷、測試紀錄與真實 API 限制。
 
 ## 重要限制
 

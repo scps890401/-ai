@@ -3,20 +3,22 @@
 **建立日期：** 2026-08-26（GMT+8）
 **專案目錄：** `sticker-tycoon-replica`
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
-**GitHub 安全分支：** `phase2-agent-router`（不改動既有 `chat-first-studio` 與 `main`）
+**GitHub 安全分支基線：** `phase2-agent-router`（不改動既有 `chat-first-studio` 與 `main`；第三階段推送前必須重新確認遠端是否分岔。）
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
 ## 1. 產品目標與現在的使用方式
 
-產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。使用者可指定單張修改、設為角色／姿勢／風格參考、檢視版本並回復單張，或於聊天欄直接下載最近完成的成果。
+產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。使用者可指定單張或整套修改、設為角色／姿勢／場景／風格參考、檢視版本並回復單張，或於聊天欄直接下載最近完成的成果。另提供不連線 API 的 `/preview` 與 `/preview/inspection` 公開唯讀驗收展示。
 
 | 層面 | 現行做法 |
 | --- | --- |
 | 角色理解與規劃 | LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認角色設定不會被後續純文字對話覆寫；額度不足時改用可編輯備援腳本。 |
-| Agent Router | 每個任務保存 Provider 候選、參考快照、嘗試歷程、品質與 checkpoint。新生成優先 Gemini、單張編修優先 GPT Image；FLUX.2 僅列為未設定憑證的候選。 |
-| Anchor 與一致性 | 角色、已確認角色、姿勢、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
-| 圖像修改、品質與版本 | 透明 PNG 會寫入品質報告；生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
+| Provider Adapter 與 Router | Gemini 與 GPT Image 透過統一 `generate`／`edit`／`analyze`／`healthCheck` 契約執行；每個任務保存 health、候選、參考快照、嘗試與 checkpoint。FLUX.2 未有使用者授權憑證，明確保持 disabled。 |
+| Anchor 與一致性 | 角色、已確認角色、姿勢、場景、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
+| 圖像修改、品質與版本 | 品質 Agent 會檢查透明覆蓋、尺寸、邊界與文字長度，回傳 pass／fail／reason／suggestedFix；僅安全 Fix 一次再重檢。生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
+| 整套自然語言修改 | 「全部變可愛一點」與「全部去背」會建立每張獨立 edit job／版本，跳過已合格圖片與 queued／retrying／paused 生成工作。 |
+| 公開驗收 | Preview／Inspection 使用固定原創示範資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API；回歸腳本驗證此邊界。 |
 | 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
 | 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
 
@@ -26,30 +28,33 @@
 
 受控測試模式 `STICKER_E2E_TEST_MODE=1` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
-## 3. 第二階段研究、設計與驗證
+## 3. 第二、三階段研究、設計與驗證
 
 - `research/phase-2-model-router-research.md`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
 - `docs/phase-2-agent-design.md`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
 - `drizzle/0003_grey_sentinel.sql`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
+- `docs/phase-3-capability-audit.md`、`docs/phase-3-delivery.md`：Provider 可用性、Adapter、Quality Fix、Preview、已知限制與交付驗收。
+- 第三階段未變更 Drizzle schema；Router／品質／pack scope／scene role 使用既有文字與 JSON 欄位、Agent events 保存，故不需 migration。
 
 | 驗證 | 結果 |
 | --- | --- |
 | `pnpm check` | 通過。 |
-| `pnpm test` | 通過；19 項單元／整合測試，覆蓋 Router、品質、角色 Anchor、quota resume、參考圖角色、版本 V1→V2→回復、LINE PNG／ZIP。 |
+| `pnpm test` | 通過；33 項單元／整合測試，覆蓋 Provider Adapter、FLUX disabled、health／quota fallback、Quality Fix、角色／姿勢／場景／風格 Anchor、整套修改、queued／retrying／paused 保留、版本與 LINE PNG／ZIP。 |
 | `pnpm build` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
-| 桌面與 Android Playwright | 通過：8 任務、reload、對話內成果、參考圖姿勢切換、版本回復、指定修改、LINE ZIP，且無 console error。 |
+| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC 示範與零 Studio API 呼叫。 |
 | 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
 
 ## 4. 給下一位 AI／工程師的優先事項
 
-1. 外部額度恢復後，以有權使用的人物／寵物素材重跑真實影像端到端，人工審查角色一致性、透明邊緣與指定修改差異。
+1. 外部額度恢復後，以有權使用的人物／寵物素材重跑真實多圖端到端，人工審查角色一致性、透明邊緣、臉部／肢體及指定修改差異。
 2. 保存 Provider 的 Retry-After／request ID，將短暫 rate limit 與需等待的 quota／billing 狀態進一步區分。
 3. 針對前端大型 chunk 做 code splitting，尤其是 HEIC 與 Streamdown 相關模組。
 4. 保持 AI 對話為唯一主要入口；不可偽造評價、星等、測試者或使用者見證。
+5. 每次 GitHub 同步前先比較遠端分支；若 `chat-first-studio` 分岔，必須徵求使用者選擇安全合併或新分支，絕不 force push。
 
 ## 5. 可分享原始碼與設定
 
-本章收錄 159 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
+本章收錄 167 個文字檔；密鑰、二進位資料、使用者素材、測試結果與建置產物均已排除。
 
 ### `.gitignore`
 
@@ -207,8 +212,8 @@ research-gemini-video.txt
 
 ````json
 {
-  "timestamp": 1787719354557,
-  "version": "eb4dca61"
+  "timestamp": 1787736792512,
+  "version": "abb9cebb"
 }
 ````
 
@@ -326,12 +331,23 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Preview from "./pages/Preview";
+
+function PreviewPage() {
+  return <Preview />;
+}
+
+function PreviewInspection() {
+  return <Preview inspection />;
+}
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/preview"} component={PreviewPage} />
+      <Route path={"/preview/inspection"} component={PreviewInspection} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
@@ -368,13 +384,15 @@ export default App;
 
 ````css
 .chat-studio-shell{min-height:100svh;background:radial-gradient(circle at 90% 0,rgba(31,126,181,.27),transparent 32rem),linear-gradient(135deg,#061325,#0a2542 52%,#071527);color:#edf8ff}
-.chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;padding:0 clamp(18px,4vw,58px);border-bottom:1px solid rgba(130,195,229,.14);background:rgba(6,18,35,.74);backdrop-filter:blur(16px);position:sticky;top:0;z-index:20}.chat-brand{display:flex;gap:10px;align-items:center}.brand-spark{display:grid;place-items:center;width:35px;height:35px;color:#071426;border-radius:11px;background:linear-gradient(135deg,var(--cyan),var(--violet))}.chat-brand div{display:grid;gap:2px}.chat-brand strong{font-size:15px}.chat-brand small{color:#91abc0;font-size:10px;letter-spacing:.04em}.project-chip{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 9px 7px 12px;border:1px solid rgba(106,197,237,.2);border-radius:12px;background:rgba(10,39,66,.56);font-size:11px}.project-chip span{color:#7c9cb3}.project-chip strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-chip button{color:#91e6f8;background:rgba(57,178,211,.13);border-radius:7px;padding:4px 6px;cursor:pointer;font:10px 'Space Grotesk',sans-serif}
+.chat-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;padding:0 clamp(18px,4vw,58px);border-bottom:1px solid rgba(130,195,229,.14);background:rgba(6,18,35,.74);backdrop-filter:blur(16px);position:sticky;top:0;z-index:20}.chat-brand{display:flex;gap:10px;align-items:center}.brand-spark{display:grid;place-items:center;width:35px;height:35px;color:#071426;border-radius:11px;background:linear-gradient(135deg,var(--cyan),var(--violet))}.chat-brand div{display:grid;gap:2px}.chat-brand strong{font-size:15px}.chat-brand small{color:#91abc0;font-size:10px;letter-spacing:.04em}.topbar-actions{display:flex;align-items:center;gap:8px;min-width:0}.preview-link{padding:6px 8px;color:#91eafb;border:1px solid rgba(93,218,240,.22);border-radius:8px;background:rgba(55,163,190,.1);font:10px 'Space Grotesk',sans-serif;text-decoration:none}.project-chip{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 9px 7px 12px;border:1px solid rgba(106,197,237,.2);border-radius:12px;background:rgba(10,39,66,.56);font-size:11px}.project-chip span{color:#7c9cb3}.project-chip strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-chip button{color:#91e6f8;background:rgba(57,178,211,.13);border-radius:7px;padding:4px 6px;cursor:pointer;font:10px 'Space Grotesk',sans-serif}
 .chat-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(310px,390px);width:min(1320px,100%);min-height:calc(100svh - 68px);margin:0 auto}.conversation-column{display:flex;flex-direction:column;min-width:0;padding:clamp(22px,4vw,54px) clamp(18px,5vw,72px) 26px;border-right:1px solid rgba(128,191,224,.12)}.chat-welcome{max-width:780px;margin:auto 0}.chat-welcome h1{max-width:650px;margin:14px 0;color:#f5fbff;font-size:clamp(40px,5.6vw,72px);line-height:1.07;letter-spacing:-.065em}.chat-welcome p{max-width:620px;margin:0;color:#adc2d5;font-size:15px;line-height:1.9}.eyebrow{color:#7fe4f7;font-size:10px;letter-spacing:.11em}.suggestion-list{display:grid;gap:9px;max-width:590px;margin-top:32px}.suggestion-list button{display:flex;align-items:center;gap:10px;padding:13px 15px;color:#c9dce9;text-align:left;border:1px solid rgba(111,185,222,.18);border-radius:15px;background:rgba(12,42,70,.45);cursor:pointer;transition:transform .18s ease,border-color .18s ease}.suggestion-list button svg{color:var(--cyan)}.suggestion-list button:hover{border-color:rgba(51,212,246,.6);transform:translateX(3px)}
 .message-list{display:grid;gap:20px;max-width:820px;width:100%;margin:0 auto auto}.chat-message{display:flex;gap:10px;align-items:flex-start}.chat-message.user{flex-direction:row-reverse}.message-avatar{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;border-radius:10px;color:#072039;background:linear-gradient(135deg,#82e8f9,#987cff);font-size:11px;font-weight:800}.chat-message.user .message-avatar{color:#d8e9f4;background:#1a3d60}.message-content{max-width:min(88%,650px);padding:12px 14px;border:1px solid rgba(120,188,224,.16);border-radius:5px 16px 16px;background:rgba(12,42,71,.6);color:#e6f2fb;font-size:13px;line-height:1.7}.chat-message.user .message-content{border-radius:16px 5px 16px 16px;background:linear-gradient(135deg,rgba(33,124,156,.78),rgba(45,69,137,.77))}.message-content p{margin:0}.message-content .prose{color:inherit}.message-attachments{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.message-attachments img{width:66px;height:66px;object-fit:cover;border:1px solid rgba(166,226,249,.28);border-radius:9px}.message-attachments span{display:inline-flex;align-items:center;gap:5px;padding:6px 8px;color:#aeeaf7;background:rgba(6,20,38,.4);border-radius:8px;font-size:10px}
 .agent-inline-card{width:100%;max-width:820px;margin:18px auto 0;padding:14px;border:1px solid rgba(95,206,240,.2);border-radius:17px;background:linear-gradient(135deg,rgba(16,57,87,.64),rgba(37,28,94,.4));box-shadow:0 14px 32px rgba(0,0,0,.14)}.agent-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.agent-card-head>div{display:grid;gap:4px}.agent-card-head strong{font-size:14px;letter-spacing:-.02em}.agent-card-head>svg{color:#89e9fb}.agent-card-copy{margin:11px 0 0;color:#a9c0d0;font-size:12px;line-height:1.6}.agent-events{display:grid;gap:6px;margin-top:11px}.agent-event{display:flex;align-items:flex-start;gap:8px;color:#b7ccda;font-size:11px;line-height:1.45}.agent-event i{width:7px;height:7px;flex:0 0 7px;margin-top:5px;border-radius:50%;background:#7996a8}.agent-event.working i{background:#7fe6fa;box-shadow:0 0 0 4px rgba(91,221,246,.11)}.agent-event.completed i{background:#87dfad}.agent-event.paused_quota i,.agent-event.failed i{background:#ffcb78}.agent-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.agent-quick-actions button{display:inline-flex;align-items:center;gap:5px;padding:7px 8px;color:#c5edf5;border:1px solid rgba(118,211,236,.2);border-radius:8px;background:rgba(5,25,45,.3);cursor:pointer;font-size:10px}.agent-quick-actions button:hover{border-color:rgba(112,231,251,.55);background:rgba(58,153,194,.13)}.agent-quick-actions button:disabled{opacity:.4;cursor:not-allowed}
+.agent-inline-card{width:100%;max-width:820px;margin:18px auto 0;padding:14px;border:1px solid rgba(95,206,240,.2);border-radius:17px;background:linear-gradient(135deg,rgba(16,57,87,.64),rgba(37,28,94,.4));box-shadow:0 14px 32px rgba(0,0,0,.14)}.agent-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.agent-card-head>div{display:grid;gap:4px}.agent-card-head strong{font-size:14px;letter-spacing:-.02em}.agent-card-head>svg{color:#89e9fb}.provider-health{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}.provider-health span{padding:4px 6px;color:#8faec1;border:1px solid rgba(125,194,224,.14);border-radius:6px;background:rgba(4,22,39,.32);font:9px 'Space Grotesk',sans-serif}.provider-health span.healthy{color:#91efbf}.provider-health span.quota_exhausted{color:#ffcf7b}.provider-health span.disabled{color:#7794a6}.agent-card-copy{margin:11px 0 0;color:#a9c0d0;font-size:12px;line-height:1.6}.agent-events{display:grid;gap:6px;margin-top:11px}.agent-event{display:flex;align-items:flex-start;gap:8px;color:#b7ccda;font-size:11px;line-height:1.45}.agent-event i{width:7px;height:7px;flex:0 0 7px;margin-top:5px;border-radius:50%;background:#7996a8}.agent-event.working i{background:#7fe6fa;box-shadow:0 0 0 4px rgba(91,221,246,.11)}.agent-event.completed i{background:#87dfad}.agent-event.paused_quota i,.agent-event.failed i{background:#ffcb78}.agent-quick-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.agent-quick-actions button{display:inline-flex;align-items:center;gap:5px;padding:7px 8px;color:#c5edf5;border:1px solid rgba(118,211,236,.2);border-radius:8px;background:rgba(5,25,45,.3);cursor:pointer;font-size:10px}.agent-quick-actions button:hover{border-color:rgba(112,231,251,.55);background:rgba(58,153,194,.13)}.agent-quick-actions button:disabled{opacity:.4;cursor:not-allowed}
 .agent-result-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}.agent-result-strip article{display:grid;grid-template-columns:38px minmax(0,1fr);gap:6px;align-items:center;min-width:0;padding:5px;border:1px solid rgba(120,209,237,.14);border-radius:9px;background:rgba(4,24,44,.34)}.agent-result-strip img{width:38px;height:38px;object-fit:contain;border-radius:6px;background:repeating-conic-gradient(#163750 0 25%,#0e2a44 0 50%) 50%/10px 10px}.agent-result-strip strong{display:block;overflow:hidden;color:#cbeefa;text-overflow:ellipsis;white-space:nowrap;font-size:9px}.agent-result-strip span{display:flex;gap:4px;margin-top:3px}.agent-result-strip button{padding:2px 4px;color:#90ddeb;border:1px solid rgba(122,212,239,.15);border-radius:4px;background:rgba(2,16,31,.32);cursor:pointer;font-size:8px}.agent-result-strip button:disabled{opacity:.4;cursor:not-allowed}
 .composer-wrap{width:100%;max-width:820px;margin:28px auto 0}.queued-files{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}.queued-file{display:flex;align-items:center;gap:6px;max-width:180px;padding:5px 7px 5px 5px;border:1px solid rgba(111,197,231,.22);border-radius:10px;background:rgba(11,45,71,.76);font-size:10px}.queued-file img{width:24px;height:24px;border-radius:6px;object-fit:cover}.queued-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queued-file button{display:grid;place-items:center;margin-left:auto;padding:2px;color:#9cb8c9;background:transparent;cursor:pointer}.composer{display:flex;align-items:flex-end;gap:8px;padding:9px;border:1px solid rgba(97,193,231,.34);border-radius:20px;background:rgba(4,20,38,.83);box-shadow:0 16px 38px rgba(0,0,0,.2)}.attach-button{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;color:#8ee7fb;border-radius:11px;background:rgba(42,145,180,.18);cursor:pointer}.attach-button input{display:none}.composer textarea{flex:1;max-height:150px;min-height:38px;padding:8px 1px;resize:none;color:#edf8ff;border:0;outline:0;background:transparent;font-size:13px;line-height:1.5}.composer textarea::placeholder{color:#718ea5}.send-button{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;color:#071426;border-radius:12px;background:linear-gradient(135deg,var(--cyan),var(--violet));cursor:pointer}.send-button:disabled{opacity:.45;cursor:not-allowed}.composer-wrap>small{display:block;margin:8px 9px 0;color:#7695ab;font-size:10px;line-height:1.45}
 .task-panel{padding:29px 18px 26px;background:linear-gradient(180deg,rgba(7,25,45,.72),rgba(7,19,35,.86))}.task-panel-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin:0 6px 18px}.task-panel-head h2{margin:7px 0 0;font-size:21px;letter-spacing:-.04em}.panel-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.continue-button{display:inline-flex;align-items:center;gap:5px;margin-top:2px;padding:8px 10px;color:#d1f9ff;border:1px solid rgba(75,214,244,.35);border-radius:10px;background:rgba(39,150,185,.12);cursor:pointer;font-size:11px}.continue-button:disabled{opacity:.45}.panel-loading,.task-empty{display:grid;place-items:center;gap:9px;min-height:220px;padding:22px;color:#8aa5b9;text-align:center;border:1px dashed rgba(110,187,224,.18);border-radius:18px;font-size:12px}.task-empty svg{color:var(--cyan)}.task-empty strong{color:#d7e9f5;font-size:14px}.task-empty span{line-height:1.6}
+.task-panel{padding:29px 18px 26px;background:linear-gradient(180deg,rgba(7,25,45,.72),rgba(7,19,35,.86))}.task-panel-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin:0 6px 18px}.task-panel-head h2{margin:7px 0 0;font-size:21px;letter-spacing:-.04em}.panel-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.continue-button{display:inline-flex;align-items:center;gap:5px;margin-top:2px;padding:8px 10px;color:#d1f9ff;border:1px solid rgba(75,214,244,.35);border-radius:10px;background:rgba(39,150,185,.12);cursor:pointer;font-size:11px}.continue-button:disabled{opacity:.45}.main-preflight{margin:0 6px 16px;padding:11px;border:1px solid rgba(111,227,210,.18);border-radius:13px;background:linear-gradient(135deg,rgba(8,73,75,.25),rgba(10,34,56,.42))}.main-preflight>div{display:flex;justify-content:space-between;gap:7px;align-items:center;margin-bottom:7px}.main-preflight strong{color:#9defc6;font-size:10px}.main-preflight p{display:flex;align-items:center;gap:5px;margin:5px 0;color:#9bb9c8;font-size:10px}.main-preflight p svg{color:#77d9ac}.main-preflight p.pending svg{color:#ffcf7b}.panel-loading,.task-empty{display:grid;place-items:center;gap:9px;min-height:220px;padding:22px;color:#8aa5b9;text-align:center;border:1px dashed rgba(110,187,224,.18);border-radius:18px;font-size:12px}.task-empty svg{color:var(--cyan)}.task-empty strong{color:#d7e9f5;font-size:14px}.task-empty span{line-height:1.6}
 .reference-tray{margin:0 6px 16px;padding:10px;border:1px solid rgba(109,193,229,.14);border-radius:13px;background:rgba(5,24,42,.32)}.reference-tray-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;color:#d7eff8;font-size:11px}.reference-tray-head small{color:#7797aa;font-size:9px}.reference-list{display:grid;gap:7px}.reference-card{display:grid;grid-template-columns:38px minmax(0,1fr);gap:8px;align-items:center;padding:5px;border-radius:9px;background:rgba(16,48,74,.48)}.reference-card img{width:38px;height:38px;border-radius:7px;object-fit:cover}.reference-card strong{display:block;color:#b9e5ef;font-size:10px}.reference-card.accepted_character strong{color:#9bf0c4}.reference-actions{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}.reference-actions button{padding:3px 4px;color:#8fcadd;border:1px solid rgba(105,196,228,.16);border-radius:5px;background:rgba(3,17,32,.35);cursor:pointer;font-size:8px}.reference-actions button:disabled{opacity:.4;cursor:not-allowed}
 .task-grid{display:grid;gap:10px}.sticker-task{display:grid;grid-template-columns:88px minmax(0,1fr);overflow:hidden;border:1px solid rgba(105,180,221,.16);border-radius:15px;background:rgba(12,42,69,.58)}.task-image{position:relative;display:grid;place-items:center;min-height:88px;overflow:hidden;background:repeating-conic-gradient(#163750 0 25%,#0e2a44 0 50%) 50%/16px 16px}.task-image>span{color:#7ca6bf;font:700 22px 'Space Grotesk',sans-serif}.task-image img{width:100%;height:100%;object-fit:contain}.task-status{position:absolute;right:5px;bottom:5px;padding:3px 5px;color:#c5d8e5;border-radius:6px;background:rgba(3,15,29,.78);font-style:normal;font-size:9px}.task-status.completed,.task-status.ready{color:#9cf0c6}.task-status.paused_quota,.task-status.failed,.task-status.error{color:#ffcf7b}.task-status.generating,.task-status.retrying,.task-status.removing_background{color:#94eafd}.task-meta{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:10px}.task-meta small{color:#89a8bd;font-size:10px}.task-meta strong{overflow:hidden;max-width:100%;color:#edf8ff;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.task-router{overflow:hidden;max-width:100%;color:#78b9cd;text-overflow:ellipsis;white-space:nowrap;font-size:9px}.task-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:auto;padding-top:6px}.task-actions button{display:inline-flex;align-items:center;gap:4px;padding:5px 6px;color:#aee9f6;border:1px solid rgba(108,194,225,.16);border-radius:7px;background:rgba(5,24,43,.45);cursor:pointer;font-size:9px}.task-actions button:disabled{opacity:.36;cursor:not-allowed}.version-rail{display:flex;flex-wrap:wrap;gap:4px;width:100%;padding-top:7px}.version-rail button{padding:4px 5px;color:#a9dbe7;border:1px solid rgba(123,200,224,.18);border-radius:6px;background:rgba(4,21,38,.45);cursor:pointer;font-size:8px}.version-rail button.active{color:#93eec0;border-color:rgba(102,224,166,.36);cursor:default}.version-rail button:disabled{opacity:.56}
 .toast{position:fixed;right:18px;bottom:18px;z-index:30;display:flex;align-items:center;gap:7px;max-width:min(420px,calc(100vw - 36px));padding:11px 13px;color:#d9f8ff;border:1px solid rgba(105,227,248,.34);border-radius:12px;background:rgba(5,28,48,.94);box-shadow:0 16px 38px rgba(0,0,0,.3);font-size:12px}.toast svg{color:#86efff}.spin{animation:chat-spin 1s linear infinite}@keyframes chat-spin{to{transform:rotate(360deg)}}
@@ -9709,6 +9727,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Download, History, ImagePlus, Loader2, Paperclip, Play, RefreshCw, Send, Sparkles, WandSparkles, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { trpc } from "@/lib/trpc";
+import { Link } from "wouter";
 import "../chat-studio.css";
 import "../line-export.css";
 
@@ -9772,6 +9791,7 @@ export default function Home() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const studio = trpc.studio.get.useQuery({ projectKey: projectKey || "no-project" }, { enabled: Boolean(projectKey), refetchInterval: projectKey ? 8_000 : false });
+  const providerHealth = trpc.studio.providerHealth.useQuery(undefined, { staleTime: 30_000, refetchInterval: projectKey ? 45_000 : false });
   const sendMessage = trpc.studio.sendMessage.useMutation();
   const runPending = trpc.studio.runPending.useMutation();
   const retrySticker = trpc.studio.retrySticker.useMutation();
@@ -9849,12 +9869,12 @@ export default function Home() {
     if (!projectKey || busy) return;
     try { const result = await restoreVersion.mutateAsync({ projectKey, position, versionId }); await refreshStudio(); setVersionInspector(null); toast(`第 ${position} 張已回復至 V${result.version}。`); } catch (error) { toast(error instanceof Error ? error.message : "版本回復失敗"); }
   };
-  const classifyReference = async (referenceId: number, role: "accepted_character" | "pose" | "style") => {
+  const classifyReference = async (referenceId: number, role: "accepted_character" | "pose" | "scene" | "style") => {
     if (!projectKey || busy) return;
     try {
       await setReferenceRole.mutateAsync({ projectKey, referenceId, role, accepted: role === "accepted_character" });
       await refreshStudio();
-      toast(role === "pose" ? "已設為姿勢參考。" : role === "style" ? "已設為風格參考。" : "已設為已確認角色參考。 ");
+      toast(role === "pose" ? "已設為姿勢參考。" : role === "scene" ? "已設為場景參考。" : role === "style" ? "已設為風格參考。" : "已設為已確認角色參考。 ");
     } catch (error) { toast(error instanceof Error ? error.message : "參考圖設定失敗"); }
   };
   const download = async (url: string, fileName: string) => {
@@ -9881,23 +9901,32 @@ export default function Home() {
   const quickPlan = (count: number) => void submit(`請依照目前角色設定，規劃 ${count} 張不重複的繁體中文 LINE 貼圖並開始製作。`);
   const completedCount = studio.data?.scripts.filter((script) => Boolean(script.resultUrl)).length ?? 0;
   const recentResults = studio.data?.scripts.filter((script) => Boolean(script.resultUrl)).slice(-3) ?? [];
+  const preflight = useMemo(() => {
+    const scripts = studio.data?.scripts ?? [];
+    const quality = scripts.map((script) => parseJson(script.qualityReport));
+    const transparentPassed = quality.filter((report) => report.alphaVerified === true).length;
+    const safeMarginPassed = quality.filter((report) => report.touchesCanvasEdge === false).length;
+    return { total: scripts.length, completed: scripts.filter((script) => Boolean(script.resultUrl)).length, transparentPassed, safeMarginPassed, exportReady: scripts.length > 0 && scripts.every((script) => Boolean(script.resultUrl)) };
+  }, [studio.data?.scripts]);
 
   return <main className="chat-studio-shell">
     {notice && <div className="toast"><Sparkles size={15} />{notice}</div>}
-    <header className="chat-topbar"><div className="chat-brand"><span className="brand-spark"><Sparkles size={17} /></span><div><strong>貼圖大亨</strong><small>AI LINE 貼圖工作室</small></div></div>{project && <div className="project-chip"><span>專案</span><strong>{project.title}</strong><button onClick={() => { navigator.clipboard.writeText(project.projectKey); toast("專案代碼已複製，可在其他裝置續作"); }}>{project.projectKey}</button></div>}</header>
+    <header className="chat-topbar"><div className="chat-brand"><span className="brand-spark"><Sparkles size={17} /></span><div><strong>貼圖大亨</strong><small>AI LINE 貼圖工作室</small></div></div><div className="topbar-actions"><Link href="/preview" className="preview-link">Preview</Link>{project && <div className="project-chip"><span>專案</span><strong>{project.title}</strong><button onClick={() => { navigator.clipboard.writeText(project.projectKey); toast("專案代碼已複製，可在其他裝置續作"); }}>{project.projectKey}</button></div>}</div></header>
     <section className="chat-layout">
       <div className="conversation-column">
         {messages.length === 0 ? <div className="chat-welcome"><span className="eyebrow">AI STICKER AGENT</span><h1>像聊天一樣，完成一整套貼圖。</h1><p>傳照片、描述角色，或直接告訴我你想做幾張 LINE 貼圖。Agent 會理解角色、規劃、生成、檢查與保存，並在額度中斷時安全續作。</p><div className="suggestion-list">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => { setInput(suggestion); composerRef.current?.focus(); }}><Sparkles size={14} />{suggestion}</button>)}</div></div> : <div className="message-list">{messages.map((message) => <article key={message.id} className={`chat-message ${message.role}`}><div className="message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "你"}</div><div className="message-content">{message.role === "assistant" ? <Streamdown>{message.content}</Streamdown> : <p>{message.content}</p>}{(attachmentsByMessage.get(message.id) ?? []).length > 0 && <div className="message-attachments">{attachmentsByMessage.get(message.id)!.map((attachment) => attachment.mimeType.startsWith("image/") ? <img key={attachment.id} src={attachment.url} alt={attachment.fileName} /> : <span key={attachment.id}><Paperclip size={13} />{attachment.fileName}</span>)}</div>}</div></article>)}</div>}
         <section className="agent-inline-card" aria-label="AI 製作狀態與快捷操作">
           <div className="agent-card-head"><div><span className="eyebrow">AGENT WORKSPACE</span><strong>{project ? `${completedCount} / ${studio.data?.scripts.length ?? 0} 張完成` : "從一句話或幾張照片開始"}</strong></div><WandSparkles size={18} /></div>
+          <div className="provider-health" aria-label="圖像 Provider 狀態">{(["gemini-3.1-flash-image", "gpt-image-2", "flux-2"] as const).map((provider) => { const item = providerHealth.data?.[provider]; const status = item?.status ?? "checking"; return <span className={status} key={provider}>{providerLabel(provider)} · {status === "healthy" ? "可用" : status === "quota_exhausted" ? "額度暫停" : status === "disabled" ? "未設定" : "檢查中"}</span>; })}</div>
           {events.length > 0 ? <div className="agent-events">{events.map((event) => <div className={`agent-event ${event.status}`} key={event.id}><i /><span>{event.message}</span></div>)}</div> : <p className="agent-card-copy">上傳角色照後，可在這裡確認角色、挑選姿勢或風格，再交給 Agent 自動規劃。</p>}
           {recentResults.length > 0 && <div className="agent-result-strip">{recentResults.map((script) => <article key={script.id}><img src={script.resultUrl!} alt={`第 ${script.position} 張 ${script.phrase}`} /><div><strong>第 {script.position} 張 · {script.phrase}</strong><span><button onClick={() => requestEdit(script.position)} disabled={busy}>修改</button><button onClick={() => void exportSingle(script.position)} disabled={busy}>下載</button></span></div></article>)}</div>}
-          <div className="agent-quick-actions"><button onClick={() => fileInputRef.current?.click()} disabled={busy}><ImagePlus size={14} />上傳角色照</button><button onClick={() => quickPlan(8)} disabled={busy}><Sparkles size={14} />規劃 8 張</button><button onClick={() => quickPlan(16)} disabled={busy}><Sparkles size={14} />規劃 16 張</button>{project && <button onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button>}</div>
+          <div className="agent-quick-actions"><button onClick={() => fileInputRef.current?.click()} disabled={busy}><ImagePlus size={14} />上傳角色照</button>{[8, 16, 24, 32, 40].map((count) => <button key={count} onClick={() => quickPlan(count)} disabled={busy}><Sparkles size={14} />{count} 張</button>)}{project && <><button onClick={() => void submit("全部變可愛一點")} disabled={busy}><WandSparkles size={14} />整套修改</button><button onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button></>}</div>
         </section>
         <div className="composer-wrap"><div className="queued-files">{attachments.map((attachment) => <div className="queued-file" key={attachment.id}>{attachment.preview ? <img src={attachment.preview} alt="" /> : <Paperclip size={15} />}<span>{attachment.fileName}</span><button aria-label={`移除 ${attachment.fileName}`} onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}><X size={14} /></button></div>)}</div><div className="composer"><label className="attach-button" aria-label="上傳圖片或檔案"><ImagePlus size={19} /><input ref={fileInputRef} type="file" accept="image/*,.heic,.heif,.pdf" multiple onChange={handleFiles} /></label><textarea ref={composerRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder="例如：幫我把這隻貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。" rows={1} disabled={busy} /><button className="send-button" onClick={() => void submit()} disabled={busy || (!input.trim() && !attachments.length)}>{busy ? <Loader2 className="spin" size={18} /> : <Send size={18} />}</button></div><small>可上傳多張角色照片；HEIC 會在手機／瀏覽器端轉檔。輸入「用這張做姿勢參考」或「後續全部照這個風格」即可調整 Anchor。</small></div>
       </div>
       <aside className="task-panel"><div className="task-panel-head"><div><span className="eyebrow">STICKER TASKS</span><h2>{project ? "製作進度" : "等待你的需求"}</h2></div>{project && <div className="panel-buttons"><button className="line-export-button" onClick={() => void exportPack()} disabled={busy || (studio.data?.scripts.some((script) => !script.resultUrl) ?? true)}><Download size={14} />LINE ZIP</button><button className="continue-button" onClick={() => void submit("繼續製作")} disabled={busy}><Play size={14} />繼續製作</button></div>}</div>
-        {(studio.data?.references.length ?? 0) > 0 && <section className="reference-tray"><div className="reference-tray-head"><span>參考圖錨點</span><small>角色／姿勢／風格</small></div><div className="reference-list">{studio.data!.references.slice(0, 6).map((reference) => <article key={reference.id} className={`reference-card ${reference.role}`}><img src={reference.url} alt={reference.fileName} /><div><strong>{reference.role === "accepted_character" ? "已確認角色" : reference.role === "pose" ? "姿勢" : reference.role === "style" || reference.role === "accepted_style" ? "風格" : "角色"}</strong><div className="reference-actions"><button onClick={() => void classifyReference(reference.id, "accepted_character")} disabled={busy}><Check size={11} />角色</button><button onClick={() => void classifyReference(reference.id, "pose")} disabled={busy}>姿勢</button><button onClick={() => void classifyReference(reference.id, "style")} disabled={busy}>風格</button></div></div></article>)}</div></section>}
+        {project && <section className="main-preflight" aria-label="LINE Preflight"><div><span className="eyebrow">LINE PREFLIGHT</span><strong>{preflight.exportReady ? "可建立 LINE ZIP" : `${preflight.completed} / ${preflight.total} 張可輸出`}</strong></div><p><Check size={13} />PNG 370 × 320（輸出時）</p><p className={preflight.transparentPassed === preflight.completed ? "passed" : "pending"}><Check size={13} />透明背景 {preflight.transparentPassed} / {preflight.completed}</p><p className={preflight.safeMarginPassed === preflight.completed ? "passed" : "pending"}><Check size={13} />10 px 安全邊距 {preflight.safeMarginPassed} / {preflight.completed}</p><p><Check size={13} />繁中以伺服器 SVG 後製</p></section>}
+        {(studio.data?.references.length ?? 0) > 0 && <section className="reference-tray"><div className="reference-tray-head"><span>參考圖錨點</span><small>角色／姿勢／場景／風格</small></div><div className="reference-list">{studio.data!.references.slice(0, 6).map((reference) => <article key={reference.id} className={`reference-card ${reference.role}`}><img src={reference.url} alt={reference.fileName} /><div><strong>{reference.role === "accepted_character" ? "已確認角色" : reference.role === "pose" ? "姿勢" : reference.role === "scene" ? "場景" : reference.role === "style" || reference.role === "accepted_style" ? "風格" : "角色"}</strong><div className="reference-actions"><button onClick={() => void classifyReference(reference.id, "accepted_character")} disabled={busy}><Check size={11} />角色</button><button onClick={() => void classifyReference(reference.id, "pose")} disabled={busy}>姿勢</button><button onClick={() => void classifyReference(reference.id, "scene")} disabled={busy}>場景</button><button onClick={() => void classifyReference(reference.id, "style")} disabled={busy}>風格</button></div></div></article>)}</div></section>}
         {studio.isLoading ? <div className="panel-loading"><Loader2 className="spin" />正在載入專案…</div> : (studio.data?.scripts.length ?? 0) === 0 ? <div className="task-empty"><ImagePlus size={24} /><strong>從一段對話開始</strong><span>AI 會自動建立角色設定與貼圖清單。</span></div> : <div className="task-grid">{studio.data!.scripts.map((script) => { const job = studio.data!.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1); const taskStatus = job?.status ?? script.status; const router = parseJson(job?.routerJson); const quality = parseJson(script.qualityReport); const versions = versionsByScript.get(script.id) ?? []; return <article className="sticker-task" key={script.id}><div className="task-image">{script.resultUrl ? <img src={script.resultUrl} alt={`第 ${script.position} 張 ${script.phrase}`} /> : <span>{script.position}</span>}<em className={`task-status ${taskStatus}`}>{statusLabel(taskStatus)}</em></div><div className="task-meta"><small>第 {script.position} 張 · {script.emotion}</small><strong>{script.phrase}</strong><span className="task-router">{providerLabel(router.selectedProvider)} · {quality.alphaVerified ? "透明已檢查" : "待品質檢查"}</span><div className="task-actions">{script.resultUrl && <button onClick={() => void exportSingle(script.position)} aria-label={`匯出第 ${script.position} 張 LINE PNG`} disabled={busy}><Download size={14} /></button>}<button onClick={() => requestEdit(script.position)} disabled={!script.resultUrl || busy}>告訴 AI 修改</button>{versions.length > 0 && <button onClick={() => setVersionInspector(versionInspector === script.id ? null : script.id)} disabled={busy}><History size={13} />V{versions.length}</button>}{["failed", "error", "paused_quota"].includes(taskStatus) && <button onClick={() => void retry(script.position)} disabled={busy}><RefreshCw size={13} />重試</button>}</div>{versionInspector === script.id && <div className="version-rail">{versions.map((version) => <button key={version.id} className={version.isActive ? "active" : ""} onClick={() => !version.isActive && void restore(script.position, version.id)} disabled={busy || version.isActive}>V{version.version}{version.isActive ? " · 使用中" : " · 回復"}</button>)}</div>}</div></article>; })}</div>}
       </aside>
     </section>
@@ -9964,6 +9993,113 @@ export default function NotFound() {
 
 ````
 
+### `client/src/pages/Preview.tsx`
+
+````tsx
+import { ArrowLeft, CheckCircle2, ChevronRight, Download, Eye, FileArchive, ImageIcon, Images, LoaderCircle, MessageSquareText, Paperclip, Play, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { Link } from "wouter";
+import "../preview-demo.css";
+
+const demoRabbit = "/manus-storage/preview-demo-rabbit_4aabab59.png";
+
+const demoScripts = [
+  ["早安", "元氣揮手"], ["謝謝", "雙手合十"], ["收到", "俐落點頭"], ["加油", "握拳鼓勵"],
+  ["等等我", "小跑揮手"], ["好累喔", "抱枕打呵欠"], ["太好了", "開心跳起來"], ["晚安", "抱著月亮"],
+];
+
+const demoEvents = [
+  ["分析 3 張參考圖", "已完成", "done"],
+  ["建立 Character Anchor", "已確認", "done"],
+  ["規劃 8 張日常貼圖", "已完成", "done"],
+  ["生成與品質檢查", "7 / 8 完成", "working"],
+] as const;
+
+export default function Preview({ inspection = false }: { inspection?: boolean }) {
+  const [step, setStep] = useState(3);
+  const [selected, setSelected] = useState(2);
+  const [version, setVersion] = useState<1 | 2>(2);
+  const [showRepair, setShowRepair] = useState(false);
+  const [message, setMessage] = useState("幫我把這隻兔子做成 8 張可愛的繁體中文 LINE 貼圖");
+  const activeStep = Math.min(step, 3);
+
+  if (inspection) {
+    return (
+      <main className="preview-shell inspection-shell">
+        <header className="preview-header">
+          <Link href="/preview" className="preview-back"><ArrowLeft size={16} /> 回到 Preview</Link>
+          <span className="preview-mode"><ShieldCheck size={15} /> 唯讀 Inspection</span>
+        </header>
+        <section className="inspection-hero">
+          <span className="eyebrow">驗收展示，不連線外部模型</span>
+          <h1>貼圖 Agent 的可檢查工作鏈</h1>
+          <p>此頁只呈現固定示範狀態，用於檢視路由、Anchor、品質結果及 LINE 輸出前置檢查；不讀取登入資料、專案資料或 API 金鑰。</p>
+        </section>
+        <section className="inspection-grid">
+          <article className="inspect-card"><h2>Provider Router</h2><dl><div><dt>Gemini 3.1 Flash Image</dt><dd className="state-good">可用於多參考生成</dd></div><div><dt>GPT Image 2</dt><dd className="state-good">可用於修改／去背</dd></div><div><dt>FLUX.2</dt><dd className="state-off">未設定，保持 disabled</dd></div></dl><small>真實狀態會由主工作室的安全 health query 取得；本頁為示範快照。</small></article>
+          <article className="inspect-card"><h2>Quality Agent</h2><dl><div><dt>透明背景</dt><dd className="state-good">通過</dd></div><div><dt>安全邊距</dt><dd className="state-good">通過</dd></div><div><dt>繁中後製</dt><dd className="state-good">由伺服器 SVG 疊字</dd></div><div><dt>臉部／肢體語意</dt><dd className="state-warn">需要視覺模型時才自動判定</dd></div></dl><small>不會將尚未執行的語意視覺檢查誤標示為通過。</small></article>
+          <article className="inspect-card wide"><h2>Demo 流程覆蓋</h2><div className="inspect-flow">{["聊天需求", "參考圖語意角色", "Character／Style Anchor", "8 張計畫", "獨立工作", "品質修正", "版本回復", "LINE ZIP"].map((item, index) => <span key={item}><b>{index + 1}</b>{item}</span>)}</div><p>按「開啟互動 Demo」可回到公開 Preview，切換每個固定流程狀態。</p><Link href="/preview" className="preview-primary">開啟互動 Demo <ChevronRight size={16} /></Link></article>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="preview-shell">
+      <header className="preview-header">
+        <Link href="/" className="preview-back"><ArrowLeft size={16} /> 主工作室</Link>
+        <div className="preview-brand"><Sparkles size={17} /> Sticker Tycoon <span>Preview</span></div>
+        <Link href="/preview/inspection" className="preview-inspection"><Eye size={16} /> Inspection</Link>
+      </header>
+      <section className="preview-hero">
+        <div><span className="eyebrow"><ShieldCheck size={14} /> 公開唯讀示範</span><h1>像和 AI 對話一樣，完成一套貼圖。</h1><p>這是固定示範流程。可以點擊查看每一步，但不會上傳照片、不呼叫生成 API，也不會存取你的私人專案。</p></div>
+        <div className="demo-safety"><ImageIcon size={20} /><span><b>原創示範角色</b><br />非使用者照片／非生成結果</span></div>
+      </section>
+      <section className="preview-workspace">
+        <aside className="preview-timeline"><p className="panel-label">Demo Mode</p>{["描述需求", "理解角色", "規劃貼圖", "生成與檢查"].map((label, index) => <button key={label} className={index === activeStep ? "active" : index < activeStep ? "complete" : ""} onClick={() => setStep(index)}><span>{index < activeStep ? <CheckCircle2 size={16} /> : index + 1}</span>{label}</button>)}<div className="timeline-note"><ShieldCheck size={16} /> 所有資料均為固定 Demo 資料</div></aside>
+        <section className="preview-chat">
+          <div className="chat-note agent"><span className="agent-mark"><Sparkles size={15} /></span><div><b>貼圖 Agent</b><p>{activeStep === 0 ? "告訴我角色、張數與想要的感覺。我會先建立可調整的規劃。" : activeStep === 1 ? "我已讀取 3 張示範參考圖，將角色、姿勢與風格分開保存。" : activeStep === 2 ? "我規劃了 8 張日常情境，每張都有獨立狀態與版本。" : "我會逐張生成、做透明背景與邊界檢查；不合格只會安全修正一次。"}</p></div></div>
+          {activeStep >= 1 && <div className="reference-row"><span className="panel-label">參考圖語意</span>{[["角色", "accepted_character"], ["姿勢", "pose"], ["風格", "accepted_style"]].map(([label, role]) => <button key={label} className="reference-chip" onClick={() => setSelected(label === "角色" ? 0 : label === "姿勢" ? 1 : 2)}><img src={demoRabbit} alt="示範兔子角色" /><span>{label}</span><small>{role}</small></button>)}</div>}
+          <div className="demo-upload" aria-label="唯讀上傳示範">
+            <button type="button" onClick={() => setStep(Math.max(1, step))}><Paperclip size={16} /> 示範附件</button>
+            <div><Images size={15} /><span>兔兔角色.png</span><small>角色 · 已接受</small></div>
+            <div><ImageIcon size={15} /><span>跳躍姿勢.heic</span><small>HEIC → JPEG（裝置端）</small></div>
+            <div><Sparkles size={15} /><span>粉彩畫風.webp</span><small>風格參考</small></div>
+            <em>唯讀，不會實際上傳</em>
+          </div>
+          {activeStep >= 2 && <div className="demo-plan"><div className="plan-title"><div><span className="panel-label">貼圖計畫</span><b>兔兔的日常對話</b></div><span className="count-pill">8 張</span></div><div className="plan-list">{demoScripts.map(([phrase, scene], index) => <button key={phrase} className={selected === index ? "selected" : ""} onClick={() => setSelected(index)}><span>{String(index + 1).padStart(2, "0")}</span><b>{phrase}</b><small>{scene}</small></button>)}</div></div>}
+          {activeStep >= 3 && <div className="demo-result"><div className="result-visual"><img src={demoRabbit} alt="原創兔子貼圖示範" /><span className="demo-caption">{demoScripts[selected]?.[0]}</span></div><div className="result-copy"><span className="panel-label">第 {selected + 1} 張 · 可回復版本</span><h2>{demoScripts[selected]?.[1]}</h2><p>Router：Gemini → GPT Image 去背<br />品質：透明背景、邊界、尺寸已檢查；繁中由後製疊字。</p><div className="version-row"><button className={version === 1 ? "active" : ""} onClick={() => setVersion(1)}>V1 原始</button><button className={version === 2 ? "active" : ""} onClick={() => setVersion(2)}>V2 修改</button><button onClick={() => setShowRepair(!showRepair)}><RotateCcw size={14} /> {showRepair ? "已顯示修正紀錄" : "查看修正"}</button></div>{showRepair && <p className="repair-note">品質 Agent 曾發現安全邊距不足，僅執行一次修正；兩個版本都保留。</p>}</div></div>}
+          <div className="demo-composer"><input value={message} onChange={(event) => setMessage(event.target.value)} aria-label="示範聊天輸入" /><button onClick={() => setStep(Math.min(3, step + 1))} aria-label="推進示範流程"><Play size={16} /></button></div>
+        </section>
+        <aside className="preview-status"><p className="panel-label">Agent 工作狀態</p>{demoEvents.map(([label, status, tone]) => <div className="status-event" key={label}><span className={tone === "done" ? "status-done" : "status-working"}>{tone === "done" ? <CheckCircle2 size={15} /> : <LoaderCircle size={15} />}</span><div><b>{label}</b><small>{status}</small></div></div>)}<div className="preflight"><span className="panel-label">LINE Preflight</span><p><CheckCircle2 size={15} /> 370 × 320 PNG</p><p><CheckCircle2 size={15} /> 透明背景</p><p><CheckCircle2 size={15} /> 10 px 安全邊距</p><button><Download size={15} /> 單張 PNG</button><button><FileArchive size={15} /> LINE ZIP</button></div></aside>
+      </section>
+      <footer className="preview-footer"><span><MessageSquareText size={15} /> Demo 只展示 UI 與流程狀態</span><Link href="/preview/inspection">查看驗收說明 <ChevronRight size={15} /></Link></footer>
+    </main>
+  );
+}
+
+````
+
+### `client/src/preview-demo.css`
+
+````css
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700&display=swap");
+
+.preview-shell { min-height: 100vh; color: #e9f6ff; background: radial-gradient(circle at 80% -5%, rgba(96, 94, 255, .24), transparent 30rem), radial-gradient(circle at 10% 0%, rgba(0, 212, 255, .18), transparent 24rem), #061423; font-family: "Noto Sans TC", sans-serif; padding: 0 5vw 32px; }
+.preview-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid rgba(160, 218, 255, .13); }
+.preview-back,.preview-inspection { display: inline-flex; align-items: center; gap: 7px; color: #a8c5d8; font-size: 13px; text-decoration: none; transition: color .18s ease; }.preview-back:hover,.preview-inspection:hover { color: #fff; }
+.preview-brand { display: flex; gap: 7px; align-items: center; font-weight: 700; letter-spacing: -.02em; }.preview-brand svg { color: #74f1ff; }.preview-brand span { font: 11px "DM Mono", monospace; padding: 3px 7px; border-radius: 999px; color: #85f3ff; background: rgba(19, 196, 231, .14); }
+.preview-hero { max-width: 1050px; padding: 52px 0 28px; display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }.eyebrow,.panel-label { display: inline-flex; align-items: center; gap: 6px; color: #71e9f5; font: 11px "DM Mono", monospace; text-transform: uppercase; letter-spacing: .08em; }.preview-hero h1,.inspection-hero h1 { margin: 10px 0 8px; font-size: clamp(28px, 4.5vw, 48px); line-height: 1.12; letter-spacing: -.055em; }.preview-hero p,.inspection-hero p { max-width: 690px; color: #9cb9cb; line-height: 1.75; font-size: 14px; }.demo-safety { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 13px 16px; border: 1px solid rgba(113,233,245,.22); background: rgba(20,64,90,.28); border-radius: 16px; color: #a9c8d9; font-size: 12px; line-height: 1.55; }.demo-safety svg { color: #76f0fb; }.demo-safety b { color: #fff; }
+.preview-workspace { max-width: 1400px; display: grid; grid-template-columns: 185px minmax(0, 1fr) 235px; min-height: 610px; border: 1px solid rgba(152,211,250,.15); border-radius: 24px; overflow: hidden; background: linear-gradient(135deg, rgba(9,39,62,.83), rgba(8,21,38,.92)); box-shadow: 0 24px 70px rgba(0,0,0,.25); }.preview-timeline,.preview-status { padding: 22px 15px; background: rgba(3,15,27,.38); }.preview-timeline { border-right: 1px solid rgba(152,211,250,.12); }.preview-status { border-left: 1px solid rgba(152,211,250,.12); }.preview-timeline button { width: 100%; border: 0; color: #9eb9ca; background: transparent; padding: 13px 8px; margin: 5px 0; border-radius: 11px; display: flex; align-items: center; gap: 9px; text-align: left; font: 13px inherit; cursor: pointer; }.preview-timeline button span { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; border: 1px solid rgba(159,199,224,.35); color: #87abc0; font: 11px "DM Mono", monospace; }.preview-timeline button.active { color: #fff; background: rgba(59,178,238,.16); }.preview-timeline button.active span { color: #062034; border-color: #76effb; background: #76effb; }.preview-timeline button.complete span { color: #7bf0bc; border-color: transparent; }.timeline-note { margin: 20px 5px; border-top: 1px solid rgba(152,211,250,.12); padding-top: 17px; display: flex; gap: 7px; color: #7695aa; font-size: 11px; line-height: 1.5; }
+.preview-chat { min-width: 0; padding: 22px; display: flex; flex-direction: column; gap: 16px; }.chat-note { max-width: 680px; display: flex; gap: 10px; padding: 14px; border: 1px solid rgba(113,233,245,.18); border-radius: 16px 16px 16px 4px; background: rgba(11,62,85,.25); }.agent-mark { height: 26px; width: 26px; display: grid; place-items: center; border-radius: 9px; color: #082036; background: linear-gradient(135deg,#75f0fb,#8a9aff); }.chat-note b,.result-copy h2 { color: #fff; }.chat-note p { margin: 3px 0 0; color: #9ebacc; font-size: 13px; line-height: 1.6; }.reference-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }.reference-row > .panel-label { width: 100%; }.reference-chip { display: flex; align-items: center; gap: 7px; border: 1px solid rgba(155,210,240,.2); background: rgba(3,22,39,.5); color: #d7ecf6; padding: 5px 8px 5px 5px; border-radius: 11px; cursor: pointer; font: 12px inherit; }.reference-chip img { height: 26px; width: 26px; border-radius: 7px; object-fit: cover; background: #0d3045; }.reference-chip small { color: #6c9db8; font: 10px "DM Mono", monospace; }.demo-plan { border: 1px solid rgba(150,210,240,.16); border-radius: 16px; background: rgba(1,17,30,.26); overflow: hidden; }.plan-title { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(150,210,240,.12); }.plan-title b { display: block; margin-top: 3px; font-size: 14px; }.count-pill { padding: 4px 8px; border-radius: 999px; color: #92f6c8; font: 11px "DM Mono",monospace; background: rgba(89,234,165,.1); }.plan-list { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); }.plan-list button { min-height: 70px; padding: 10px; text-align: left; border: 0; border-right: 1px solid rgba(150,210,240,.1); border-bottom: 1px solid rgba(150,210,240,.1); background: transparent; color: #bdd2df; cursor: pointer; }.plan-list button.selected { background: rgba(39,156,219,.16); }.plan-list button span { display: block; color: #6091ab; font: 10px "DM Mono",monospace; }.plan-list button b { display:block; padding: 4px 0 1px; color:#effaff; font-size:13px; }.plan-list button small { color:#86a9ba; font-size:10px; }.demo-result { display: grid; grid-template-columns: 170px 1fr; gap: 16px; align-items: center; padding: 14px; border: 1px solid rgba(118,240,251,.17); background: linear-gradient(110deg, rgba(8,44,70,.54), rgba(9,24,43,.42)); border-radius: 17px; }.result-visual { position: relative; min-height: 148px; display:grid; place-items:center; border-radius: 13px; background: conic-gradient(from 45deg,rgba(64,151,197,.12),rgba(138,154,255,.14),rgba(64,151,197,.12)); overflow: hidden; }.result-visual img { width: 134px; height: 134px; object-fit: contain; }.demo-caption { position:absolute; bottom:10px; right:10px; padding:3px 7px; background:#fff; color:#144256; font-weight:700; border-radius:7px; font-size:12px; }.result-copy h2 { margin: 4px 0; font-size:18px; }.result-copy p { margin:0; color:#a2bdcd; line-height:1.65; font-size:12px; }.version-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.version-row button,.preflight button { border: 1px solid rgba(156,218,245,.2); padding: 6px 9px; border-radius: 8px; color:#b9dae9; background:rgba(2,17,29,.35); cursor:pointer; font:11px inherit; }.version-row button.active { color:#052334; background:#75effa; border-color:#75effa; }.repair-note { margin-top:8px !important; color:#f4d18b !important; }.demo-composer { margin-top:auto; padding-top:8px; display:flex; gap:8px; }.demo-composer input { min-width:0; flex:1; border:1px solid rgba(156,218,245,.18); padding:12px 14px; border-radius:12px; background:rgba(2,15,28,.65); color:#dceff8; outline:none; font:13px inherit; }.demo-composer button { width:42px; border:0; border-radius:12px; color:#062233; background:#74effa; cursor:pointer; }.status-event { display:flex; gap:8px; padding:12px 1px; border-bottom:1px solid rgba(152,211,250,.1); }.status-event b,.status-event small { display:block; font-size:11px; }.status-event small { color:#7899ac; margin-top:3px; }.status-done,.status-working { margin-top:2px; color:#7cf0b9; }.status-working { color:#71e9f5; animation: preview-pulse 1.5s ease-in-out infinite; }.preflight { margin-top:20px; padding:13px; border-radius:14px; background:rgba(11,79,80,.17); }.preflight .panel-label { margin-bottom:7px; }.preflight p { margin:7px 0; display:flex; gap:6px; align-items:center; color:#a4c6d4; font-size:11px; }.preflight p svg { color:#75efbd; }.preflight button { width:100%; margin-top:7px; display:flex; justify-content:center; align-items:center; gap:6px; }
+.demo-upload { display:flex; align-items:center; flex-wrap:wrap; gap:7px; padding:9px; border:1px dashed rgba(113,233,245,.24); border-radius:13px; background:rgba(3,34,53,.22); }.demo-upload button { display:inline-flex; align-items:center; gap:6px; border:0; border-radius:8px; color:#75effa; background:rgba(49,193,229,.13); padding:7px 9px; cursor:pointer; font:11px inherit; }.demo-upload div { display:flex; align-items:center; gap:5px; padding:5px 7px; color:#bdd7e5; border-radius:8px; background:rgba(2,17,29,.42); font-size:10px; }.demo-upload div svg { color:#90eaf2; }.demo-upload small { color:#779db2; }.demo-upload em { margin-left:auto; color:#6e94a8; font-size:10px; font-style:normal; }
+.preview-footer { max-width:1400px; display:flex; justify-content:space-between; padding:16px 2px; color:#7898aa; font-size:12px; }.preview-footer span,.preview-footer a { display:flex; align-items:center; gap:6px; }.preview-footer a { color:#86eaf3; text-decoration:none; }.inspection-hero { max-width:760px; padding:65px 0 25px; }.inspection-grid { max-width:1100px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }.inspect-card { padding:22px; border-radius:18px; border:1px solid rgba(150,210,240,.15); background:rgba(8,33,53,.6); }.inspect-card.wide { grid-column:span 2; }.inspect-card h2 { margin:0 0 16px; font-size:16px; }.inspect-card dl { margin:0; }.inspect-card dl div { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 0; border-top:1px solid rgba(150,210,240,.1); font-size:12px; }.inspect-card dt { color:#bfd5e1; }.inspect-card dd { margin:0; font-size:11px; }.state-good{color:#7ef0bc}.state-off{color:#7997aa}.state-warn{color:#f2cd86}.inspect-card small,.inspect-card p { color:#86a4b5; line-height:1.65; font-size:11px; }.inspect-flow { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }.inspect-flow span { padding:10px; border:1px solid rgba(150,210,240,.13); border-radius:10px; color:#b8d2de; font-size:12px; }.inspect-flow b { display:block; color:#74eef8; font:11px "DM Mono",monospace; margin-bottom:6px; }.preview-primary { display:inline-flex; align-items:center; gap:7px; margin-top:4px; color:#062433; background:#75effa; padding:9px 12px; border-radius:10px; text-decoration:none; font-size:12px; font-weight:700; }
+@keyframes preview-pulse { 50% { opacity:.35; } }
+@media (max-width: 980px) { .preview-workspace { grid-template-columns: 1fr; }.preview-timeline { border-right:0; border-bottom:1px solid rgba(152,211,250,.12); display:flex; align-items:center; gap:4px; overflow:auto; }.preview-timeline .panel-label,.timeline-note { display:none; }.preview-timeline button { min-width:126px; margin:0; }.preview-status { border-left:0; border-top:1px solid rgba(152,211,250,.12); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; }.preview-status>.panel-label { grid-column:span 2; }.preflight { margin-top:0; }.status-event { padding:10px 0; }.preview-hero { padding-top:34px; }.demo-safety { display:none; } }
+@media (max-width: 620px) { .preview-shell { padding:0 14px 22px; }.preview-header { min-height:62px; }.preview-brand { font-size:13px; }.preview-inspection { font-size:0; }.preview-inspection svg { width:19px; height:19px; }.preview-hero h1 { font-size:32px; }.preview-workspace { border-radius:17px; }.preview-chat { padding:14px; }.plan-list { grid-template-columns:repeat(2,minmax(0,1fr)); }.demo-result { grid-template-columns:105px 1fr; gap:10px; padding:10px; }.result-visual { min-height:105px; }.result-visual img { width:91px; height:91px; }.result-copy h2 { font-size:15px; }.result-copy p { font-size:10px; }.version-row button { padding:5px 6px; font-size:10px; }.preview-status { display:block; padding:14px; }.inspect-grid,.inspection-grid { grid-template-columns:1fr; }.inspect-card.wide { grid-column:auto; }.inspect-flow { grid-template-columns:repeat(2,1fr); }.preview-footer { gap:8px; font-size:11px; }.preview-footer a { white-space:nowrap; } }
+
+````
+
 ### `components.json`
 
 ````json
@@ -9986,6 +10122,149 @@ export default function NotFound() {
     "hooks": "@/hooks"
   }
 }
+
+````
+
+### `docs/phase-2-agent-design.md`
+
+````markdown
+# 第二階段 AI 對話式 LINE 貼圖 Agent：升級設計
+
+**狀態：實作前設計，2026-08-26**
+
+## 目標與相容原則
+
+本設計在既有 Chat-first 工作室上加入 Agent 決策層，而非更換成設定表單。既有的對話、HEIC 裝置端轉檔、獨立生成、指定修改、`paused_quota` checkpoint、LINE PNG／ZIP、繁中 SVG 文字後製與 `projectKey` 續作均保留。任何 Provider 額度不足時，工作流程必須保存可重現的選擇結果、prompt、參考圖和未完成項目；不以測試模式偽裝外部模型成功。
+
+## 資料模型增量
+
+| 實體 | 新資料 | 用途 |
+|---|---|---|
+| `stickerReferences` | `role`、`priority`、`accepted`、`metadataJson` | 把任意上傳圖明確分類為角色、姿勢、風格、目前修改圖或接受圖，並保存可重現優先序。 |
+| `stickerScripts` | `planJson` | 保存貼圖的結構化規劃：文字、情緒、姿勢、物件、構圖與行為狀態，保留舊欄位供現有輸出流程使用。 |
+| `stickerVersions` | `parentVersionId`、`isActive`、`qualityReportJson`、`provider` | 建立 V1→V2→V3 關係，讓「回復 V2」只切換目前使用版本，不會遺失較新版本。 |
+| `stickerJobs` | `routerJson`、`qualityReportJson` | 保存 Provider 候選、已嘗試 Provider、錯誤分類、參考圖快照與品質結論，供 resume 與 UI 顯示。 |
+| `stickerStyleAnchors` | 新表 | 保存使用者確認的畫風、配色、線條、構圖和代表圖。 |
+| `stickerAgentEvents` | 新表 | 保存低技術噪音的 Agent 工作步驟，供聊天內顯示「分析角色／建立設定／生成第 n 張／檢查／完成」。 |
+
+所有新欄位均可為空或設有預設值，因此既有專案可無資料遷移風險地讀取；圖片原始位元組仍只留在 S3，資料庫只保存 URL／key 與 metadata。
+
+## Agent 指令與工具決策
+
+意圖分析回傳嚴格 JSON，新增下列自然語言意圖：`accept_image`、`use_as_style`、`use_as_pose`、`restore_version`、`download_pack` 與既有的建立、規劃、生成、修改、重試、續作。動作均轉換成 server-side function，不把模型名稱、prompt 或 Provider 操作暴露為一般使用者表單。
+
+| Agent 動作 | 伺服器工具 | 產出 |
+|---|---|---|
+| 建立／修訂規劃 | Planner + `planJson` | 多張不重複的貼圖腳本與角色摘要。 |
+| 選擇參考圖 | `selectReferencesForTask` | 角色原照、接受圖、目前圖、姿勢、風格的有序快照。 |
+| 決定 Provider | `routeImageTask` | 可用候選、理由、錯誤可否 fallback、最高重試次數。 |
+| 生成／修改 | `runImageTask` | 逐張 draft、透明化、版本、品質報告與事件。 |
+| 品質檢查 | `evaluateStickerQuality` | alpha、尺寸、文字規則、檔案、主體安全邊距與明確 retry 理由。 |
+| 回復版本 | `restoreStudioVersion` | 將選定版本設為活動版本、更新 script 結果並新增事件。 |
+
+## Model Router 與錯誤政策
+
+Router 只挑選「目前已設定且符合任務能力」的 Provider：具備可用 API 的 Gemini、Forge GPT Image 2，及未來有憑證後的 FLUX.2。每個 job 保存 `routerJson`，其中包含 `taskKind`、`referenceSnapshot`、`candidates`、`attempts`、`selectedProvider`、`reason` 與 `resumeSafe`。
+
+| 錯誤類別 | 結果 |
+|---|---|
+| 短暫 429、逾時、5xx | 一次有限退避，若另一已啟用 Provider 能完成同類任務則 fallback；每次嘗試均寫入路由歷程。 |
+| `usage exhausted`、長期 quota | 不忙等、不連續重送；將工作設為 `paused_quota` 並保存 checkpoint。 |
+| 安全政策拒絕 | 保留原圖與錯誤原因，要求使用者改寫需求；不可跨 Provider 企圖繞過政策。 |
+| 品質不通過 | 僅在有具體、可修正理由時嘗試一次；否則標示人工確認，保留成功圖。 |
+
+## 品質與文字策略
+
+視覺品質無法被自動化判定為絕對正確，因此品質 Agent 採**可解釋、有限、自動化檢查**：PNG／alpha、370×320 LINE 成品、字數與兩行換行、10px 邊界、檔案大小、版本可追溯及可見主體基本完整性。正式繁中用語仍由 Noto Sans CJK TC SVG／Sharp 後製繪製，不以模型生成的中文作驗收依據。
+
+## 對話內介面設計
+
+聊天室每次助理回覆會依儲存的 intent 與 Agent events 顯示輕量 Action Card：初始卡可提供「上傳角色照片」、「8／16／24／32／40 張」、「交給 AI 規劃」；進行中卡展示目前步驟與完成數；完成卡展示縮圖與操作；圖片卡提供「修改」、「重試」、「下載」、「查看版本」、「設為角色／風格參考」。右側工作區仍保留為桌面快速總覽，在 Android 版折疊為聊天內容後方的任務抽屜。
+
+## 驗收範圍
+
+驗證將覆蓋：多角色／姿勢／風格附件分類、接受圖升級為錨點、8 張生成、40 張規劃、單張 retry、V2/V3 及回復、Provider route 記錄、quota checkpoint／resume、LINE 預檢與 ZIP、Android 行動聊天室、TypeScript、Vitest、production build、敏感資訊掃描與 GitHub 分支內容。真實 Provider 額度不足時，驗證結果將清楚記載為 `paused_quota`，而非宣稱外部生成成功。
+
+````
+
+### `docs/phase-3-capability-audit.md`
+
+````markdown
+# 第三階段：AI 核心能力盤點與驗收基線
+
+**日期：** 2026-08-26
+**範圍：** 現有 `phase2-agent-router` 版本與第三階段需求的差距盤點。
+
+> 本文件區分「可接通並已測試」、「程式骨架已存在但尚未滿足驗收」與「未設定／未實作」。它不將未提供憑證的 Provider 或受額度限制的外部呼叫誤列為可用能力。
+
+| 能力 | 現況 | 驗收判定 | 第三階段處置 |
+| --- | --- | --- | --- |
+| Gemini Image | `generateGeminiImage()` 已以 Gemini interactions API 實接，支援最多四張參考圖、timeout 與 quota 分類。 | **部分實作**：尚無統一 edit、analyze、healthCheck Adapter 方法。 | 封裝為 Adapter；以模型目錄／輕量端點 healthCheck；edit 依 Gemini 能力安全降級。 |
+| GPT Image | Forge ImageService 已實接生成與附原圖編修；ImageService 模型清單可見 `gpt-image-2`。 | **部分實作**：尚無統一 Provider 健康／成本 metadata 或一致錯誤表面。 | 封裝為 Adapter；區分 generate、edit、analyze 與 healthCheck。 |
+| FLUX | Session 內有 `Flux`／`Flux API` 連接器，但均為 disabled，且未提供使用者 BFL 憑證或商業授權。 | **未實作**。 | 提供明確 `disabled_unconfigured` Adapter；不得呼叫或宣稱 fallback 已啟用。 |
+| Router | 既有 `routeImageTask()` 可依 generate／edit／cutout 與參考圖決定 Gemini、GPT 候選。 | **部分實作**：尚未整合 health、quota、速度、成本、文字與生成數量。 | 將 Provider capability／health 快照納入 Router 決策與 job checkpoint。 |
+| Fallback | 生成迴圈有受限 fallback 與錯誤分類；edit 目前偏向單一路徑。 | **部分實作**。 | 統一受限嘗試次數、可轉移錯誤規則、原因與終態保存。 |
+| 參考圖與 Anchor | 角色、已確認角色、姿勢、風格、目前圖、Character／Style Anchor 與優先序已存在。 | **部分實作**：缺少 scene 角色與自然語言「這張最像」提升流程的完整證據。 | 新增 scene、明確提升 accepted 生成圖與語意動作解析。 |
+| 版本 | V1→V2、活動版切換與回復已由 tRPC 和瀏覽器回歸驗證。 | **已實作**。 | 保留 prompt、reference 快照、provider、quality 報告的一致版本 metadata。 |
+| 品質與自動修正 | 已檢查 alpha、尺寸與輸出準備度；LINE 匯出有文字／安全邊距檢查。 | **部分實作**：尚無可測試的 fail→fix→recheck 有限循環。 | 引入 Quality Agent verdict、suggestedFix、最多一次安全自動修正與停損。 |
+| 中文文字 | 伺服器端 Noto Sans CJK TC／Sharp SVG 後製與 LINE bounds 檢查已存在。 | **已實作**。 | 讓 Agent 明確將正式繁中文字路由至程式後製。 |
+| Preview／Demo／Inspection | 目前僅有主工作室路由，沒有公開唯讀 Preview。 | **未實作**。 | 建立無 API、無資料庫讀取、無私人素材的 `/preview` 與 `/preview/inspection` 固定示範頁。 |
+| 安全 | 既有 `.gitignore` 與手動敏感掃描；Secrets 保持在 server env。 | **部分實作**。 | 將可重複執行的 secret scan 納入測試／驗收腳本，Demo 不經真實 Provider。 |
+
+## 實際 Provider 可用性觀察
+
+內建 Forge ImageService 的模型清單目前回傳 `gemini-2.5-flash-image-preview` 與 `gpt-image-2`。此結果只代表平台 ImageService 能列出模型，**不代表帳戶在當下擁有可用生成額度**。既有真實呼叫已觀察到 Gemini 429 與 Forge 412 usage exhausted，因此必須以 provider health／quota 狀態保存與 resume，而非宣稱外部圖像生成已成功。
+
+## 驗收策略
+
+第三階段的 Adapter、Router、Quality Agent、Demo 及 Preview 均須有決定性單元／整合測試。Demo 與 Inspection 僅使用固定、非個資、非 API 的示範資料；它們展示工作流，不冒充真實模型輸出。真實 Provider 僅在 server-side Adapter 中呼叫，並保留原本的 checkpoint 與安全 fallback 行為。
+
+````
+
+### `docs/phase-3-delivery.md`
+
+````markdown
+# 第三階段：可驗收多模型貼圖 Agent 交付紀錄
+
+**版本目的。** 本階段將第二階段的 Router 原型收斂為可測試的 Provider Adapter、可解釋路由、有限品質修正、整套自然語言修改，以及不存取私人資料的公開 Preview／Inspection。所有描述均以目前程式與測試可驗證的範圍為準。
+
+## 能力矩陣
+
+| 項目 | 交付狀態 | 可驗證行為 | 刻意不宣稱的能力 |
+| --- | --- | --- | --- |
+| Gemini Adapter | 已實作 | `generate`、多參考圖、health 快照、interaction metadata。 | 外部 API 額度耗盡時不保證即時生成。 |
+| GPT Image Adapter | 已實作 | `generate`、`edit`、`cutout`、`analyze`、Forge 模型清單 health。 | 不保證模型能穩定生成正確繁中文字。 |
+| FLUX.2 | Disabled | Router 清楚回傳未設定憑證與商業授權，不會假裝 fallback 可用。 | 未整合、未呼叫、未宣稱已啟用。 |
+| Router | 已實作 | 依工作類型、參考圖、批次量、速度／成本偏好和 Provider health 保存候選及每次嘗試。 | 不以盲目無限重試處理 quota。 |
+| 角色與參考圖 | 已實作 | `character`、`accepted_character`、`pose`、`scene`、`style`、`accepted_style`、`current_edit` 具可重現優先序。 | 不宣稱已完成生物特徵辨識或人臉鑑別。 |
+| Quality Agent | 已實作 | 透明覆蓋、尺寸、畫布邊界、文字長度檢查；失敗時最多 Fix 一次後重新檢查。 | 未執行視覺模型時，不把臉部／肢體語意檢查標為通過。 |
+| 整套修改 | 已實作 | 「全部變可愛一點」與「全部去背」從聊天入口建立獨立 edit job／版本；跳過已合格或有衝突生成工作的貼圖。 | 不覆寫既有版本、不吞掉 queued／retrying／paused 任務。 |
+| Preview／Inspection | 已實作 | `/preview`、`/preview/inspection` 使用固定原創兔子、唯讀附件與本機狀態；回歸驗證零 `/api/trpc` 呼叫。 | 不讀取私人專案、不上傳檔案、不呼叫真實圖像 API。 |
+
+## 執行鏈
+
+> 生成或修改工作採用有限且可追溯流程：**路由決策 → Provider 嘗試 → 透明化／品質檢查 → 至多一次 Fix → 重檢 → 版本保存或 quota checkpoint**。
+
+當所有設定中的 Provider health 都標示為 quota exhausted，工作會保存為 `paused_quota`，而非一般 `failed`。使用者可輸入「繼續製作」，僅續跑未完成項目。每次整套修改也採用每張獨立 job、獨立版本與獨立狀態，因此重試或回復單張不影響其他圖片。
+
+## 資料與 migration 判斷
+
+本階段沒有更動 `drizzle/schema.ts`。新增的 Provider health、候選、品質、scene role、pack scope、品質修正次數與事件都儲存於既有 `routerJson`、`qualityReportJson`、`checkpointJson`、`metadataJson`、`planJson` 與 `stickerAgentEvents`，因此**不需新增或套用 migration**。既有第二階段 migration `drizzle/0003_grey_sentinel.sql` 仍是最新已套用 schema 遷移。
+
+## 驗證紀錄
+
+| 驗證層 | 結果 | 覆蓋內容 |
+| --- | --- | --- |
+| TypeScript | 通過 | 前後端 Router、tRPC、Preview routes 與 UI 型別。 |
+| Vitest | 33 / 33 通過 | Provider Adapter、FLUX disabled、health／quota fallback、品質 fail→Fix→Recheck、Scene Reference、版本、整套修改、queued／retrying／paused 保留、LINE 匯出。 |
+| 桌面瀏覽器 | 通過 | 主工作室與 Preview／Inspection，含 Provider health、Preflight、版本、下載及零 Studio API Demo。 |
+| Android 瀏覽器 | 通過 | 390×844 主工作室與 Preview／Inspection，含附件／HEIC 示範、規劃、輸出與互動。 |
+| Production build | 通過 | `NODE_OPTIONS=--max-old-space-size=1024 pnpm build`。輸出存在既有大 chunk 警告，並非建置失敗。 |
+| 提交前安全掃描 | 通過 | 無 `.env`、實際 token、預簽 URL、使用者上傳路徑、`dist/`、`node_modules/` 或回歸輸出被納入待提交來源。 |
+
+## 已知限制與後續驗收
+
+外部 Gemini／Forge API 的真實呼叫仍可能因帳戶額度回傳 `429`、`412` 或其他可恢復錯誤。這不會被受控 E2E 或 Preview 成功路徑誤稱為真實生成成功；系統會保存 checkpoint。要驗收真實視覺品質、角色一致性、臉部／肢體與模型內中文字，必須在有可用外部額度及取得使用者授權測試素材時，執行獨立的真實多圖 E2E。
 
 ````
 
@@ -22222,10 +22501,15 @@ snapshots:
 | 角色一致性 | Gemini 3.1 Flash Image 作為多參考角色生成的優先提供者；GPT Image 2 作為語意去背、單張修改與後備。 |
 | 獨立貼圖任務 | 每張貼圖具獨立 `queued`、`generating`、`completed`、`failed`、`paused_quota` 狀態；重試第 3 張不影響其他張。 |
 | 中斷續作 | API 額度中斷時保存專案、對話、角色設定、初稿 checkpoint、任務狀態和已完成圖片；輸入「繼續製作」只續跑未完成工作。 |
-| Agent Model Router | 每張任務保存 Provider 候選、已嘗試歷程、參考圖快照、品質報告與 checkpoint。新生成優先 Gemini；單張編修優先 GPT Image；FLUX.2 僅作為尚未設定憑證的候選，不宣稱已啟用。 |
-| 參考圖與 Style Anchor | 上傳圖可被設為角色、已確認角色、姿勢或風格參考；已接受圖與畫風錨點會在後續任務中優先排序。 |
+| 統一 Provider Adapter | `generate`、`edit`、`analyze`、`healthCheck` 均透過同一伺服器端 Adapter 契約執行。Gemini 與 GPT Image 具實接；FLUX.2 因未設定使用者授權憑證而明確維持 `disabled`。 |
+| Agent Model Router | 每張任務保存 Provider health、候選、已嘗試歷程、參考圖快照、品質報告與 checkpoint。新生成優先 Gemini；修改與去背採 GPT Image／可用後備，只有可轉移錯誤才 fallback。 |
+| 參考圖與 Style Anchor | 上傳圖可被設為角色、已確認角色、姿勢、場景或風格參考；已接受圖與畫風錨點會在後續任務中優先排序。 |
+| 整套自然語言修改 | 「全部變可愛一點」與「全部去背，背景改透明」會建立獨立 edit job 與版本；透明已合格、或仍有 queued／retrying／paused 生成工作的貼圖不會被誤排程。 |
+| Quality Agent | 生成後檢查透明覆蓋、尺寸、安全邊距與文字長度，回傳 `pass`／`fail`、原因與建議。僅在確定性圖檔檢查失敗時執行一次安全 Fix → Recheck；臉部／肢體語意不會在未執行視覺模型時被誤標為已通過。 |
 | 版本回復 | 每次生成／重試／修改均保存不可覆蓋版本鏈、父版本、活動版本、Provider 與品質結果；可在聊天工作室回復單張舊版本。 |
 | 對話內工作狀態 | 聊天欄顯示 Agent 工作事件、最近成果、修改／下載快捷操作與規劃／續作按鈕；桌面與手機均保留獨立任務總覽。 |
+| LINE Preflight | 主工作室顯示 370×320 PNG、透明背景、10 px 安全邊距、繁中 SVG 後製與 ZIP 可匯出狀態。 |
+| 公開 Preview／Inspection | `/preview` 與 `/preview/inspection` 使用原創固定示範資料，展示聊天、唯讀附件／HEIC、多圖語意、規劃、版本、品質與輸出 UI；不呼叫 Studio API、不上傳檔案、不讀取私人專案。 |
 | 中文文字可靠性 | 圖像模型不負責最終中文字；伺服器端用 `Noto Sans CJK TC` SVG 後製，避免亂碼、錯字與文字截斷。 |
 | LINE 輸出 | 產生透明 PNG、主圖、聊天室縮圖與 ZIP；檢查 370×320、透明 alpha、偶數尺寸、單圖 1 MB、套組 60 MB 等規格。 |
 
@@ -22235,7 +22519,7 @@ snapshots:
 - **後端：** Express、tRPC 11、TypeScript。
 - **資料：** MySQL／Drizzle，保存專案、對話、附件、角色／風格 Anchor、貼圖腳本、Agent 事件、Router／品質工作紀錄、可回復版本和輸出紀錄。
 - **檔案：** S3；資料庫只保存檔案參照，不保存圖片 bytes。
-- **圖像：** Gemini Image API 生成角色初稿；GPT Image 2 去背與修改；Sharp 合成 PNG、驗證 alpha、後製 LINE 文字。
+- **圖像：** `server/imageProviders.ts` 將 Gemini Image API、GPT Image 2 與 disabled FLUX.2 接至共用 Provider Adapter；Sharp 合成 PNG、驗證 alpha、後製 LINE 文字。
 
 ## 本機啟動
 
@@ -22263,7 +22547,7 @@ Schema 位於 `drizzle/schema.ts`。產生 migration 後，必須先閱讀 SQL�
 pnpm drizzle-kit generate
 ```
 
-目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerStyleAnchors`、`stickerAgentEvents`、`stickerJobs`、`stickerExports`。第二階段 migration 為 `drizzle/0003_grey_sentinel.sql`，僅新增欄位／表格，未刪除既有資料。
+目前已新增的對話工作室資料表：`stickerConversations`、`stickerMessages`、`stickerAttachments`、`stickerCharacterProfiles`、`stickerStyleAnchors`、`stickerAgentEvents`、`stickerJobs`、`stickerExports`。第二階段 migration 為 `drizzle/0003_grey_sentinel.sql`，僅新增欄位／表格，未刪除既有資料。**第三階段未新增或變更資料 schema**：Provider health、Router、品質、Scene Reference 與整套修改皆保存於既有文字／JSON 欄位與 Agent 事件中，因此無需產生 migration。
 
 ## 測試與驗證
 
@@ -22275,6 +22559,8 @@ pnpm build
 # 瀏覽器回歸
 node scripts/verify-chat-studio-flow.mjs
 VIEWPORT=desktop node scripts/verify-chat-studio-flow.mjs
+node scripts/verify-preview-demo.mjs
+VIEWPORT=mobile node scripts/verify-preview-demo.mjs
 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-chat-heic-upload.mjs
 node scripts/verify-chat-quota-resume.mjs
 
@@ -22283,7 +22569,7 @@ STICKER_E2E_TEST_MODE=1 PORT=3001 NODE_ENV=development npx tsx server/_core/inde
 BASE_URL=http://localhost:3001 HEIC_FIXTURE_PATH=/path/to/sample.heic node scripts/verify-android-controlled-success.mjs
 ```
 
-HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改入口、HEIC 多媒體上傳、額度暫停、Model Router、參考圖角色切換、版本 V1→V2→回復、對話內成果操作與 Android 手機回歸。
+HEIC 回歸腳本不會內建或下載任何使用者照片；請以 `HEIC_FIXTURE_PATH`（單張）或 `HEIC_FIXTURE_PATHS`（五張、以系統路徑分隔符連接）明確提供你有權使用的測試素材。測試覆蓋貼圖提示、Gemini 金鑰連線、LINE PNG／ZIP 產出、聊天建案、八張獨立任務、跨重新載入 projectKey 恢復、指定修改與整套修改、HEIC 多媒體上傳、額度暫停、Provider health／fallback、一次品質修正、參考圖角色／姿勢／場景／風格、版本 V1→V2→回復、對話內成果操作、公開 Preview／Inspection 的零 Studio API 呼叫，以及 Android 手機回歸。
 
 `STICKER_E2E_TEST_MODE=1` 是**僅供測試**的受控圖像提供者；它讓 Android 瀏覽器可驗證真實 UI、tRPC、資料庫、S3、修改與下載成功路徑，並不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
@@ -22324,6 +22610,8 @@ GitHub HTTPS 推送不可使用帳號密碼；請使用 Personal Access Token、
 - [`research/chat-first-ui-visual-findings.md`](research/chat-first-ui-visual-findings.md)：桌面與 Android 初始視覺驗證結果。
 - [`research/phase-2-model-router-research.md`](research/phase-2-model-router-research.md)：Gemini、GPT Image、FLUX.2 的可部署邊界與 Router 決策。
 - [`docs/phase-2-agent-design.md`](docs/phase-2-agent-design.md)：Agent 資料模型、錯誤／fallback、品質、Anchor、版本與聊天室設計。
+- [`docs/phase-3-capability-audit.md`](docs/phase-3-capability-audit.md)：第三階段 Provider、Agent、品質、Preview 與安全驗收基線。
+- [`docs/phase-3-delivery.md`](docs/phase-3-delivery.md)：第三階段已交付能力、不可宣稱能力、無 migration 判斷、測試紀錄與真實 API 限制。
 
 ## 重要限制
 
@@ -22730,7 +23018,7 @@ import path from "node:path";
 
 const projectRoot = process.env.PROJECT_ROOT ?? path.resolve(import.meta.dirname, "..");
 const outputPath = path.join(projectRoot, "docs", "Sticker-Tycoon_對話優先LINE貼圖工作室_GPT-交接包.md");
-const includeRoots = ["client", "server", "shared", "drizzle", "scripts", "research", "patches"];
+const includeRoots = ["client", "server", "shared", "drizzle", "scripts", "research", "docs", "patches"];
 const includeTopLevel = new Set(["package.json", "pnpm-lock.yaml", "tsconfig.json", "tsconfig.node.json", "vite.config.ts", "drizzle.config.ts", "components.json", "template.json", "README.md", "todo.md", ".gitignore"]);
 const excludedDirs = new Set(["node_modules", "dist", ".git", ".manus-logs", "coverage", ".cache", "assets"]);
 const excludedFiles = new Set(["generated-10-stickers.json", "chat-studio-flow-desktop.json", "chat-studio-flow-mobile.json", "chat-heic-upload-result.json", "chat-quota-resume-result.json", "android-real-server-quota-result.json", "android-controlled-success-result.json", "gemini-image-connection-result.json", "research-gemini-video.txt"]);
@@ -22757,20 +23045,22 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 **建立日期：** 2026-08-26（GMT+8）
 **專案目錄：** \`sticker-tycoon-replica\`
 **技術：** React 19、Tailwind CSS 4、Express、tRPC 11、Drizzle、MySQL、S3、Gemini Image、GPT Image 2、可替換 Agent Model Router。
-**GitHub 安全分支：** \`phase2-agent-router\`（不改動既有 \`chat-first-studio\` 與 \`main\`）
+**GitHub 安全分支基線：** \`phase2-agent-router\`（不改動既有 \`chat-first-studio\` 與 \`main\`；第三階段推送前必須重新確認遠端是否分岔。）
 
 > 本文件可直接交給 GPT 或工程師。它包含可見需求歷程、最新架構、驗證結果、GitHub 推送流程與全部可分享文字原始碼。已排除 API 金鑰、.env、使用者原始照片、S3 presigned URL、二進位圖像、node_modules、建置產物與平台內部內容。
 
 ## 1. 產品目標與現在的使用方式
 
-產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。使用者可指定單張修改、設為角色／姿勢／風格參考、檢視版本並回復單張，或於聊天欄直接下載最近完成的成果。
+產品目標是「**簡單到像 ChatGPT，強大到能製作並下載整套 LINE 貼圖**」。首頁是深海藍、青藍與紫色的手機優先對話工作室：使用者可輸入自然語言、附加多張照片或檔案，AI 自動建立角色設定與 8／16／24／32／40 張貼圖計畫。使用者可指定單張或整套修改、設為角色／姿勢／場景／風格參考、檢視版本並回復單張，或於聊天欄直接下載最近完成的成果。另提供不連線 API 的 \`/preview\` 與 \`/preview/inspection\` 公開唯讀驗收展示。
 
 | 層面 | 現行做法 |
 | --- | --- |
 | 角色理解與規劃 | LLM 分析自然語言與最多 4 張參考圖，輸出結構化角色設定與腳本；已確認角色設定不會被後續純文字對話覆寫；額度不足時改用可編輯備援腳本。 |
-| Agent Router | 每個任務保存 Provider 候選、參考快照、嘗試歷程、品質與 checkpoint。新生成優先 Gemini、單張編修優先 GPT Image；FLUX.2 僅列為未設定憑證的候選。 |
-| Anchor 與一致性 | 角色、已確認角色、姿勢、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
-| 圖像修改、品質與版本 | 透明 PNG 會寫入品質報告；生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
+| Provider Adapter 與 Router | Gemini 與 GPT Image 透過統一 \`generate\`／\`edit\`／\`analyze\`／\`healthCheck\` 契約執行；每個任務保存 health、候選、參考快照、嘗試與 checkpoint。FLUX.2 未有使用者授權憑證，明確保持 disabled。 |
+| Anchor 與一致性 | 角色、已確認角色、姿勢、場景、風格與目前修改圖依明確優先序選入；角色與 Style Anchor 會跨對話和 resume 保存。 |
+| 圖像修改、品質與版本 | 品質 Agent 會檢查透明覆蓋、尺寸、邊界與文字長度，回傳 pass／fail／reason／suggestedFix；僅安全 Fix 一次再重檢。生成、重試和修改建立父子版本鏈與 active version，可回復指定版本而不刪除新版本。 |
+| 整套自然語言修改 | 「全部變可愛一點」與「全部去背」會建立每張獨立 edit job／版本，跳過已合格圖片與 queued／retrying／paused 生成工作。 |
+| 公開驗收 | Preview／Inspection 使用固定原創示範資料，不上傳檔案、不讀取私人專案、不呼叫 Studio API；回歸腳本驗證此邊界。 |
 | 繁體中文與 LINE 輸出 | 模型不負責最終中文字；LINE 匯出以 Noto Sans CJK TC SVG 後製，檢查 10px 安全邊距、370×320、透明 alpha、檔案大小、main／tab 與 ZIP。 |
 | 保存與續作 | MySQL 保存對話、附件、Anchor、腳本、Agent 事件、Router／品質工作紀錄、版本與匯出；S3 保存檔案；projectKey 支援跨裝置續作。 |
 
@@ -22780,26 +23070,29 @@ const overview = `# Sticker Tycoon — 對話優先 LINE 貼圖工作室 GPT 交
 
 受控測試模式 \`STICKER_E2E_TEST_MODE=1\` 僅供本機成功路徑驗證；它不會在未設定該環境變數的開發或正式環境取代 Gemini／GPT Image。
 
-## 3. 第二階段研究、設計與驗證
+## 3. 第二、三階段研究、設計與驗證
 
 - \`research/phase-2-model-router-research.md\`：Gemini、GPT Image、FLUX.2 的可部署邊界、參考圖與 fallback 決策。
 - \`docs/phase-2-agent-design.md\`：Anchor、Router、品質、版本、對話工作卡與相容 migration 設計。
 - \`drizzle/0003_grey_sentinel.sql\`：已審閱並套用的非破壞 migration，新增 Style Anchor、Agent events 和 Router／品質／版本／參考圖欄位。
+- \`docs/phase-3-capability-audit.md\`、\`docs/phase-3-delivery.md\`：Provider 可用性、Adapter、Quality Fix、Preview、已知限制與交付驗收。
+- 第三階段未變更 Drizzle schema；Router／品質／pack scope／scene role 使用既有文字與 JSON 欄位、Agent events 保存，故不需 migration。
 
 | 驗證 | 結果 |
 | --- | --- |
 | \`pnpm check\` | 通過。 |
-| \`pnpm test\` | 通過；19 項單元／整合測試，覆蓋 Router、品質、角色 Anchor、quota resume、參考圖角色、版本 V1→V2→回復、LINE PNG／ZIP。 |
+| \`pnpm test\` | 通過；33 項單元／整合測試，覆蓋 Provider Adapter、FLUX disabled、health／quota fallback、Quality Fix、角色／姿勢／場景／風格 Anchor、整套修改、queued／retrying／paused 保留、版本與 LINE PNG／ZIP。 |
 | \`pnpm build\` | 通過；部分 Vite chunk 大於 500kB 為效能優化建議，不是建置失敗。 |
-| 桌面與 Android Playwright | 通過：8 任務、reload、對話內成果、參考圖姿勢切換、版本回復、指定修改、LINE ZIP，且無 console error。 |
+| 桌面與 Android Playwright | 通過：主工作室的 8／16／24／32／40 快捷規劃、Provider health、LINE Preflight、版本、指定修改、LINE ZIP；Preview／Inspection 的唯讀附件／HEIC 示範與零 Studio API 呼叫。 |
 | 安全掃描 | 通過：未包含 .env、金鑰、預簽網址、使用者上傳絕對路徑、node_modules、dist 或回歸輸出。 |
 
 ## 4. 給下一位 AI／工程師的優先事項
 
-1. 外部額度恢復後，以有權使用的人物／寵物素材重跑真實影像端到端，人工審查角色一致性、透明邊緣與指定修改差異。
+1. 外部額度恢復後，以有權使用的人物／寵物素材重跑真實多圖端到端，人工審查角色一致性、透明邊緣、臉部／肢體及指定修改差異。
 2. 保存 Provider 的 Retry-After／request ID，將短暫 rate limit 與需等待的 quota／billing 狀態進一步區分。
 3. 針對前端大型 chunk 做 code splitting，尤其是 HEIC 與 Streamdown 相關模組。
 4. 保持 AI 對話為唯一主要入口；不可偽造評價、星等、測試者或使用者見證。
+5. 每次 GitHub 同步前先比較遠端分支；若 \`chat-first-studio\` 分岔，必須徵求使用者選擇安全合併或新分支，絕不 force push。
 
 ## 5. 可分享原始碼與設定
 
@@ -22828,7 +23121,7 @@ for (const relative of unique) {
 
 const footer = `## 6. 交接結論
 
-此版本已升級為對話優先、手機優先、可保存的 AI LINE 貼圖 Agent 工作室。第二階段新增可追溯多模型 Router、角色／姿勢／風格 Anchor、版本回復、品質檢查、Agent 工作事件和對話內成果操作。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、測試與原始碼作為後續實作依據。\n`;
+此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環、主工作室 LINE Preflight，以及無 API／無私人資料的 Preview／Inspection。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、\`docs/phase-3-delivery.md\`、測試與原始碼作為後續實作依據。\n`;
 
 await writeFile(outputPath, `${overview}${sources}${footer}`, "utf8");
 console.log(JSON.stringify({ outputPath, sourceFileCount: unique.length }));
@@ -23273,7 +23566,7 @@ let referenceUpdates = 0;
 let versionRestores = 0;
 const consoleErrors = [];
 
-const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: true, outputReady: true }), planJson: null, updatedAt: new Date().toISOString() }));
+const scripts = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, position: index + 1, emotion: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], phrase: ["早安", "謝謝", "收到", "加油", "等等我", "好累喔", "太好了", "晚安"][index], scene: "可愛日常姿勢", status: generated || index < 2 ? "ready" : "queued", resultUrl: generated || index < 2 ? image : null, errorMessage: null, qualityReport: JSON.stringify({ alphaVerified: true, touchesCanvasEdge: false, outputReady: true }), planJson: null, updatedAt: new Date().toISOString() }));
 const jobs = () => Array.from({ length: 8 }, (_, index) => ({ id: index + 1, projectId: 1, scriptId: index + 1, kind: "generate", status: generated || index < 2 ? "completed" : "queued", attempt: 0, provider: "gemini-3.1-flash-image", errorCode: null, errorMessage: null, checkpointJson: null, routerJson: JSON.stringify({ selectedProvider: "gemini-3.1-flash-image" }), qualityReportJson: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
 const studio = () => sent ? {
   project: { id: 1, projectKey, title: "橘貓店長日常貼圖", brief: "幫我把橘貓做成 8 張可愛貼圖", characterProfile: "橘貓店長，圓眼睛，深藍圍裙", style: "可愛", stickerCount: 8, status: "generating", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
@@ -23289,7 +23582,11 @@ page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 await page.route("**/api/trpc/**", async (route) => {
   const url = route.request().url();
-  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.setReferenceRole") ? (referenceUpdates += 1, { id: 90, projectId: 1, url: image, role: "pose", accepted: false }) : url.includes("studio.restoreVersion") ? (versionRestores += 1, { position: 1, url: image, version: 1, status: "completed" }) : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
+  if (url.includes("studio.get") && url.includes("studio.providerHealth")) {
+    const health = { "gemini-3.1-flash-image": { status: "healthy" }, "gpt-image-2": { status: "healthy" }, "flux-2": { status: "disabled" } };
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ result: { data: { json: studio() } } }, { result: { data: { json: health } } }]) });
+  }
+  const data = url.includes("studio.exportLinePack") ? (zipExports += 1, { url: image, fileName: "line-sticker-pack.zip", reports: [], zipBytes: 2048 }) : url.includes("studio.setReferenceRole") ? (referenceUpdates += 1, { id: 90, projectId: 1, url: image, role: "pose", accepted: false }) : url.includes("studio.restoreVersion") ? (versionRestores += 1, { position: 1, url: image, version: 1, status: "completed" }) : url.includes("studio.providerHealth") ? { "gemini-3.1-flash-image": { status: "healthy" }, "gpt-image-2": { status: "healthy" }, "flux-2": { status: "disabled" } } : url.includes("studio.sendMessage") ? (sent = true, { projectKey, intent: "generate_pending", reply: "我已建立角色設定與 8 張日常貼圖計畫，正在從第 1 張開始製作。", character: null, assistantMessageId: 2, autoRun: true }) : url.includes("studio.runPending") ? (generated = true, { projectKey, completed: [{ jobId: 1, scriptId: 1, status: "completed", url: image }, { jobId: 2, scriptId: 2, status: "completed", url: image }], remaining: 0 }) : url.includes("studio.get") ? studio() : null;
   if (data === null) return route.continue();
   return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ result: { data: { json: data } } }]) });
 });
@@ -23303,6 +23600,12 @@ try {
   await page.getByText("第 1 張 · 早安").waitFor();
   await page.getByText("AGENT WORKSPACE").waitFor();
   await page.getByText("參考圖錨點").waitFor();
+  await page.getByText("LINE PREFLIGHT").waitFor();
+  await page.getByText("PNG 370 × 320（輸出時）").waitFor();
+  await page.getByText("Gemini · 可用").waitFor();
+  await page.getByRole("button", { name: "24 張" }).waitFor();
+  await page.getByRole("button", { name: "32 張" }).waitFor();
+  await page.getByRole("button", { name: "40 張" }).waitFor();
   await page.getByText("Gemini · 透明已檢查").first().waitFor();
   await page.locator(".agent-result-strip").waitFor();
   const taskCount = await page.locator(".sticker-task").count();
@@ -23452,6 +23755,44 @@ try {
 } finally {
   await browser.close();
 }
+
+````
+
+### `scripts/verify-preview-demo.mjs`
+
+````javascript
+import { chromium } from "playwright-core";
+
+const baseUrl = process.env.PREVIEW_BASE_URL ?? "http://localhost:3000";
+const viewport = process.env.VIEWPORT === "mobile" ? { width: 390, height: 844 } : { width: 1280, height: 720 };
+const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
+const page = await browser.newPage({ viewport });
+const apiCalls = [];
+page.on("request", (request) => {
+  if (request.url().includes("/api/trpc")) apiCalls.push(request.url());
+});
+
+await page.goto(`${baseUrl}/preview`, { waitUntil: "networkidle" });
+await page.getByText("公開唯讀示範").waitFor();
+await page.getByText("兔兔的日常對話").waitFor();
+await page.getByRole("button", { name: "示範附件" }).waitFor();
+await page.getByText("跳躍姿勢.heic").waitFor();
+await page.getByText("HEIC → JPEG（裝置端）").waitFor();
+await page.getByText("唯讀，不會實際上傳").waitFor();
+await page.getByRole("button", { name: "V1 原始" }).click();
+await page.getByRole("button", { name: /查看修正|已顯示修正紀錄/ }).click();
+await page.getByRole("button", { name: "描述需求" }).click();
+await page.getByRole("button", { name: "生成與檢查" }).click();
+if (apiCalls.length) throw new Error(`Preview 不應呼叫 Studio API：${apiCalls.join(", ")}`);
+
+await page.goto(`${baseUrl}/preview/inspection`, { waitUntil: "networkidle" });
+await page.getByText("貼圖 Agent 的可檢查工作鏈").waitFor();
+await page.getByText("FLUX.2").waitFor();
+await page.getByText("未設定，保持 disabled").waitFor();
+if (apiCalls.length) throw new Error(`Inspection 不應呼叫 Studio API：${apiCalls.join(", ")}`);
+
+console.log(JSON.stringify({ viewport, previewApiCalls: apiCalls.length, inspection: "ok" }));
+await browser.close();
 
 ````
 
@@ -26561,6 +26902,229 @@ export async function generateGeminiImage(input: { prompt: string; references?: 
 
 ````
 
+### `server/imageProviders.test.ts`
+
+````typescript
+import { describe, expect, it, vi } from "vitest";
+
+const mock = vi.hoisted(() => ({
+  generateImage: vi.fn(async () => ({ b64Json: "cG5n", mimeType: "image/png" })),
+  listImageModels: vi.fn(async () => ({ models: [{ id: "gpt-image-2", model: "MODEL_GPT_IMAGE_2" }] })),
+  generateGeminiImage: vi.fn(async () => ({ b64Json: "anBlZw==", mimeType: "image/jpeg" as const, provider: "gemini", interactionId: "interaction-test" })),
+}));
+
+vi.mock("./_core/imageGeneration", () => ({ generateImage: mock.generateImage, listImageModels: mock.listImageModels }));
+vi.mock("./geminiImage", () => ({ GeminiImageError: class GeminiImageError extends Error {}, generateGeminiImage: mock.generateGeminiImage }));
+
+const { executeProviderTask, getImageProviderAdapter } = await import("./imageProviders");
+
+describe("統一圖像 Provider Adapter", () => {
+  it("以 Gemini Adapter 執行多參考生成並保留 interaction metadata", async () => {
+    const result = await executeProviderTask({ provider: "gemini-3.1-flash-image", taskKind: "generate", prompt: "cute rabbit", references: [{ url: "https://example.test/character.jpg", mimeType: "image/jpeg" }, { url: "https://example.test/pose.jpg", mimeType: "image/jpeg" }] });
+    expect(mock.generateGeminiImage).toHaveBeenCalledWith(expect.objectContaining({ prompt: "cute rabbit", references: expect.arrayContaining([expect.objectContaining({ mimeType: "image/jpeg" })]) }));
+    expect(result).toMatchObject({ provider: "gemini-3.1-flash-image", interactionId: "interaction-test", mimeType: "image/jpeg" });
+  });
+
+  it("以 GPT Image Adapter 將目前圖片和參考圖送往 edit 工作流", async () => {
+    const result = await executeProviderTask({ provider: "gpt-image-2", taskKind: "edit", prompt: "make the eyes bigger", currentImage: { url: "https://example.test/current.png", mimeType: "image/png" }, references: [{ url: "https://example.test/style.jpg", mimeType: "image/jpeg" }] });
+    expect(mock.generateImage).toHaveBeenCalledWith(expect.objectContaining({ prompt: "make the eyes bigger", originalImages: [expect.objectContaining({ url: "https://example.test/current.png" }), expect.objectContaining({ url: "https://example.test/style.jpg" })] }));
+    expect(result).toMatchObject({ provider: "gpt-image-2", mimeType: "image/png" });
+  });
+
+  it("將 FLUX 保持為未設定的 disabled Adapter，不會冒充可用 fallback", async () => {
+    const flux = getImageProviderAdapter("flux-2");
+    await expect(flux.healthCheck()).resolves.toMatchObject({ status: "disabled", configured: false });
+    await expect(executeProviderTask({ provider: "flux-2", taskKind: "generate", prompt: "rabbit", references: [] })).rejects.toThrow(/尚未設定/);
+  });
+
+  it("以 Forge 模型清單作為 GPT Image healthCheck 的 server-side 健康依據", async () => {
+    await expect(getImageProviderAdapter("gpt-image-2").healthCheck()).resolves.toMatchObject({ status: "healthy", configured: true });
+    expect(mock.listImageModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("拒絕缺少 current image 的 edit，避免產生無法追溯的修改版本", async () => {
+    await expect(executeProviderTask({ provider: "gpt-image-2", taskKind: "edit", prompt: "change", references: [] })).rejects.toThrow(/缺少目前版本圖片/);
+  });
+});
+
+````
+
+### `server/imageProviders.ts`
+
+````typescript
+import sharp from "sharp";
+import { generateImage, listImageModels } from "./_core/imageGeneration";
+import { GeminiImageError, generateGeminiImage } from "./geminiImage";
+import type { ImageErrorKind, ImageProvider } from "./stickerAgent";
+
+export type ProviderHealthStatus = "healthy" | "degraded" | "quota_exhausted" | "unavailable" | "disabled";
+export type ProviderTaskKind = "generate" | "edit" | "cutout";
+
+export type ProviderReference = { url: string; mimeType?: string; role?: string };
+export type ProviderImageResult = { b64Json: string; mimeType: string; provider: ImageProvider; interactionId?: string };
+export type ProviderAnalysis = { inspected: number; readable: number; alphaImages: number; dimensions: string[]; summary: string };
+export type ProviderHealth = {
+  provider: ImageProvider;
+  status: ProviderHealthStatus;
+  checkedAt: string;
+  latencyMs: number;
+  configured: boolean;
+  supports: ProviderTaskKind[];
+  detail: string;
+};
+
+export type ImageProviderAdapter = {
+  id: ImageProvider;
+  supports: ProviderTaskKind[];
+  generate(input: { prompt: string; references: ProviderReference[] }): Promise<ProviderImageResult>;
+  edit(input: { prompt: string; original: ProviderReference; references?: ProviderReference[] }): Promise<ProviderImageResult>;
+  analyze(input: { references: ProviderReference[] }): Promise<ProviderAnalysis>;
+  healthCheck(): Promise<ProviderHealth>;
+};
+
+export class ImageProviderError extends Error {
+  constructor(public readonly provider: ImageProvider, public readonly kind: ImageErrorKind, message: string, public readonly retryable: boolean) {
+    super(message);
+    this.name = "ImageProviderError";
+  }
+}
+
+function nowHealth(input: Omit<ProviderHealth, "checkedAt" | "latencyMs">, startedAt: number): ProviderHealth {
+  return { ...input, checkedAt: new Date().toISOString(), latencyMs: Date.now() - startedAt };
+}
+
+function classifyProviderFailure(provider: ImageProvider, error: unknown): ImageProviderError {
+  if (error instanceof ImageProviderError) return error;
+  if (error instanceof GeminiImageError) {
+    const kind: ImageErrorKind = error.code === "USAGE_EXHAUSTED" ? "quota" : error.retryable ? "transient" : "unknown";
+    return new ImageProviderError(provider, kind, error.message, error.retryable);
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "影像 Provider 發生未知錯誤");
+  if (/usage exhausted|failed_precondition|resource_exhausted|quota/i.test(message)) return new ImageProviderError(provider, "quota", message, true);
+  if (/\b429\b|\b5\d\d\b|timeout|timed out|network|abort/i.test(message)) return new ImageProviderError(provider, "transient", message, true);
+  if (/policy|safety|blocked|moderation|prohibited/i.test(message)) return new ImageProviderError(provider, "policy", message, false);
+  if (/invalid|unsupported|format|too large|\b400\b/i.test(message)) return new ImageProviderError(provider, "invalid_request", message, false);
+  return new ImageProviderError(provider, "unknown", message, false);
+}
+
+async function readImageMetadata(reference: ProviderReference) {
+  try {
+    const dataMatch = reference.url.match(/^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/);
+    const buffer = dataMatch ? Buffer.from(dataMatch[2]!, "base64") : Buffer.from(await (await fetch(reference.url)).arrayBuffer());
+    const metadata = await sharp(buffer).metadata();
+    return { readable: true, alpha: metadata.hasAlpha === true, dimensions: metadata.width && metadata.height ? `${metadata.width}×${metadata.height}` : "未知" };
+  } catch {
+    return { readable: false, alpha: false, dimensions: "無法讀取" };
+  }
+}
+
+async function analyzeReferences(references: ProviderReference[]): Promise<ProviderAnalysis> {
+  const inspected = await Promise.all(references.map(readImageMetadata));
+  const readable = inspected.filter((item) => item.readable);
+  return {
+    inspected: references.length,
+    readable: readable.length,
+    alphaImages: readable.filter((item) => item.alpha).length,
+    dimensions: readable.map((item) => item.dimensions),
+    summary: readable.length === references.length ? `已讀取 ${references.length} 張參考圖。` : `已讀取 ${readable.length}/${references.length} 張參考圖。`,
+  };
+}
+
+const geminiAdapter: ImageProviderAdapter = {
+  id: "gemini-3.1-flash-image",
+  supports: ["generate", "edit"],
+  async generate(input) {
+    try {
+      const result = await generateGeminiImage({ prompt: input.prompt, references: input.references.slice(0, 4).map((item) => ({ url: item.url, mimeType: item.mimeType ?? "image/jpeg" })) });
+      return { ...result, provider: "gemini-3.1-flash-image" };
+    } catch (error) { throw classifyProviderFailure("gemini-3.1-flash-image", error); }
+  },
+  async edit(input) {
+    return this.generate({ prompt: input.prompt, references: [input.original, ...(input.references ?? [])] });
+  },
+  analyze: ({ references }) => analyzeReferences(references),
+  async healthCheck() {
+    const startedAt = Date.now();
+    if (!process.env.GEMINI_API_KEY) return nowHealth({ provider: "gemini-3.1-flash-image", status: "unavailable", configured: false, supports: ["generate", "edit"], detail: "未設定 GEMINI_API_KEY。" }, startedAt);
+    try {
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models", { headers: { "x-goog-api-key": process.env.GEMINI_API_KEY } });
+      if (response.ok) return nowHealth({ provider: "gemini-3.1-flash-image", status: "healthy", configured: true, supports: ["generate", "edit"], detail: "Gemini 模型目錄可讀取。" }, startedAt);
+      const status: ProviderHealthStatus = response.status === 429 || response.status === 412 ? "quota_exhausted" : "degraded";
+      return nowHealth({ provider: "gemini-3.1-flash-image", status, configured: true, supports: ["generate", "edit"], detail: `Gemini health check 回應 ${response.status}。` }, startedAt);
+    } catch {
+      return nowHealth({ provider: "gemini-3.1-flash-image", status: "unavailable", configured: true, supports: ["generate", "edit"], detail: "Gemini health check 無法連線。" }, startedAt);
+    }
+  },
+};
+
+const gptAdapter: ImageProviderAdapter = {
+  id: "gpt-image-2",
+  supports: ["generate", "edit", "cutout"],
+  async generate(input) {
+    try {
+      const result = await generateImage({ prompt: input.prompt, originalImages: input.references, quality: "medium" });
+      if (!result.b64Json) throw new Error("GPT Image 沒有回傳可保存的圖片資料");
+      return { b64Json: result.b64Json, mimeType: result.mimeType ?? "image/png", provider: "gpt-image-2" };
+    } catch (error) { throw classifyProviderFailure("gpt-image-2", error); }
+  },
+  async edit(input) {
+    try {
+      const result = await generateImage({ prompt: input.prompt, originalImages: [input.original, ...(input.references ?? [])], quality: "medium" });
+      if (!result.b64Json) throw new Error("GPT Image 沒有回傳可保存的修改圖片");
+      return { b64Json: result.b64Json, mimeType: result.mimeType ?? "image/png", provider: "gpt-image-2" };
+    } catch (error) { throw classifyProviderFailure("gpt-image-2", error); }
+  },
+  analyze: ({ references }) => analyzeReferences(references),
+  async healthCheck() {
+    const startedAt = Date.now();
+    try {
+      const { models } = await listImageModels();
+      const configured = models.some((model) => model.id === "gpt-image-2" || model.model === "MODEL_GPT_IMAGE_2");
+      return nowHealth({ provider: "gpt-image-2", status: configured ? "healthy" : "unavailable", configured, supports: ["generate", "edit", "cutout"], detail: configured ? "Forge ImageService 可列出 GPT Image 2。" : "Forge ImageService 未列出 GPT Image 2。" }, startedAt);
+    } catch (error) {
+      const classified = classifyProviderFailure("gpt-image-2", error);
+      return nowHealth({ provider: "gpt-image-2", status: classified.kind === "quota" ? "quota_exhausted" : "unavailable", configured: true, supports: ["generate", "edit", "cutout"], detail: "Forge ImageService health check 暫時不可用。" }, startedAt);
+    }
+  },
+};
+
+const fluxAdapter: ImageProviderAdapter = {
+  id: "flux-2",
+  supports: [],
+  async generate() { throw new ImageProviderError("flux-2", "invalid_request", "FLUX Provider 尚未設定使用者授權的 API 憑證與商業授權。", false); },
+  async edit() { throw new ImageProviderError("flux-2", "invalid_request", "FLUX Provider 尚未設定使用者授權的 API 憑證與商業授權。", false); },
+  analyze: ({ references }) => analyzeReferences(references),
+  async healthCheck() {
+    return nowHealth({ provider: "flux-2", status: "disabled", configured: false, supports: [], detail: "FLUX 連接器存在但未啟用；未持有 BFL 或相容 Provider 的使用者憑證。" }, Date.now());
+  },
+};
+
+const adapters: Record<ImageProvider, ImageProviderAdapter> = {
+  "gemini-3.1-flash-image": geminiAdapter,
+  "gpt-image-2": gptAdapter,
+  "flux-2": fluxAdapter,
+};
+
+export function getImageProviderAdapter(provider: ImageProvider) { return adapters[provider]; }
+
+export async function getProviderHealthSnapshot() {
+  const health = await Promise.all(Object.values(adapters).map((adapter) => adapter.healthCheck()));
+  return Object.fromEntries(health.map((item) => [item.provider, item])) as Record<ImageProvider, ProviderHealth>;
+}
+
+export async function executeProviderTask(input: { provider: ImageProvider; taskKind: ProviderTaskKind; prompt: string; references: ProviderReference[]; currentImage?: ProviderReference }) {
+  const adapter = getImageProviderAdapter(input.provider);
+  if (input.provider === "flux-2") throw new ImageProviderError("flux-2", "invalid_request", "FLUX Provider 尚未設定使用者授權的 API 憑證與商業授權。", false);
+  if (!adapter.supports.includes(input.taskKind)) throw new ImageProviderError(input.provider, "invalid_request", `${input.provider} 不支援 ${input.taskKind} 工作。`, false);
+  if (input.taskKind === "edit") {
+    if (!input.currentImage) throw new ImageProviderError(input.provider, "invalid_request", "圖片修改缺少目前版本圖片。", false);
+    return adapter.edit({ prompt: input.prompt, original: input.currentImage, references: input.references });
+  }
+  return adapter.generate({ prompt: input.prompt, references: input.references });
+}
+
+````
+
 ### `server/index.ts`
 
 ````typescript
@@ -26773,6 +27337,7 @@ import { generateImage } from "./_core/imageGeneration";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { addStickerExport, addStickerReference, addStickerScript, addStickerVersion, createStickerProject, getStickerProject, getDb, getStickerStudio, updateStickerScript } from "./db";
+import { getProviderHealthSnapshot } from "./imageProviders";
 import { renderLinePack, renderLineSticker } from "./lineExport";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { publicProcedure, router } from "./_core/trpc";
@@ -26921,6 +27486,7 @@ export const appRouter = router({
   }),
   studio: router({
     get: publicProcedure.input(z.object({ projectKey: z.string().min(1) })).query(({ input }) => getStickerStudio(input.projectKey)),
+    providerHealth: publicProcedure.query(async () => getProviderHealthSnapshot()),
     sendMessage: publicProcedure.input(z.object({ projectKey: z.string().min(1).optional(), content: z.string().min(1).max(4000), attachments: z.array(z.object({ dataUrl: z.string().min(32), fileName: z.string().min(1).max(255), mimeType: z.string().min(1).max(120) })).max(10).default([]) })).mutation(async ({ input }) => {
       const { sendStudioMessage } = await import("./studio");
       return sendStudioMessage(input);
@@ -26937,11 +27503,15 @@ export const appRouter = router({
       const { editStudioSticker } = await import("./studio");
       return editStudioSticker(input);
     }),
+    editPack: publicProcedure.input(z.object({ projectKey: z.string().min(1), instruction: z.string().min(2).max(500) })).mutation(async ({ input }) => {
+      const { queueStudioPackEdit } = await import("./studio");
+      return queueStudioPackEdit(input);
+    }),
     restoreVersion: publicProcedure.input(z.object({ projectKey: z.string().min(1), position: z.number().int().min(1).max(40), versionId: z.number().int().positive() })).mutation(async ({ input }) => {
       const { restoreStudioStickerVersion } = await import("./studio");
       return restoreStudioStickerVersion(input);
     }),
-    setReferenceRole: publicProcedure.input(z.object({ projectKey: z.string().min(1), referenceId: z.number().int().positive(), role: z.enum(["character", "pose", "style", "accepted_character", "accepted_style", "current_edit"]), accepted: z.boolean().default(false) })).mutation(async ({ input }) => {
+    setReferenceRole: publicProcedure.input(z.object({ projectKey: z.string().min(1), referenceId: z.number().int().positive(), role: z.enum(["character", "pose", "scene", "style", "accepted_character", "accepted_style", "current_edit"]), accepted: z.boolean().default(false) })).mutation(async ({ input }) => {
       const { setStudioReferenceRole } = await import("./studio");
       return setStudioReferenceRole(input);
     }),
@@ -26988,7 +27558,7 @@ export type AppRouter = typeof appRouter;
 ````typescript
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { buildReferenceSelection, classifyImageError, evaluateStickerQuality, routeImageTask } from "./stickerAgent";
+import { buildReferenceSelection, classifyImageError, evaluateStickerQuality, routeImageTask, shouldAutoRepair } from "./stickerAgent";
 
 describe("貼圖 Agent Router", () => {
   it("依目前修改圖、接受角色、角色、姿勢、風格的優先序建立可重現參考快照", () => {
@@ -27018,6 +27588,19 @@ describe("貼圖 Agent Router", () => {
     expect(generate.candidates.find((item) => item.provider === "flux-2")).toMatchObject({ enabled: false });
   });
 
+  it("依健康狀態與一致性／批次需求安全重排候選，並在主要 Provider quota 時選用可用後備", () => {
+    const health = {
+      "gemini-3.1-flash-image": { provider: "gemini-3.1-flash-image" as const, status: "quota_exhausted" as const, configured: true, supports: ["generate", "edit"], detail: "quota", checkedAt: "2026-08-26T00:00:00.000Z", latencyMs: 1 },
+      "gpt-image-2": { provider: "gpt-image-2" as const, status: "healthy" as const, configured: true, supports: ["generate", "edit", "cutout"], detail: "ready", checkedAt: "2026-08-26T00:00:00.000Z", latencyMs: 1 },
+      "flux-2": { provider: "flux-2" as const, status: "disabled" as const, configured: false, supports: [], detail: "unconfigured", checkedAt: "2026-08-26T00:00:00.000Z", latencyMs: 1 },
+    };
+    const decision = routeImageTask({ taskKind: "generate", references: [{ url: "/anchor.png", role: "accepted_character", accepted: true }], providerHealth: health, requirements: { requiresHighConsistency: true, batchSize: 40, speedPriority: "high", costPriority: "high", requiresText: true } });
+    expect(decision.selectedProvider).toBe("gpt-image-2");
+    expect(decision.candidates.find((item) => item.provider === "gemini-3.1-flash-image")).toMatchObject({ enabled: false, healthStatus: "quota_exhausted" });
+    expect(decision.candidates.find((item) => item.provider === "flux-2")).toMatchObject({ enabled: false, healthStatus: "disabled" });
+    expect(decision.referenceSnapshot[0]?.role).toBe("accepted_character");
+  });
+
   it("將 quota、暫時性、政策與無效請求區分為安全的 fallback 決策", () => {
     expect(classifyImageError(new Error("429 resource_exhausted quota"))).toMatchObject({ kind: "quota", fallbackEligible: true });
     expect(classifyImageError(new Error("network timeout"))).toMatchObject({ kind: "transient", fallbackEligible: true });
@@ -27025,11 +27608,19 @@ describe("貼圖 Agent Router", () => {
     expect(classifyImageError(new Error("unsupported format"))).toMatchObject({ kind: "invalid_request", fallbackEligible: false });
   });
 
-  it("品質檢查確認透明 PNG 與尺寸，並將極小受控測試素材標示為需要人工注意而非盲目重試", async () => {
+  it("品質檢查回傳 pass／fail、原因與修正建議，並只允許一次安全自動修正", async () => {
     const png = await sharp({ create: { width: 32, height: 32, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
     const report = await evaluateStickerQuality(png);
-    expect(report).toMatchObject({ alphaVerified: true, dimensions: "32×32", outputReady: true, retryRecommended: false, textOverlayPending: true });
-    expect(report.reasons).toContain("來源圖尺寸過小，僅適合作為受控測試素材。");
+    expect(report).toMatchObject({ verdict: "fail", alphaVerified: true, dimensions: "32×32", outputReady: false, retryRecommended: true, textOverlayPending: true, semanticReview: "not_available" });
+    expect(report.reasons).toContain("來源圖尺寸過小，無法安全用於貼圖輸出。");
+    expect(shouldAutoRepair(report, 0)).toBe(true);
+    expect(shouldAutoRepair(report, 1)).toBe(false);
+
+    const opaque = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 30, g: 120, b: 200, alpha: 1 } } }).png().toBuffer();
+    await expect(evaluateStickerQuality(opaque)).resolves.toMatchObject({ verdict: "fail", retryRecommended: true, suggestedFix: expect.stringMatching(/去背/) });
+
+    const valid = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite([{ input: Buffer.from("<svg width=\"256\" height=\"256\"><circle cx=\"128\" cy=\"128\" r=\"88\" fill=\"#f6a33e\"/></svg>") }]).png().toBuffer();
+    await expect(evaluateStickerQuality(valid, { phrase: "謝謝" })).resolves.toMatchObject({ verdict: "pass", outputReady: true, retryRecommended: false });
   });
 });
 
@@ -27039,8 +27630,9 @@ describe("貼圖 Agent Router", () => {
 
 ````typescript
 import sharp from "sharp";
+import type { ProviderHealth, ProviderHealthStatus } from "./imageProviders";
 
-export type AgentReferenceRole = "character" | "pose" | "style" | "accepted_character" | "accepted_style" | "current_edit";
+export type AgentReferenceRole = "character" | "pose" | "scene" | "style" | "accepted_character" | "accepted_style" | "current_edit";
 export type ImageTaskKind = "generate" | "edit" | "cutout";
 export type ImageProvider = "gemini-3.1-flash-image" | "gpt-image-2" | "flux-2";
 
@@ -27058,6 +27650,17 @@ export type RouterCandidate = {
   enabled: boolean;
   reason: string;
   maxReferences: number;
+  score: number;
+  healthStatus: ProviderHealthStatus | "unknown";
+  supportsTextPostprocess: boolean;
+};
+
+export type RouterRequirements = {
+  requiresHighConsistency?: boolean;
+  requiresText?: boolean;
+  batchSize?: number;
+  speedPriority?: "low" | "balanced" | "high";
+  costPriority?: "low" | "balanced" | "high";
 };
 
 export type RouterAttempt = {
@@ -27081,12 +27684,18 @@ export type RouterDecision = {
 export type ImageErrorKind = "quota" | "transient" | "policy" | "invalid_request" | "unknown";
 
 export type StickerQualityReport = {
+  verdict: "pass" | "fail";
+  reason: string;
+  suggestedFix: string;
   alphaVerified: boolean;
+  transparentCoverage: number;
+  touchesCanvasEdge: boolean;
   dimensions: string;
   outputReady: boolean;
   retryRecommended: boolean;
   reasons: string[];
   textOverlayPending: true;
+  semanticReview: "not_available";
 };
 
 const roleRank: Record<AgentReferenceRole, number> = {
@@ -27094,12 +27703,14 @@ const roleRank: Record<AgentReferenceRole, number> = {
   accepted_character: 1,
   character: 2,
   pose: 3,
-  accepted_style: 4,
-  style: 5,
+  scene: 4,
+  accepted_style: 5,
+  style: 6,
 };
 
 export function inferAttachmentRole(message: string): AgentReferenceRole {
   if (/姿勢|動作|pose|站姿|跳躍|跳起|參考動作/i.test(message)) return "pose";
+  if (/背景|場景|scene|環境|構圖參考/i.test(message)) return "scene";
   if (/畫風|風格|style|照這個風格|全部照這個/i.test(message)) return "style";
   return "character";
 }
@@ -27122,24 +27733,52 @@ export function buildReferenceSelection(input: { references: AgentReference[]; c
   return selected;
 }
 
-export function routeImageTask(input: { taskKind: ImageTaskKind; references: AgentReference[]; currentEditUrl?: string }): RouterDecision {
-  const candidates: RouterCandidate[] = input.taskKind === "cutout"
+function routerCandidate(input: { provider: ImageProvider; configured: boolean; maxReferences: number; baseScore: number; reason: string; requirements: RouterRequirements; referenceCount: number; health?: ProviderHealth }) {
+  const healthStatus = input.health?.status ?? "unknown";
+  const healthyEnough = !input.health || ["healthy", "degraded"].includes(input.health.status);
+  let score = input.baseScore;
+  if (input.requirements.requiresHighConsistency && input.provider === "gemini-3.1-flash-image") score += 16;
+  if (input.referenceCount >= 2 && input.provider === "gemini-3.1-flash-image") score += 10;
+  if (input.requirements.batchSize && input.requirements.batchSize >= 16 && input.provider === "gemini-3.1-flash-image") score += 8;
+  if (input.requirements.speedPriority === "high" && input.provider === "gemini-3.1-flash-image") score += 6;
+  if (input.requirements.costPriority === "high" && input.provider === "gemini-3.1-flash-image") score += 5;
+  if (input.requirements.requiresText && input.provider === "gpt-image-2") score += 4;
+  if (healthStatus === "degraded") score -= 18;
+  if (["quota_exhausted", "unavailable", "disabled"].includes(healthStatus)) score = -999;
+  const enabled = input.configured && healthyEnough;
+  const healthReason = healthStatus === "unknown" ? "尚未執行 health check。" : input.health?.detail ?? "";
+  return {
+    provider: input.provider,
+    enabled,
+    maxReferences: input.maxReferences,
+    score,
+    healthStatus,
+    supportsTextPostprocess: true,
+    reason: `${input.reason}${input.requirements.requiresText ? " 正式繁中文字會交給伺服器後製。" : ""} ${healthReason}`.trim(),
+  } satisfies RouterCandidate;
+}
+
+export function routeImageTask(input: { taskKind: ImageTaskKind; references: AgentReference[]; currentEditUrl?: string; requirements?: RouterRequirements; providerHealth?: Partial<Record<ImageProvider, ProviderHealth>> }): RouterDecision {
+  const requirements = input.requirements ?? {};
+  const referenceCount = input.references.length + (input.currentEditUrl ? 1 : 0);
+  const specs = input.taskKind === "cutout"
     ? [
-      { provider: "gpt-image-2", enabled: true, maxReferences: 1, reason: "已整合的影像編修服務可處理語意去背。" },
-      { provider: "gemini-3.1-flash-image", enabled: true, maxReferences: 1, reason: "可在主要去背服務不可用時協助維持角色輪廓。" },
-      { provider: "flux-2", enabled: false, maxReferences: 1, reason: "尚未設定 BFL 或相容平台憑證與商業授權。" },
+      { provider: "gpt-image-2" as const, configured: true, maxReferences: 1, baseScore: 98, reason: "已整合的影像編修服務優先處理語意去背。" },
+      { provider: "gemini-3.1-flash-image" as const, configured: true, maxReferences: 1, baseScore: 54, reason: "可在主要去背服務暫時不可用時維持角色輪廓。" },
+      { provider: "flux-2" as const, configured: false, maxReferences: 1, baseScore: 30, reason: "FLUX 尚未設定使用者授權的 API 憑證與商業授權。" },
     ]
     : input.taskKind === "edit"
       ? [
-        { provider: "gpt-image-2", enabled: true, maxReferences: 4, reason: "優先以目前圖片進行局部修改與版本延續。" },
-        { provider: "gemini-3.1-flash-image", enabled: true, maxReferences: 4, reason: "可支援多輪影像修改與角色參考。" },
-        { provider: "flux-2", enabled: false, maxReferences: 6, reason: "尚未設定 BFL 或相容平台憑證與商業授權。" },
+        { provider: "gpt-image-2" as const, configured: true, maxReferences: 4, baseScore: 96, reason: "優先以目前圖片進行局部修改、語意修正與版本延續。" },
+        { provider: "gemini-3.1-flash-image" as const, configured: true, maxReferences: 4, baseScore: 76, reason: "可在 GPT Image 暫時不可用時延續角色參考與修改。" },
+        { provider: "flux-2" as const, configured: false, maxReferences: 6, baseScore: 50, reason: "FLUX 尚未設定使用者授權的 API 憑證與商業授權。" },
       ]
       : [
-        { provider: "gemini-3.1-flash-image", enabled: true, maxReferences: 4, reason: "優先處理角色、姿勢與風格多參考的一致性貼圖生成。" },
-        { provider: "gpt-image-2", enabled: true, maxReferences: 4, reason: "作為已整合的高保真參考圖後備生成服務。" },
-        { provider: "flux-2", enabled: false, maxReferences: 6, reason: "尚未設定 BFL 或相容平台憑證與商業授權。" },
+        { provider: "gemini-3.1-flash-image" as const, configured: true, maxReferences: 4, baseScore: 90, reason: "優先處理角色、姿勢與風格多參考的一致性貼圖生成。" },
+        { provider: "gpt-image-2" as const, configured: true, maxReferences: 4, baseScore: 74, reason: "作為已整合的高保真參考圖後備生成服務。" },
+        { provider: "flux-2" as const, configured: false, maxReferences: 6, baseScore: 66, reason: "FLUX 尚未設定使用者授權的 API 憑證與商業授權。" },
       ];
+  const candidates = specs.map((spec) => routerCandidate({ ...spec, requirements, referenceCount, health: input.providerHealth?.[spec.provider] })).sort((a, b) => b.score - a.score);
   const selectedProvider = candidates.find((candidate) => candidate.enabled)?.provider ?? null;
   const maxReferences = candidates.find((candidate) => candidate.provider === selectedProvider)?.maxReferences ?? 4;
   return {
@@ -27148,7 +27787,7 @@ export function routeImageTask(input: { taskKind: ImageTaskKind; references: Age
     candidates,
     referenceSnapshot: buildReferenceSelection({ references: input.references, currentEditUrl: input.currentEditUrl, maxReferences }),
     attempts: selectedProvider ? [{ provider: selectedProvider, startedAt: new Date().toISOString(), outcome: "selected" }] : [],
-    reason: selectedProvider ? candidates.find((candidate) => candidate.provider === selectedProvider)!.reason : "沒有已設定的影像 Provider。",
+    reason: selectedProvider ? candidates.find((candidate) => candidate.provider === selectedProvider)!.reason : "沒有健康且已設定的影像 Provider；任務將保存並等待恢復。",
     resumeSafe: true,
   };
 }
@@ -27166,7 +27805,7 @@ export function appendRouterAttempt(decision: RouterDecision, attempt: RouterAtt
   return { ...decision, attempts: [...decision.attempts.filter((item) => item.outcome !== "selected" || item.provider !== attempt.provider), attempt] };
 }
 
-export async function evaluateStickerQuality(buffer: Buffer): Promise<StickerQualityReport> {
+export async function evaluateStickerQuality(buffer: Buffer, input: { phrase?: string } = {}): Promise<StickerQualityReport> {
   const metadata = await sharp(buffer).metadata();
   const reasons: string[] = [];
   const alphaVerified = metadata.hasAlpha === true;
@@ -27174,15 +27813,47 @@ export async function evaluateStickerQuality(buffer: Buffer): Promise<StickerQua
   const height = metadata.height ?? 0;
   if (!alphaVerified) reasons.push("生成結果尚未驗證透明背景，需進入語意去背。");
   if (!width || !height) reasons.push("無法取得圖像尺寸。");
-  if (width && height && (width < 64 || height < 64)) reasons.push("來源圖尺寸過小，僅適合作為受控測試素材。");
+  if (width && height && (width < 64 || height < 64)) reasons.push("來源圖尺寸過小，無法安全用於貼圖輸出。");
+  let transparentCoverage = 0;
+  let touchesCanvasEdge = false;
+  if (width && height) {
+    const raw = await sharp(buffer).ensureAlpha().raw().toBuffer();
+    let transparent = 0;
+    for (let index = 3; index < raw.length; index += 4) {
+      const alpha = raw[index] ?? 0;
+      if (alpha < 8) transparent += 1;
+      if (alpha > 8) {
+        const pixel = (index - 3) / 4;
+        const x = pixel % width;
+        const y = Math.floor(pixel / width);
+        if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesCanvasEdge = true;
+      }
+    }
+    transparentCoverage = transparent / (width * height);
+    if (transparentCoverage < 0.005) reasons.push("主體外未偵測到透明區域，需重新去背。");
+    if (touchesCanvasEdge) reasons.push("主體碰觸畫布邊緣，可能在 LINE 輸出時被裁切。");
+  }
+  if (input.phrase && input.phrase.length > 20) reasons.push("繁體中文字超過 20 字，需縮短或由程式安全換行。");
+  const retryRecommended = reasons.some((reason) => /透明|尺寸|裁切/.test(reason));
+  const verdict = retryRecommended ? "fail" as const : "pass" as const;
   return {
+    verdict,
+    reason: reasons[0] ?? "已通過可決定性圖檔品質檢查；臉部與肢體語意檢查仍需支援視覺模型時才可自動完成。",
+    suggestedFix: retryRecommended ? (reasons.some((reason) => /透明/.test(reason)) ? "以目前角色圖重新執行去背與透明背景修正。" : "提高構圖安全邊距後重新生成一次。") : "保留此版本，正式文字交由伺服器後製。",
     alphaVerified,
+    transparentCoverage,
+    touchesCanvasEdge,
     dimensions: width && height ? `${width}×${height}` : "未知",
-    outputReady: alphaVerified && width > 0 && height > 0,
-    retryRecommended: !width || !height,
+    outputReady: verdict === "pass" && alphaVerified && width > 0 && height > 0,
+    retryRecommended,
     reasons,
     textOverlayPending: true,
+    semanticReview: "not_available",
   };
+}
+
+export function shouldAutoRepair(report: StickerQualityReport, qualityAttempt: number) {
+  return report.verdict === "fail" && report.retryRecommended && qualityAttempt < 1;
 }
 
 ````
@@ -27311,7 +27982,10 @@ const memory = vi.hoisted(() => ({
   events: [] as any[],
   exports: [] as any[],
   imageDataUrl: "",
+  opaqueImageDataUrl: "",
   forceQuota: false,
+  forceQualityFail: false,
+  cutoutCalls: 0,
   nextId: 1,
 }));
 
@@ -27331,7 +28005,7 @@ vi.mock("./db", () => ({
   createStickerJob: vi.fn(async (input: any) => { const row = { id: memory.nextId++, scriptId: input.scriptId ?? null, status: input.status ?? "queued", attempt: input.attempt ?? 0, provider: input.provider ?? null, errorCode: null, errorMessage: null, checkpointJson: input.checkpointJson ?? null, createdAt: new Date(), updatedAt: new Date(), ...input }; memory.jobs.push(row); return row; }),
   updateStickerJob: vi.fn(async (input: any) => { const row = memory.jobs.find((item) => item.id === input.id); Object.assign(row, input, { updatedAt: new Date() }); return row; }),
   updateStickerScript: vi.fn(async (input: any) => { const row = memory.scripts.find((item) => item.id === input.id); Object.assign(row, input, { updatedAt: new Date() }); return row; }),
-  addStickerAgentEvent: vi.fn(async (input: any) => ({ id: memory.nextId++, ...input, createdAt: new Date() })),
+  addStickerAgentEvent: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.events.push(row); return row; }),
   addStickerVersion: vi.fn(async (input: any) => { if (input.isActive ?? true) memory.versions.filter((item) => item.scriptId === input.scriptId).forEach((item) => { item.isActive = false; }); const row = { id: memory.nextId++, isActive: input.isActive ?? true, ...input, createdAt: new Date() }; memory.versions.push(row); return row; }),
   restoreStickerVersion: vi.fn(async (input: any) => { const row = memory.versions.find((item) => item.id === input.versionId && item.scriptId === input.scriptId); if (!row) return undefined; memory.versions.filter((item) => item.scriptId === input.scriptId).forEach((item) => { item.isActive = false; }); row.isActive = true; const script = memory.scripts.find((item) => item.id === input.scriptId); if (script) Object.assign(script, { status: "ready", resultUrl: row.url, errorMessage: null }); return row; }),
   addStickerExport: vi.fn(async (input: any) => { const row = { id: memory.nextId++, ...input, createdAt: new Date() }; memory.exports.push(row); return row; }),
@@ -27353,7 +28027,28 @@ vi.mock("./_core/imageGeneration", () => ({
   generateImage: vi.fn(async () => { if (memory.forceQuota) throw new Error("usage exhausted"); return { b64Json: memory.imageDataUrl.split(",")[1], url: memory.imageDataUrl, hasAlpha: true }; }),
 }));
 
-vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn(async () => ({ choices: [{ message: { content: JSON.stringify({ intent: "generate_pending", reply: "已建立 8 張貼圖規劃。", projectTitle: "橘貓日常", stickerCount: 8, characterProfile: "橘色短毛貓，圓眼睛，深藍圍裙；所有貼圖維持相同毛色、圍裙與比例。", scripts: Array.from({ length: 8 }, (_, index) => ({ position: index + 1, emotion: "日常", phrase: `文字${index + 1}`, scene: "可愛日常姿勢" })), targetPosition: 0, editInstruction: "" }) } }] })) }));
+vi.mock("./imageProviders", () => ({
+  getProviderHealthSnapshot: vi.fn(async () => ({
+    "gemini-3.1-flash-image": { provider: "gemini-3.1-flash-image", status: memory.forceQuota ? "quota_exhausted" : "healthy", configured: true, supports: ["generate", "edit"], detail: "test", checkedAt: new Date().toISOString(), latencyMs: 1 },
+    "gpt-image-2": { provider: "gpt-image-2", status: memory.forceQuota ? "quota_exhausted" : "healthy", configured: true, supports: ["generate", "edit", "cutout"], detail: "test", checkedAt: new Date().toISOString(), latencyMs: 1 },
+    "flux-2": { provider: "flux-2", status: "disabled", configured: false, supports: [], detail: "test", checkedAt: new Date().toISOString(), latencyMs: 1 },
+  })),
+  executeProviderTask: vi.fn(async (input: any) => {
+    if (memory.forceQuota) throw new Error("usage exhausted");
+    const opaque = memory.forceQualityFail && input.taskKind === "cutout" && memory.cutoutCalls++ === 0;
+    return { b64Json: (opaque ? memory.opaqueImageDataUrl : memory.imageDataUrl).split(",")[1], mimeType: "image/png", provider: input.provider, interactionId: input.provider === "gemini-3.1-flash-image" ? "gemini-test-interaction" : undefined };
+  }),
+  ImageProviderError: class ImageProviderError extends Error { constructor(_provider: string, _kind: string, message: string) { super(message); } },
+}));
+
+vi.mock("./_core/llm", () => ({
+  invokeLLM: vi.fn(async (input: any) => {
+    const user = input.messages?.find((message: any) => message.role === "user")?.content;
+    const text = typeof user === "string" ? user : Array.isArray(user) ? user.map((item) => item.text ?? "").join(" ") : "";
+    const packEdit = /全部變可愛|全部去背|整套修改/.test(text);
+    return { choices: [{ message: { content: JSON.stringify({ intent: packEdit ? "edit_pack" : "generate_pending", reply: packEdit ? "我會為需要更新的貼圖建立獨立新版。" : "已建立 8 張貼圖規劃。", projectTitle: "橘貓日常", stickerCount: 8, characterProfile: "橘色短毛貓，圓眼睛，深藍圍裙；所有貼圖維持相同毛色、圍裙與比例。", scripts: packEdit ? [] : Array.from({ length: 8 }, (_, index) => ({ position: index + 1, emotion: "日常", phrase: `文字${index + 1}`, scene: "可愛日常姿勢" })), targetPosition: 0, targetVersion: 0, editInstruction: packEdit ? text : "" }) } }] };
+  }),
+}));
 
 const { appRouter } = await import("./routers");
 
@@ -27376,12 +28071,24 @@ beforeEach(async () => {
   memory.events = [];
   memory.exports = [];
   memory.forceQuota = false;
+  memory.forceQualityFail = false;
+  memory.cutoutCalls = 0;
   memory.nextId = 1;
-  const png = await sharp({ create: { width: 32, height: 32, channels: 4, background: { r: 28, g: 170, b: 224, alpha: 1 } } }).png().toBuffer();
+  const png = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite([{ input: Buffer.from("<svg width=\"256\" height=\"256\"><circle cx=\"128\" cy=\"128\" r=\"86\" fill=\"#1caee0\"/></svg>") }]).png().toBuffer();
   memory.imageDataUrl = `data:image/png;base64,${png.toString("base64")}`;
+  const opaque = await sharp({ create: { width: 256, height: 256, channels: 4, background: { r: 28, g: 170, b: 224, alpha: 1 } } }).png().toBuffer();
+  memory.opaqueImageDataUrl = `data:image/png;base64,${opaque.toString("base64")}`;
 });
 
 describe("對話工作室真實 server route 整合", () => {
+  it("提供不含憑證的 Provider health 摘要，讓工作室可解釋目前可用與未設定的模型", async () => {
+    const health = await caller().studio.providerHealth();
+    expect(health["gemini-3.1-flash-image"]).toMatchObject({ status: "healthy", configured: true });
+    expect(health["gpt-image-2"]).toMatchObject({ status: "healthy", configured: true });
+    expect(health["flux-2"]).toMatchObject({ status: "disabled", configured: false });
+    expect(JSON.stringify(health)).not.toMatch(/api[_-]?key|bearer|secret/i);
+  });
+
   it("保存附件與對話、建立八張獨立任務、完成生成與指定修改，並輸出單張 PNG 與 LINE ZIP", async () => {
     const api = caller();
     const created = await api.studio.sendMessage({ content: "幫我把這隻橘貓做成 8 張可愛的 LINE 貼圖，使用繁體中文。", attachments: [{ dataUrl: memory.imageDataUrl, fileName: "cat.png", mimeType: "image/png" }] });
@@ -27399,6 +28106,7 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.scripts.every((item) => item.status === "ready" && item.resultUrl)).toBe(true);
     expect(memory.jobs.filter((item) => item.kind === "generate").every((item) => item.status === "completed")).toBe(true);
     expect(JSON.parse(memory.jobs.find((item) => item.kind === "generate").checkpointJson)).toMatchObject({ geminiInteractionId: "gemini-test-interaction", referenceUrls: ["/manus-storage/test.png"] });
+    expect(JSON.parse(memory.scripts[0].qualityReport)).toMatchObject({ verdict: "pass", outputReady: true, semanticReview: "not_available" });
 
     const edited = await api.studio.editSticker({ projectKey: created.projectKey, position: 3, instruction: "第 3 張眼睛大一點，表情更開心。" });
     expect(edited.status).toBe("completed");
@@ -27435,6 +28143,106 @@ describe("對話工作室真實 server route 整合", () => {
     expect(memory.scripts.slice(1).every((item) => item.resultUrl === null)).toBe(true);
   });
 
+  it("在品質檢查發現透明背景失敗時自動修正一次、重新檢查並保存品質 checkpoint", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    memory.forceQualityFail = true;
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 1, position: 1 });
+    const job = memory.jobs.find((item) => item.scriptId === memory.scripts[0].id);
+    expect(memory.cutoutCalls).toBe(2);
+    expect(JSON.parse(job.checkpointJson)).toMatchObject({ qualityAttempt: 1, stage: "completed" });
+    expect(JSON.parse(memory.scripts[0].qualityReport)).toMatchObject({ verdict: "pass", outputReady: true });
+    expect(memory.events.filter((event) => event.kind === "quality_fix").map((event) => event.status)).toEqual(["working", "completed"]);
+  });
+
+  it("整套自然語言修改會為每張已完成貼圖建立獨立 edit job，並僅執行本輪需要更新的工作", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    const queued = await api.studio.editPack({ projectKey: created.projectKey, instruction: "全部變可愛一點" });
+    expect(queued.scheduled).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(memory.jobs.filter((job) => job.kind === "edit" && job.status === "queued")).toHaveLength(8);
+    const edited = await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 2 });
+    expect(edited.completed.filter((item) => item.status === "completed")).toHaveLength(2);
+    expect(memory.versions.filter((version) => version.version === 2)).toHaveLength(2);
+    expect(memory.jobs.filter((job) => job.kind === "edit" && job.status === "queued")).toHaveLength(6);
+  });
+
+  it("從聊天輸入全部變可愛會產生 edit_pack、排程每張獨立版本並由 runPending 自動續跑", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    const response = await api.studio.sendMessage({ projectKey: created.projectKey, content: "全部變可愛一點", attachments: [] });
+    expect(response).toMatchObject({ intent: "edit_pack", autoRun: true });
+    expect(memory.jobs.filter((job) => job.kind === "edit" && job.status === "queued")).toHaveLength(8);
+    const ran = await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 1 });
+    expect(ran.completed).toMatchObject([{ status: "completed" }]);
+    expect(memory.versions.filter((version) => version.version === 2)).toHaveLength(1);
+  });
+
+  it("從聊天輸入全部去背會只排程透明檢查未通過的貼圖，並保存 pack scope checkpoint", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    memory.scripts[1].qualityReport = JSON.stringify({ alphaVerified: false, transparentCoverage: 0 });
+    const response = await api.studio.sendMessage({ projectKey: created.projectKey, content: "全部去背，背景改透明", attachments: [] });
+    expect(response).toMatchObject({ intent: "edit_pack", autoRun: true });
+    expect(response.reply).toMatch(/1 張/);
+    const jobs = memory.jobs.filter((job) => job.kind === "edit");
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ scriptId: memory.scripts[1].id, status: "queued" });
+    expect(JSON.parse(jobs[0].checkpointJson)).toMatchObject({ scope: "pack", position: 2 });
+    expect(memory.jobs.some((job) => job.kind === "edit" && job.scriptId === memory.scripts[0].id)).toBe(false);
+    const ran = await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 1 });
+    expect(ran.completed).toMatchObject([{ status: "completed" }]);
+  });
+
+  it("全部去背只排程未通過透明檢查的貼圖，已符合條件的圖片不會建立重複 edit job", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
+    memory.scripts[1].qualityReport = JSON.stringify({ alphaVerified: false, transparentCoverage: 0 });
+    const queued = await api.studio.editPack({ projectKey: created.projectKey, instruction: "全部去背，背景改透明" });
+    expect(queued.scheduled).toEqual([2]);
+    expect(queued.skipped).toContain(1);
+    expect(memory.jobs.filter((job) => job.kind === "edit")).toHaveLength(1);
+  });
+
+  it("整套修改遇到 paused 生成任務時保留其狀態，只排程不衝突的已完成貼圖", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    Object.assign(memory.scripts[0], { status: "ready", resultUrl: "/manus-storage/test.png" });
+    Object.assign(memory.jobs[0], { status: "paused_quota", checkpointJson: JSON.stringify({ stage: "paused_quota" }) });
+    Object.assign(memory.scripts[1], { status: "ready", resultUrl: "/manus-storage/test.png" });
+    Object.assign(memory.jobs[1], { status: "completed" });
+    const queued = await api.studio.editPack({ projectKey: created.projectKey, instruction: "全部變可愛一點" });
+    expect(queued.scheduled).toEqual([2]);
+    expect(queued.skipped).toContain(1);
+    expect(memory.jobs[0]).toMatchObject({ kind: "generate", status: "paused_quota" });
+    expect(memory.jobs.filter((job) => job.kind === "edit")).toHaveLength(1);
+  });
+
+  it("整套修改與 queued／retrying 生成任務並存時不會重排它們，只修改沒有衝突的完成貼圖", async () => {
+    const api = caller();
+    const created = await api.studio.sendMessage({ content: "幫我做 8 張可愛兔子貼圖", attachments: [] });
+    Object.assign(memory.scripts[0], { status: "ready", resultUrl: "/manus-storage/test.png" });
+    Object.assign(memory.jobs[0], { status: "queued" });
+    Object.assign(memory.scripts[1], { status: "ready", resultUrl: "/manus-storage/test.png" });
+    Object.assign(memory.jobs[1], { status: "retrying" });
+    Object.assign(memory.scripts[2], { status: "ready", resultUrl: "/manus-storage/test.png" });
+    Object.assign(memory.jobs[2], { status: "completed" });
+    const queued = await api.studio.editPack({ projectKey: created.projectKey, instruction: "全部變可愛一點" });
+    expect(queued.scheduled).toEqual([3]);
+    expect(queued.skipped).toEqual(expect.arrayContaining([1, 2]));
+    expect(memory.jobs[0]).toMatchObject({ kind: "generate", status: "queued" });
+    expect(memory.jobs[1]).toMatchObject({ kind: "generate", status: "retrying" });
+    expect(memory.jobs.filter((job) => job.kind === "edit")).toHaveLength(1);
+  });
+
   it("保留角色錨點，且會續跑額度中斷的指定修改而不建立重複修改工作", async () => {
     const api = caller();
     const created = await api.studio.sendMessage({ content: "幫我把這隻橘貓做成 8 張 LINE 貼圖", attachments: [{ dataUrl: memory.imageDataUrl, fileName: "cat.png", mimeType: "image/png" }] });
@@ -27463,6 +28271,8 @@ describe("對話工作室真實 server route 整合", () => {
     const reference = memory.references[0];
     await api.studio.setReferenceRole({ projectKey: created.projectKey, referenceId: reference.id, role: "accepted_character", accepted: true });
     expect(reference).toMatchObject({ role: "accepted_character", priority: 10, accepted: true });
+    await api.studio.setReferenceRole({ projectKey: created.projectKey, referenceId: reference.id, role: "scene", accepted: false });
+    expect(reference).toMatchObject({ role: "scene", priority: 65, accepted: false });
 
     await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
     await api.studio.runPending({ projectKey: created.projectKey, maxJobs: 4 });
@@ -27493,14 +28303,13 @@ import { z } from "zod";
 import sharp from "sharp";
 import { buildFallbackProjectPlan, buildRefinementPrompt, buildStickerPrompt } from "./routers";
 import { addStickerAgentEvent, addStickerReference, addStickerScript, addStickerVersion, addStickerAttachments, addStickerMessage, createStickerConversation, createStickerJob, createStickerProject, getLatestStickerConversation, getStickerProject, getStickerStudio, restoreStickerVersion, saveStickerCharacterProfile, saveStickerStyleAnchor, updateStickerJob, updateStickerProject, updateStickerReference, updateStickerScript } from "./db";
-import { GeminiImageError, generateGeminiImage } from "./geminiImage";
-import { generateImage } from "./_core/imageGeneration";
+import { executeProviderTask, getImageProviderAdapter, getProviderHealthSnapshot, ImageProviderError } from "./imageProviders";
 import { invokeLLM } from "./_core/llm";
 import { storageGetSignedUrl, storagePut } from "./storage";
-import { appendRouterAttempt, buildReferenceSelection, classifyImageError, evaluateStickerQuality, inferAttachmentRole, routeImageTask, type AgentReference, type AgentReferenceRole, type RouterDecision } from "./stickerAgent";
+import { appendRouterAttempt, buildReferenceSelection, classifyImageError, evaluateStickerQuality, inferAttachmentRole, routeImageTask, shouldAutoRepair, type AgentReference, type AgentReferenceRole, type RouterDecision } from "./stickerAgent";
 
 const plannerSchema = z.object({
-  intent: z.enum(["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "continue_project", "accept_image", "use_as_style", "use_as_pose", "restore_version", "download_pack", "general" ]),
+  intent: z.enum(["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "edit_pack", "continue_project", "accept_image", "use_as_style", "use_as_pose", "restore_version", "download_pack", "general" ]),
   reply: z.string().min(1).max(800),
   projectTitle: z.string().min(1).max(160),
   stickerCount: z.number().int().min(8).max(40),
@@ -27519,7 +28328,7 @@ type StyleAnchor = { summary: string; referenceUrls: string[]; version: number; 
 const e2eImageMode = () => process.env.STICKER_E2E_TEST_MODE === "1";
 
 async function createE2ETransparentPng() {
-  return sharp({ create: { width: 512, height: 512, channels: 4, background: { r: 239, g: 152, b: 58, alpha: 1 } } })
+  return sharp({ create: { width: 512, height: 512, channels: 4, background: { r: 239, g: 152, b: 58, alpha: 0 } } })
     .composite([{ input: Buffer.from("<svg width=\"512\" height=\"512\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"256\" cy=\"250\" r=\"190\" fill=\"#f6a33e\"/><circle cx=\"190\" cy=\"220\" r=\"26\" fill=\"#162d45\"/><circle cx=\"322\" cy=\"220\" r=\"26\" fill=\"#162d45\"/><path d=\"M190 330 Q256 380 322 330\" stroke=\"#162d45\" stroke-width=\"18\" fill=\"none\" stroke-linecap=\"round\"/></svg>") }])
     .png().toBuffer();
 }
@@ -27569,10 +28378,6 @@ function parseStyleAnchor(value: string | null | undefined): StyleAnchor | undef
   return { summary: value, referenceUrls: [], version: 1, updatedAt: new Date(0).toISOString() };
 }
 
-function isQuotaError(error: unknown) {
-  return error instanceof GeminiImageError ? error.code === "USAGE_EXHAUSTED" : /usage exhausted|failed_precondition|quota|resource_exhausted/i.test(error instanceof Error ? error.message : "");
-}
-
 async function signedReference(url: string, mimeType = "image/jpeg") {
   if (/^https?:\/\//.test(url)) return { url, mimeType };
   if (!url.startsWith("/manus-storage/")) throw new Error("角色參考圖網址無法辨識");
@@ -27595,7 +28400,7 @@ async function recordAgentEvent(input: { projectId: number; jobId?: number | nul
 function toAgentReferences(references: Array<{ url: string; role?: string | null; priority?: number | null; accepted?: boolean | null }>): AgentReference[] {
   return references.map((reference) => ({
     url: reference.url,
-    role: (["character", "pose", "style", "accepted_character", "accepted_style", "current_edit"].includes(reference.role ?? "") ? reference.role : "character") as AgentReferenceRole,
+    role: (["character", "pose", "scene", "style", "accepted_character", "accepted_style", "current_edit"].includes(reference.role ?? "") ? reference.role : "character") as AgentReferenceRole,
     priority: reference.priority ?? 50,
     accepted: Boolean(reference.accepted),
     source: "upload",
@@ -27622,11 +28427,12 @@ function fallbackPlan(message: string): StudioPlan {
   const fallback = buildFallbackProjectPlan({ brief: message, style: "可愛、清晰、適合日常溝通的 LINE 貼圖", stickerCount, characterProfile: message });
   const restoreMatch = message.match(/(?:回復|回到|還原).{0,12}(?:V|版本)\s*(\d+)/i);
   const intent = restoreMatch ? "restore_version" as const
-    : /我喜歡這張|照這個風格|設為風格|全部照這個/i.test(message) ? "use_as_style" as const
-    : /確認角色|設為角色|接受這張|就用這張/i.test(message) ? "accept_image" as const
+    : /照這個風格|設為風格|全部照這個/i.test(message) ? "use_as_style" as const
+    : /我喜歡這張|這張最像|最像我的|確認角色|設為角色|接受這張|就用這張/i.test(message) ? "accept_image" as const
     : /姿勢參考|用這個姿勢|照這個動作/i.test(message) ? "use_as_pose" as const
     : /下載全部|下載套組|下載 ZIP/i.test(message) ? "download_pack" as const
     : /繼續製作|繼續生成/.test(message) ? "continue_project" as const
+    : /(?:全部|整套|所有).*(?:改|變|去背|透明|可愛|風格|表情|文字)|(?:改|變|去背|透明|可愛|風格|表情|文字).*(?:全部|整套|所有)/i.test(message) ? "edit_pack" as const
     : /修改|第\s*\d+\s*張/.test(message) ? "edit_sticker" as const
     : /幫我|做成|製作|生成|開始/.test(message) ? "generate_pending" as const
     : "plan_pack" as const;
@@ -27649,7 +28455,7 @@ async function createPlan(message: string, referenceUrls: string[], existingChar
     const response = await invokeLLM({
       model: "gpt-5-mini",
       messages: [
-        { role: "system", content: `你是 LINE 貼圖工作室的中文創作 Agent。使用者只用自然語言操作。分析需求與參考圖片，輸出務實 JSON 計畫。只有明確要求生成、繼續或重試才設定 generate_pending、continue_project 或 retry_sticker；使用者確認圖片可用 accept_image，指定「以後照這個」可用 use_as_style，指定姿勢可用 use_as_pose，要求 V2／V3 回復可用 restore_version，要求下載整套可用 download_pack。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。${existingCharacterProfile ? `\n已確認的角色設定如下，除非使用者上傳新角色照片並明確要求重設，後續對話必須保留這些不可變特徵：${existingCharacterProfile}` : ""}` },
+        { role: "system", content: `你是 LINE 貼圖工作室的中文創作 Agent。使用者只用自然語言操作。分析需求與參考圖片，輸出務實 JSON 計畫。只有明確要求生成、繼續或重試才設定 generate_pending、continue_project 或 retry_sticker；使用者指定「全部」、「整套」或「所有貼圖」的修改時設定 edit_pack；使用者確認圖片可用 accept_image，指定「以後照這個」可用 use_as_style，指定姿勢可用 use_as_pose，要求 V2／V3 回復可用 restore_version，要求下載整套可用 download_pack。若有圖片，角色設定必須涵蓋外觀、服裝或毛色、配件、比例、畫風與不可變特徵。貼圖腳本應為日常繁體中文、動作多樣、適合訊息溝通。${existingCharacterProfile ? `\n已確認的角色設定如下，除非使用者上傳新角色照片並明確要求重設，後續對話必須保留這些不可變特徵：${existingCharacterProfile}` : ""}` },
         { role: "user", content: [{ type: "text", text: message }, ...visionContent] },
       ],
       response_format: {
@@ -27660,7 +28466,7 @@ async function createPlan(message: string, referenceUrls: string[], existingChar
           schema: {
             type: "object",
             properties: {
-              intent: { type: "string", enum: ["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "continue_project", "accept_image", "use_as_style", "use_as_pose", "restore_version", "download_pack", "general"] },
+              intent: { type: "string", enum: ["create_project", "plan_pack", "generate_pending", "retry_sticker", "edit_sticker", "edit_pack", "continue_project", "accept_image", "use_as_style", "use_as_pose", "restore_version", "download_pack", "general"] },
               reply: { type: "string" }, projectTitle: { type: "string" }, stickerCount: { type: "integer" }, characterProfile: { type: "string" },
               scripts: { type: "array", items: { type: "object", properties: { position: { type: "integer" }, emotion: { type: "string" }, phrase: { type: "string" }, scene: { type: "string" } }, required: ["position", "emotion", "phrase", "scene"], additionalProperties: false } },
               targetPosition: { type: "integer" }, targetVersion: { type: "integer" }, editInstruction: { type: "string" },
@@ -27719,6 +28525,15 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
     ...(previousStyle?.referenceUrls ?? []).map((url) => ({ url, role: "accepted_style" as const, priority: 40, accepted: true, source: "anchor" as const })),
   ], maxReferences: 4 });
   const selectedReferenceUrls = selectCharacterReferences([...newReferenceUrls, ...orderedReferences.map((reference) => reference.url)]);
+  if (selectedReferenceUrls.length) {
+    try {
+      const analyzable = await Promise.all(selectedReferenceUrls.map(async (url) => signedReference(url)));
+      const analysis = await getImageProviderAdapter("gpt-image-2").analyze({ references: analyzable });
+      await recordAgentEvent({ projectId: project.id, kind: "reference_analysis", status: analysis.readable === analysis.inspected ? "completed" : "needs_attention", message: `已分析 ${analysis.readable}/${analysis.inspected} 張參考圖的可讀性與透明背景。`, detail: analysis });
+    } catch (error) {
+      await recordAgentEvent({ projectId: project.id, kind: "reference_analysis", status: "needs_attention", message: "部分參考圖暫時無法分析，但已保存並會在生成時重新讀取。", detail: { error: error instanceof Error ? error.message.slice(0, 160) : "unknown" } });
+    }
+  }
   const plan = await createPlan(input.content, selectedReferenceUrls, previousAnchor?.summary);
   const preserveCharacter = Boolean(previousAnchor && newReferenceUrls.length === 0);
   const nextAnchor: CharacterAnchor = preserveCharacter
@@ -27735,10 +28550,11 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
   }
   if (plan.scripts.length && !(existing?.scripts.length)) {
     await recordAgentEvent({ projectId: project.id, kind: "planning", status: "completed", message: `已規劃 ${plan.scripts.slice(0, plan.stickerCount).length} 張貼圖內容。` });
+    const health = await providerHealthSnapshot();
     for (const script of plan.scripts.slice(0, plan.stickerCount)) {
       const row = await addStickerScript({ projectId: project.id, ...script, planJson: JSON.stringify({ ...script, generationStatus: "queued" }) });
       if (row) {
-        const decision = routeImageTask({ taskKind: "generate", references: orderedReferences });
+        const decision = routeImageTask({ taskKind: "generate", references: orderedReferences, providerHealth: health, requirements: { requiresHighConsistency: orderedReferences.length > 0, requiresText: Boolean(script.phrase), batchSize: plan.stickerCount, speedPriority: plan.stickerCount >= 16 ? "high" : "balanced", costPriority: plan.stickerCount >= 24 ? "high" : "balanced" } });
         await createStickerJob({ projectId: project.id, scriptId: row.id, kind: "generate", status: "queued", provider: decision.selectedProvider, routerJson: JSON.stringify(decision) });
       }
     }
@@ -27750,6 +28566,14 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
       reply = edit.status === "completed" ? `第 ${plan.targetPosition} 張已依照你的要求完成修改，原版本仍可保留追溯。` : edit.status === "paused_quota" ? `第 ${plan.targetPosition} 張的修改已暫停，AI 生成額度目前已用完；原本版本和修改要求都已保存，額度恢復後輸入「繼續製作」即可續作。` : `第 ${plan.targetPosition} 張暫時無法修改：${edit.message ?? "請稍後再試"}`;
     } catch (error) {
       reply = `我已記錄修改要求，但目前無法套用到指定貼圖：${error instanceof Error ? error.message : "請稍後再試"}`;
+    }
+  }
+  if (plan.intent === "edit_pack") {
+    try {
+      const queued = await queueStudioPackEdit({ projectKey: project.projectKey, instruction: plan.editInstruction || input.content });
+      reply = queued.scheduled.length ? `已將 ${queued.scheduled.length} 張需要更新的貼圖排入整套修改；每張會建立獨立新版，完成後可分別回復。` : "目前沒有需要套用這項整套修改的已完成貼圖。";
+    } catch (error) {
+      reply = `我已記錄整套修改要求，但暫時無法排程：${error instanceof Error ? error.message : "請稍後再試"}`;
     }
   }
   if (plan.intent === "accept_image") {
@@ -27769,7 +28593,7 @@ export async function sendStudioMessage(input: { projectKey?: string; content: s
     reply = restored ? `已回復第 ${plan.targetPosition} 張的 V${restored.version}，其他版本仍會完整保留。` : `找不到第 ${plan.targetPosition} 張的 V${plan.targetVersion}；請先在版本記錄確認可回復版本。`;
   }
   const assistant = await addStickerMessage({ conversationId: conversation.id, role: "assistant", content: reply, intentJson: JSON.stringify(plan) });
-  return { projectKey: project.projectKey, intent: plan.intent, reply, character, assistantMessageId: assistant?.id, autoRun: plan.intent === "generate_pending" || plan.intent === "continue_project" || (plan.scripts.length > 0 && /幫我|做成|製作|生成|開始/.test(input.content)) };
+  return { projectKey: project.projectKey, intent: plan.intent, reply, character, assistantMessageId: assistant?.id, autoRun: plan.intent === "generate_pending" || plan.intent === "continue_project" || plan.intent === "edit_pack" || (plan.scripts.length > 0 && /幫我|做成|製作|生成|開始/.test(input.content)) };
 }
 
 async function storeGeneratedDraft(b64Json: string, mimeType: string) {
@@ -27785,24 +28609,22 @@ async function storeTransparentPng(b64Json: string) {
   return { ...saved, hasAlpha: metadata.hasAlpha === true, buffer: normalized };
 }
 
-async function generateDraftWithRouter(input: { prompt: string; references: Array<{ url: string; mimeType: string }>; decision: RouterDecision }) {
+async function providerHealthSnapshot() {
+  try { return await getProviderHealthSnapshot(); } catch { return undefined; }
+}
+
+async function executeWithRouter(input: { taskKind: "generate" | "edit" | "cutout"; prompt: string; references: Array<{ url: string; mimeType: string }>; currentImage?: { url: string; mimeType: string }; decision: RouterDecision }) {
   let decision = input.decision;
-  let lastError: unknown = new Error("沒有可用的圖像 Provider");
-  for (const candidate of decision.candidates.filter((item) => item.enabled)) {
+  let lastError: unknown = new Error("沒有健康且已設定的圖像 Provider");
+  const enabledCandidates = decision.candidates.filter((item) => item.enabled);
+  if (enabledCandidates.length === 0 && decision.candidates.some((item) => item.healthStatus === "quota_exhausted")) {
+    throw Object.assign(new ImageProviderError("gpt-image-2", "quota", "所有已設定的圖像 Provider 目前 quota exhausted；任務已保存。", true), { routerDecision: decision });
+  }
+  for (const candidate of enabledCandidates) {
     try {
-      if (candidate.provider === "gemini-3.1-flash-image") {
-        const result = await generateGeminiImage({ prompt: input.prompt, references: input.references });
-        const draft = await storeGeneratedDraft(result.b64Json, result.mimeType);
-        decision = appendRouterAttempt(decision, { provider: candidate.provider, startedAt: new Date().toISOString(), outcome: "completed" });
-        return { draft, provider: candidate.provider, decision, geminiInteractionId: result.interactionId };
-      }
-      if (candidate.provider === "gpt-image-2") {
-        const result = await generateImage({ prompt: input.prompt, originalImages: input.references, quality: "medium" });
-        if (!result.b64Json) throw new Error("GPT Image 沒有回傳可保存的影像資料");
-        const draft = await storeGeneratedDraft(result.b64Json, result.mimeType ?? "image/png");
-        decision = appendRouterAttempt(decision, { provider: candidate.provider, startedAt: new Date().toISOString(), outcome: "completed" });
-        return { draft, provider: candidate.provider, decision };
-      }
+      const result = await executeProviderTask({ provider: candidate.provider, taskKind: input.taskKind, prompt: input.prompt, references: input.references, currentImage: input.currentImage });
+      decision = appendRouterAttempt(decision, { provider: candidate.provider, startedAt: new Date().toISOString(), outcome: "completed" });
+      return { result, provider: candidate.provider, decision };
     } catch (error) {
       lastError = error;
       const classified = classifyImageError(error);
@@ -27811,6 +28633,12 @@ async function generateDraftWithRouter(input: { prompt: string; references: Arra
     }
   }
   throw Object.assign(lastError instanceof Error ? lastError : new Error(String(lastError)), { routerDecision: decision });
+}
+
+async function generateDraftWithRouter(input: { prompt: string; references: Array<{ url: string; mimeType: string }>; decision: RouterDecision }) {
+  const routed = await executeWithRouter({ taskKind: "generate", prompt: input.prompt, references: input.references, decision: input.decision });
+  const draft = await storeGeneratedDraft(routed.result.b64Json, routed.result.mimeType);
+  return { draft, provider: routed.provider, decision: routed.decision, geminiInteractionId: routed.result.interactionId };
 }
 
 export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, position?: number) {
@@ -27834,7 +28662,9 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
       ...(styleAnchor?.referenceUrls ?? []).map((url) => ({ url, role: "accepted_style" as const, priority: 40, accepted: true, source: "anchor" as const })),
     ];
     const storedRouter = safeJson<RouterDecision | null>(job.routerJson, null);
-    let routerDecision = storedRouter ?? routeImageTask({ taskKind: "generate", references: seededReferences });
+    const health = await providerHealthSnapshot();
+    const refreshedDecision = routeImageTask({ taskKind: "generate", references: seededReferences, providerHealth: health, requirements: { requiresHighConsistency: seededReferences.length > 0, requiresText: Boolean(script.phrase), batchSize: studio.project.stickerCount, speedPriority: studio.project.stickerCount >= 16 ? "high" : "balanced", costPriority: studio.project.stickerCount >= 24 ? "high" : "balanced" } });
+    let routerDecision: RouterDecision = storedRouter ? { ...refreshedDecision, attempts: [...storedRouter.attempts, ...refreshedDecision.attempts] } : refreshedDecision;
     const selectedReferences = buildReferenceSelection({ references: routerDecision.referenceSnapshot.length ? routerDecision.referenceSnapshot : seededReferences, maxReferences: 4 });
     const referenceUrls = selectedReferences.map((reference) => reference.url);
     await updateStickerJob({ id: job.id, status: "generating", attempt: job.attempt + 1, provider: routerDecision.selectedProvider, errorCode: null, errorMessage: null, routerJson: JSON.stringify(routerDecision) });
@@ -27842,7 +28672,7 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
     await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "generation", status: "working", message: `正在生成第 ${script.position} 張貼圖。`, detail: { position: script.position, provider: routerDecision.selectedProvider, references: referenceUrls.length } });
     const prompt = buildStickerPrompt({ style: styleAnchor?.summary || "可愛、清晰、適合日常溝通的 LINE 貼圖", emotion: script.emotion, phrase: script.phrase, scene: script.scene ?? undefined, characterProfile: profile, prompt: "使用乾淨的淺色背景與約 10 像素安全邊距。不要直接生成文字；最終繁體中文字將由程式後製。" });
     try {
-      const checkpoint = safeJson<{ draftUrl?: string; referenceUrls?: string[]; geminiInteractionId?: string; draftProvider?: string; routerDecision?: RouterDecision }>(job.checkpointJson, {});
+      const checkpoint = safeJson<{ draftUrl?: string; referenceUrls?: string[]; geminiInteractionId?: string; draftProvider?: string; routerDecision?: RouterDecision; qualityAttempt?: number }>(job.checkpointJson, {});
       let draftUrl = checkpoint.draftUrl;
       let draftProvider = checkpoint.draftProvider ?? routerDecision.selectedProvider ?? "unknown";
       if (!draftUrl) {
@@ -27856,19 +28686,40 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
         await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "background", status: "working", message: `第 ${script.position} 張已完成草稿，正在整理透明背景。`, detail: { provider: draftProvider } });
       }
       const draftReference = await signedReference(draftUrl, "image/jpeg");
-      const cutout = e2eImageMode()
-        ? { b64Json: (await createE2ETransparentPng()).toString("base64") }
-        : await generateImage({ prompt: "Remove the background from this supplied sticker character. Preserve the same character, pose, proportions, linework and accessories. Return only the character on a transparent background. Do not add any text or objects.", originalImages: [draftReference], quality: "medium" });
-      if (!cutout.b64Json) throw new Error("語意去背服務沒有回傳可保存的透明圖片");
-      const saved = await storeTransparentPng(cutout.b64Json);
-      const quality = await evaluateStickerQuality(saved.buffer);
+      let cutoutB64: string;
+      let cutoutProvider = "gpt-image-2";
+      let cutoutRouter: RouterDecision | undefined;
+      if (e2eImageMode()) {
+        cutoutB64 = (await createE2ETransparentPng()).toString("base64");
+      } else {
+        cutoutRouter = routeImageTask({ taskKind: "cutout", references: seededReferences, providerHealth: health, requirements: { requiresHighConsistency: seededReferences.length > 0, requiresText: false, batchSize: 1, speedPriority: "balanced", costPriority: "balanced" } });
+        const routedCutout = await executeWithRouter({ taskKind: "cutout", prompt: "Remove the background from this supplied sticker character. Preserve the same character, pose, proportions, linework and accessories. Return only the character on a transparent background. Do not add any text or objects.", references: [], currentImage: draftReference, decision: cutoutRouter });
+        cutoutB64 = routedCutout.result.b64Json;
+        cutoutProvider = routedCutout.provider;
+        routerDecision = { ...routerDecision, attempts: [...routerDecision.attempts, ...routedCutout.decision.attempts] };
+      }
+      let saved = await storeTransparentPng(cutoutB64);
+      let quality = await evaluateStickerQuality(saved.buffer, { phrase: script.phrase });
+      const qualityAttempt = Number(checkpoint.qualityAttempt ?? 0);
+      if (shouldAutoRepair(quality, qualityAttempt)) {
+        await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "quality_fix", status: "working", message: `第 ${script.position} 張未通過品質檢查，正在執行一次安全修正。`, detail: { reason: quality.reason, suggestedFix: quality.suggestedFix, qualityAttempt } });
+        const repairDecision = routeImageTask({ taskKind: "cutout", references: seededReferences, providerHealth: health, requirements: { requiresHighConsistency: seededReferences.length > 0, requiresText: false, batchSize: 1, speedPriority: "balanced", costPriority: "balanced" } });
+        const currentSaved = await signedReference(saved.url, "image/png");
+        const repaired = await executeWithRouter({ taskKind: "cutout", prompt: "Fix the supplied sticker image. Preserve the exact character, face, limbs, pose, accessories and linework. Return a complete subject with transparent background and at least 10 pixels of safe margin. Do not add text or objects.", references: [], currentImage: currentSaved, decision: repairDecision });
+        saved = await storeTransparentPng(repaired.result.b64Json);
+        quality = await evaluateStickerQuality(saved.buffer, { phrase: script.phrase });
+        checkpoint.qualityAttempt = qualityAttempt + 1;
+        routerDecision = { ...routerDecision, attempts: [...routerDecision.attempts, ...repaired.decision.attempts] };
+        await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "quality_fix", status: quality.verdict === "pass" ? "completed" : "needs_attention", message: quality.verdict === "pass" ? `第 ${script.position} 張已通過自動修正後的品質檢查。` : `第 ${script.position} 張已完成一次安全修正，但仍需人工確認。`, detail: quality });
+      }
       const existingVersions = (studio.versions ?? []).filter((version) => version.scriptId === script.id);
       const parentVersion = existingVersions.find((version) => version.isActive) ?? existingVersions.at(-1);
       const nextVersion = Math.max(0, ...existingVersions.map((version) => version.version)) + 1;
-      await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify({ ...quality, provider: `${draftProvider}+gpt-image-2` }), planJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(script.planJson, {}), generationStatus: "ready" }) });
-      await addStickerVersion({ scriptId: script.id, version: nextVersion, url: saved.url, mode: nextVersion === 1 ? "generate" : "retry", parentVersionId: parentVersion?.id ?? null, qualityReportJson: JSON.stringify(quality), provider: `${draftProvider}+gpt-image-2` });
+      const providerChain = `${draftProvider}+${cutoutProvider}`;
+      await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify({ ...quality, provider: providerChain }), planJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(script.planJson, {}), generationStatus: "ready" }) });
+      await addStickerVersion({ scriptId: script.id, version: nextVersion, url: saved.url, mode: nextVersion === 1 ? "generate" : "retry", parentVersionId: parentVersion?.id ?? null, qualityReportJson: JSON.stringify(quality), provider: providerChain });
       routerDecision = appendRouterAttempt(routerDecision, { provider: draftProvider as RouterDecision["selectedProvider"] extends infer T ? Exclude<T, null> : never, startedAt: new Date().toISOString(), outcome: "completed" });
-      await updateStickerJob({ id: job.id, status: "completed", provider: `${draftProvider}+gpt-image-2`, routerJson: JSON.stringify(routerDecision), qualityReportJson: JSON.stringify(quality), checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, url: saved.url, referenceUrls, stage: "completed", draftProvider, routerDecision }) });
+      await updateStickerJob({ id: job.id, status: "completed", provider: providerChain, routerJson: JSON.stringify(routerDecision), qualityReportJson: JSON.stringify(quality), checkpointJson: JSON.stringify({ ...checkpoint, draftUrl, url: saved.url, referenceUrls, stage: "completed", draftProvider, cutoutProvider, cutoutRouter, routerDecision }) });
       await recordAgentEvent({ projectId: studio.project.id, jobId: job.id, kind: "quality", status: quality.outputReady ? "completed" : "needs_attention", message: `第 ${script.position} 張已完成${quality.outputReady ? "並通過基本品質檢查" : "，但需要人工確認"}。`, detail: quality });
       completed.push({ jobId: job.id, scriptId: script.id, status: "completed", url: saved.url });
     } catch (error) {
@@ -27886,12 +28737,12 @@ export async function runPendingStudioJobs(projectKey: string, maxJobs = 2, posi
       if (paused) break;
     }
   }
-  const pausedEdits = studio.jobs.filter((job) => {
-    if (job.kind !== "edit" || job.status !== "paused_quota") return false;
+  const pendingEdits = studio.jobs.filter((job) => {
+    if (job.kind !== "edit" || !["queued", "retrying", "paused_quota"].includes(job.status)) return false;
     const script = studio.scripts.find((item) => item.id === job.scriptId);
     return position === undefined || script?.position === position;
   }).slice(0, Math.max(0, maxJobs - completed.length));
-  for (const job of pausedEdits) {
+  for (const job of pendingEdits) {
     const checkpoint = job.checkpointJson ? JSON.parse(job.checkpointJson) as { instruction?: string; position?: number } : {};
     const script = studio.scripts.find((item) => item.id === job.scriptId);
     const targetPosition = checkpoint.position ?? script?.position;
@@ -27913,13 +28764,42 @@ export async function retryStudioSticker(projectKey: string, position: number) {
   let job = studio.jobs.filter((item) => item.scriptId === script.id && item.kind === "generate").at(-1);
   if (job) await updateStickerJob({ id: job.id, status: "retrying", errorCode: null, errorMessage: null });
   else {
-    const decision = routeImageTask({ taskKind: "generate", references: toAgentReferences(studio.references ?? []) });
+    const references = toAgentReferences(studio.references ?? []);
+    const decision = routeImageTask({ taskKind: "generate", references, providerHealth: await providerHealthSnapshot(), requirements: { requiresHighConsistency: references.length > 0, requiresText: Boolean(script.phrase), batchSize: studio.project.stickerCount, speedPriority: "balanced", costPriority: "balanced" } });
     job = await createStickerJob({ projectId: studio.project.id, scriptId: script.id, kind: "generate", status: "retrying", provider: decision.selectedProvider, routerJson: JSON.stringify(decision) });
   }
   await updateStickerScript({ id: script.id, status: "queued", errorMessage: null });
   await recordAgentEvent({ projectId: studio.project.id, jobId: job?.id, kind: "retry", status: "queued", message: `已排入第 ${position} 張的單獨重試，不會影響其他貼圖。` });
   if (!job) throw new Error("無法建立重試工作");
   return runPendingStudioJobs(projectKey, 1, position);
+}
+
+export async function queueStudioPackEdit(input: { projectKey: string; instruction: string }) {
+  const studio = await getStickerStudio(input.projectKey);
+  if (!studio) throw new Error("找不到要修改的專案");
+  const backgroundOnly = /去背|透明背景|不要背景/i.test(input.instruction);
+  const candidates = studio.scripts.filter((script) => {
+    if (!script.resultUrl) return false;
+    if (!backgroundOnly) return true;
+    const quality = safeJson<{ alphaVerified?: boolean; transparentCoverage?: number }>(script.qualityReport, {});
+    return !quality.alphaVerified || (quality.transparentCoverage ?? 0) < 0.005;
+  });
+  const scheduled: number[] = [];
+  const skipped: number[] = [];
+  for (const script of studio.scripts) {
+    if (!script.resultUrl || !candidates.some((item) => item.id === script.id)) { skipped.push(script.position); continue; }
+    const blockingGeneration = studio.jobs.find((job) => job.scriptId === script.id && job.kind === "generate" && ["queued", "retrying", "generating", "paused_quota"].includes(job.status));
+    if (blockingGeneration) { skipped.push(script.position); continue; }
+    const existing = studio.jobs.find((job) => job.scriptId === script.id && job.kind === "edit" && ["queued", "retrying", "generating", "paused_quota"].includes(job.status));
+    if (existing) { skipped.push(script.position); continue; }
+    const references = toAgentReferences(studio.references ?? []);
+    const decision = routeImageTask({ taskKind: "edit", references, currentEditUrl: script.resultUrl, providerHealth: await providerHealthSnapshot(), requirements: { requiresHighConsistency: references.length > 0, requiresText: /文字|改成|謝謝|早安|生日/i.test(input.instruction), batchSize: candidates.length, speedPriority: candidates.length >= 16 ? "high" : "balanced", costPriority: candidates.length >= 24 ? "high" : "balanced" } });
+    const job = await createStickerJob({ projectId: studio.project.id, scriptId: script.id, kind: "edit", status: "queued", provider: decision.selectedProvider, routerJson: JSON.stringify(decision), checkpointJson: JSON.stringify({ instruction: input.instruction, position: script.position, stage: "queued", scope: "pack", routerDecision: decision }) });
+    await recordAgentEvent({ projectId: studio.project.id, jobId: job?.id, kind: "pack_edit", status: "queued", message: `已排入第 ${script.position} 張的整套修改。`, detail: { instruction: input.instruction, scope: "pack" } });
+    scheduled.push(script.position);
+  }
+  await recordAgentEvent({ projectId: studio.project.id, kind: "pack_edit", status: scheduled.length ? "queued" : "completed", message: scheduled.length ? `已排入 ${scheduled.length} 張貼圖的整套修改；每張會保留獨立版本。` : "目前沒有需要套用這項整套修改的已完成貼圖。", detail: { scheduled, skipped, instruction: input.instruction } });
+  return { projectKey: input.projectKey, scheduled, skipped, total: candidates.length };
 }
 
 export async function restoreStudioStickerVersion(input: { projectKey: string; position: number; versionId: number }) {
@@ -27940,9 +28820,9 @@ export async function setStudioReferenceRole(input: { projectKey: string; refere
   if (!studio) throw new Error("找不到要設定參考圖的專案");
   const reference = (studio.references ?? []).find((item) => item.id === input.referenceId);
   if (!reference) throw new Error("找不到指定參考圖片");
-  const priority = input.role === "accepted_character" ? 10 : input.role === "character" ? 20 : input.role === "pose" ? 60 : 70;
+  const priority = input.role === "accepted_character" ? 10 : input.role === "character" ? 20 : input.role === "pose" ? 60 : input.role === "scene" ? 65 : 70;
   const updated = await updateStickerReference({ id: reference.id, role: input.role, accepted: input.accepted, priority, metadataJson: JSON.stringify({ ...safeJson<Record<string, unknown>>(reference.metadataJson, {}), updatedBy: "studio_agent", updatedAt: new Date().toISOString() }) });
-  await recordAgentEvent({ projectId: studio.project.id, kind: "reference", status: "completed", message: input.role === "pose" ? "已將圖片設定為姿勢參考。" : input.role.includes("style") ? "已將圖片設定為風格參考。" : "已將圖片設定為角色參考。", detail: { referenceId: reference.id, role: input.role, accepted: input.accepted } });
+  await recordAgentEvent({ projectId: studio.project.id, kind: "reference", status: "completed", message: input.role === "pose" ? "已將圖片設定為姿勢參考。" : input.role === "scene" ? "已將圖片設定為場景參考。" : input.role.includes("style") ? "已將圖片設定為風格參考。" : "已將圖片設定為角色參考。", detail: { referenceId: reference.id, role: input.role, accepted: input.accepted } });
   return updated;
 }
 
@@ -27954,23 +28834,31 @@ export async function editStudioSticker(input: { projectKey: string; position: n
   const current = await signedReference(script.resultUrl, "image/png");
   const studio = await getStickerStudio(input.projectKey);
   const previousJob = input.resumeJobId ? studio?.jobs.find((item) => item.id === input.resumeJobId && item.kind === "edit") : undefined;
-  const seededReferences = toAgentReferences(project.references).filter((reference) => reference.role !== "pose");
-  let routerDecision = previousJob ? safeJson<RouterDecision | null>(previousJob.routerJson, null) ?? routeImageTask({ taskKind: "edit", references: seededReferences, currentEditUrl: script.resultUrl }) : routeImageTask({ taskKind: "edit", references: seededReferences, currentEditUrl: script.resultUrl });
+  const seededReferences = toAgentReferences(studio?.references ?? project.references);
+  const refreshedDecision = routeImageTask({ taskKind: "edit", references: seededReferences, currentEditUrl: script.resultUrl, providerHealth: await providerHealthSnapshot(), requirements: { requiresHighConsistency: seededReferences.length > 0, requiresText: /文字|改成|謝謝|早安|生日/i.test(input.instruction), batchSize: 1, speedPriority: "balanced", costPriority: "balanced" } });
+  const storedDecision = previousJob ? safeJson<RouterDecision | null>(previousJob.routerJson, null) : null;
+  let routerDecision: RouterDecision = storedDecision ? { ...refreshedDecision, attempts: [...storedDecision.attempts, ...refreshedDecision.attempts] } : refreshedDecision;
   const job = previousJob ?? await createStickerJob({ projectId: project.project.id, scriptId: script.id, kind: "edit", status: "generating", provider: routerDecision.selectedProvider, routerJson: JSON.stringify(routerDecision) });
   if (previousJob) await updateStickerJob({ id: previousJob.id, status: "generating", provider: routerDecision.selectedProvider, errorCode: null, errorMessage: null, routerJson: JSON.stringify(routerDecision) });
   await recordAgentEvent({ projectId: project.project.id, jobId: job?.id, kind: "edit", status: "working", message: `正在修改第 ${input.position} 張貼圖。`, detail: { instruction: input.instruction } });
   try {
-    const source = e2eImageMode()
-      ? { b64Json: (await createE2ETransparentPng()).toString("base64"), provider: "gpt-image-2" }
-      : await generateImage({ prompt: buildRefinementPrompt(input.instruction, input.instruction), originalImages: [current], quality: "medium" });
-    if (!source.b64Json) throw new Error("AI 沒有回傳可保存的修改圖片");
-    const saved = await storeTransparentPng(source.b64Json);
+    let sourceB64: string;
+    let provider: NonNullable<RouterDecision["selectedProvider"]> = "gpt-image-2";
+    if (e2eImageMode()) {
+      sourceB64 = (await createE2ETransparentPng()).toString("base64");
+      routerDecision = appendRouterAttempt(routerDecision, { provider, startedAt: new Date().toISOString(), outcome: "completed" });
+    } else {
+      const references = buildReferenceSelection({ references: seededReferences, currentEditUrl: script.resultUrl, maxReferences: 4 }).filter((reference) => reference.role !== "current_edit").map(async (reference) => signedReference(reference.url, reference.mimeType ?? "image/jpeg"));
+      const routed = await executeWithRouter({ taskKind: "edit", prompt: buildRefinementPrompt(input.instruction, input.instruction), references: await Promise.all(references), currentImage: current, decision: routerDecision });
+      sourceB64 = routed.result.b64Json;
+      provider = routed.provider;
+      routerDecision = routed.decision;
+    }
+    const saved = await storeTransparentPng(sourceB64);
     const quality = await evaluateStickerQuality(saved.buffer);
     const versions = (studio?.versions ?? []).filter((version) => version.scriptId === script.id);
     const parent = versions.find((version) => version.isActive) ?? versions.at(-1);
     const nextVersion = Math.max(0, ...versions.map((version) => version.version)) + 1;
-    const provider = routerDecision.selectedProvider ?? "gpt-image-2";
-    routerDecision = appendRouterAttempt(routerDecision, { provider, startedAt: new Date().toISOString(), outcome: "completed" });
     await addStickerVersion({ scriptId: script.id, version: nextVersion, url: saved.url, mode: "refine", parentVersionId: parent?.id ?? null, qualityReportJson: JSON.stringify(quality), provider });
     await updateStickerScript({ id: script.id, status: "ready", resultUrl: saved.url, errorMessage: null, qualityReport: JSON.stringify(quality) });
     if (job) await updateStickerJob({ id: job.id, status: "completed", provider, routerJson: JSON.stringify(routerDecision), qualityReportJson: JSON.stringify(quality), checkpointJson: JSON.stringify({ originalUrl: script.resultUrl, instruction: input.instruction, position: input.position, url: saved.url, stage: "completed", routerDecision }) });
@@ -28198,9 +29086,32 @@ export * from "./_core/errors";
 - [x] 驗證 `studio.restoreVersion` 與 `studio.setReferenceRole` 的 tRPC 真實整合行為，包含 active version、貼圖結果與參考圖接受狀態。
 - [x] 擴充桌面／Android 瀏覽器回歸，實際操作參考圖角色切換、版本回復與對話內貼圖成果操作。
 - [x] 完成 migration、單元／整合／手機瀏覽器回歸、production build 與安全掃描。
-- [ ] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並依使用者選擇同步完整可執行原始碼到新安全分支 `phase2-agent-router`（未改動既有 `chat-first-studio`）。
-- [ ] 將第二階段摘要固化至可提交的交接包產生器，重新生成交接包並驗證輸出不需手動修補。
-- [ ] 驗證 GitHub 新安全分支上的 README 與交接包內容為最新且可讀取。
+- [x] 更新 README、架構與 Router 文件、測試報告、GitHub 交接包，並依使用者選擇同步完整可執行原始碼到新安全分支 `phase2-agent-router`（未改動既有 `chat-first-studio`）。
+- [x] 將第二階段摘要固化至可提交的交接包產生器，重新生成交接包並驗證輸出不需手動修補。
+- [x] 驗證 GitHub 新安全分支上的 README 與交接包內容為最新且可讀取。
+
+# 第三階段：AI 核心能力升級
+
+- [x] 盤點 Gemini、GPT Image、FLUX 與既有 Router 的實際可接通能力、憑證與限制，明確標示已實作／部分實作／未實作。
+- [x] 建立統一 Provider Adapter 契約（generate、edit、analyze、healthCheck）與實際 Gemini／GPT 實作，為未設定的 FLUX 保留明確 disabled adapter。
+- [x] 讓 Model Router 依任務、參考圖、文字、數量、速度／成本偏好與 Provider health／quota 自動決策，保存選擇與受限 fallback 原因。
+- [x] 強化 Image Editing Agent，支援角色／姿勢／場景／目前圖語意角色、Character／Style Anchor 優先序與單張／整套自然語言修改。
+- [x] 實作可測試的 Generate → Quality Check → 有限 Fix／Retry → Check 工作流，回傳 pass／fail、reason、suggestedFix，並保留 LINE 文字後製作為可靠策略。
+- [x] 實作並測試整套貼圖的自然語言修改流程（例如「全部變可愛一點」「全部去背」），讓 Agent 僅對需要更新的貼圖建立 edit jobs、保存各自版本與狀態。
+- [x] 為整套修改新增 tRPC／Studio 整合測試，驗證未指定張數時會批次排程修改且不影響其他任務。
+- [x] 為整套修改加入可驗證目標篩選規則，並測試「全部去背」在部分貼圖已符合透明條件時只排程必要項目。
+- [x] 測試整套修改與 queued／retrying／paused_quota 的其他任務並存時，不會誤改、重排或吞掉非目標任務狀態。
+- [x] 為 `sendMessage` 新增整套自然語言修改整合測試，驗證「全部變可愛一點／全部去背」會產生 `edit_pack`、建立對應 edit jobs，並可由 `runPending` 自動續跑。
+- [x] 新增整套修改與 `queued`、`retrying` 生成任務並存的整合測試，確認非目標任務狀態會完整保留且不被重排。
+- [x] 為 `sendMessage` 補上「全部去背，背景改透明」整合測試，驗證 assistant intent／reply、僅排程透明檢查未通過項目、pack scope checkpoint 與非目標不建立 edit job。
+- [x] 建立公開唯讀 `/preview`、`/preview/inspection` 與明確標示的 Demo Mode，安全展示聊天、上傳、規劃、進度、版本、修改與輸出 UI，不呼叫真實 API 或暴露私人資料。
+- [x] 在 `/preview` 補上明確的唯讀上傳示範 UI（附件按鈕、示範檔案列、HEIC／多圖標示），但保持不實際上傳與不呼叫 API。
+- [x] 擴充 Preview 回歸腳本，驗證桌面與 Android 都可見聊天、上傳、規劃、進度、版本、修改與輸出全流程示範。
+- [x] 完善 Chat-first／Android 介面，以精簡操作呈現 Agent 狀態、8／16／24／32／40 規劃、圖片結果、修改、版本與 LINE Preflight。
+- [x] 在主 Chat-first／Android 工作室加入明確 LINE Preflight 摘要，顯示 PNG 尺寸、透明背景、安全邊距、繁中後製與可匯出狀態。
+- [x] 擴充主工作室桌面／Android 回歸，明確驗證 24／32／40 張快捷規劃、Provider health 與 LINE Preflight 區塊均可見且可操作。
+- [x] 確認第三階段未變更資料 schema、無需 migration；增加 Provider／fallback／品質修正／Preview／Demo／秘密掃描的自動測試，並完成全套測試、production build、桌面與 Android 回歸。
+- [ ] 更新 README、Provider／Anchor／品質／Preview 文件、安全交接包與 GitHub 同步紀錄；若 `chat-first-studio` 再次分岔，先徵求使用者選擇安全整合方式。
 
 ````
 
@@ -28456,4 +29367,4 @@ export default defineConfig({
 
 ## 6. 交接結論
 
-此版本已升級為對話優先、手機優先、可保存的 AI LINE 貼圖 Agent 工作室。第二階段新增可追溯多模型 Router、角色／姿勢／風格 Anchor、版本回復、品質檢查、Agent 工作事件和對話內成果操作。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、測試與原始碼作為後續實作依據。
+此版本已升級為對話優先、手機優先、可保存且可驗收的 AI LINE 貼圖 Agent 工作室。第三階段補齊統一 Provider Adapter、health Router、場景 Anchor、整套自然語言修改、一次品質修正循環、主工作室 LINE Preflight，以及無 API／無私人資料的 Preview／Inspection。外部服務的 429／412 屬供應端可用量狀態；系統會保留可續作 checkpoint，而非將其誤稱為成功。請以本文件、README、`docs/phase-3-delivery.md`、測試與原始碼作為後續實作依據。
