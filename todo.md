@@ -14,4 +14,4 @@
 - [x] 建立 `/api/chat` SSE 串流端點與對話讀取端點。
 - [x] 將 Composer 串接真實串流、對話載入與持久化流程。
 - [x] 驗證貼圖企劃工具意圖、跨訊息 Context、重新整理資料保留與無敏感資料外洩。
-- [ ] 推送並核對 GitHub `phase2-ai-core` 分支。
+- [x] 推送並核對 GitHub `phase2-ai-core` 分支。
