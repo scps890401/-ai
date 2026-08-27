@@ -7,6 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AIComposer from "@/components/chat/AIComposer";
 import MessageList from "@/components/chat/MessageList";
 import type { Attachment, ChatMessageData } from "@/components/chat/chat-types";
+import { useChatStream } from "@/hooks/useChatStream";
+import type { AttachmentMeta, PersistedChatMessage } from "@shared/chat";
 
 const HERO_IMAGE = "/manus-storage/suixin-hero-paper-mist_e02f08ca.jpg";
 const LOGO_URL = "/manus-storage/suixin-logo-mark_0f74f416.png";
@@ -15,71 +17,137 @@ function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function replyFor(input: string) {
-  const focus = input.trim().replace(/\s+/g, " ").slice(0, 42) || "這個想法";
-  return `我收到了。你提到「**${focus}**」，我們可以先不急著把它變成答案。\n\n### 先把念頭放在這裡\n- 你真正想靠近的是什麼？\n- 眼前最需要釐清的一件事是什麼？\n- 若只做一個小動作，你會從哪裡開始？\n\n你願意的話，我可以陪你把它整理成一段更清楚的方向。`;
+const CLIENT_ID_KEY = "suixin.phase2.client-id";
+const THREAD_ID_KEY = "suixin.phase2.thread-id";
+
+function getClientId() {
+  const existing = window.localStorage.getItem(CLIENT_ID_KEY);
+  if (existing) return existing;
+  const next = crypto.randomUUID();
+  window.localStorage.setItem(CLIENT_ID_KEY, next);
+  return next;
+}
+
+function fromPersistedMessage(message: PersistedChatMessage): ChatMessageData {
+  return {
+    id: message.id,
+    role: message.role === "tool" ? "assistant" : message.role,
+    content: message.content,
+    attachments: message.attachments.map(attachment => ({
+      id: attachment.id,
+      name: attachment.name,
+      type: attachment.mimeType,
+      url: attachment.source?.value ?? "",
+      size: attachment.size,
+      source: attachment.source,
+    })),
+    toolCalls: message.toolCalls,
+  };
 }
 
 export default function Home() {
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
-  const streamTimerRef = useRef<number | null>(null);
+  const [threadId, setThreadId] = useState<string | undefined>();
+  const [clientId, setClientId] = useState<string | undefined>();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { start, stop } = useChatStream();
   const activeChat = messages.length > 0;
   const isStreaming = messages.some((message) => message.isStreaming);
 
   const stopStream = useCallback(() => {
-    if (streamTimerRef.current !== null) {
-      window.clearInterval(streamTimerRef.current);
-      streamTimerRef.current = null;
-    }
+    stop();
     setMessages((current) => current.map((message) => (message.isStreaming ? { ...message, isStreaming: false } : message)));
-  }, []);
+  }, [stop]);
 
   useEffect(() => () => stopStream(), [stopStream]);
 
-  const beginStream = useCallback((assistantId: string, source: string) => {
-    if (streamTimerRef.current !== null) window.clearInterval(streamTimerRef.current);
-    const response = replyFor(source);
-    let index = 0;
-    streamTimerRef.current = window.setInterval(() => {
-      index = Math.min(index + (index < 58 ? 1 : 2), response.length);
-      const content = response.slice(0, index);
-      setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content } : message)));
-      if (index >= response.length) {
-        if (streamTimerRef.current !== null) window.clearInterval(streamTimerRef.current);
-        streamTimerRef.current = null;
-        setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, isStreaming: false } : message)));
+  useEffect(() => {
+    const savedClientId = getClientId();
+    setClientId(savedClientId);
+    const savedThreadId = window.localStorage.getItem(THREAD_ID_KEY);
+    if (!savedThreadId) return;
+
+    const loadHistory = async () => {
+      try {
+        const response = await fetch(`/api/chat/thread?threadId=${encodeURIComponent(savedThreadId)}&clientId=${encodeURIComponent(savedClientId)}`, { credentials: "include" });
+        if (!response.ok) throw new Error("找不到先前的對話紀錄。");
+        const data = await response.json() as { threadId: string; messages: PersistedChatMessage[] };
+        setThreadId(data.threadId);
+        setMessages(data.messages.map(fromPersistedMessage));
+      } catch (error) {
+        window.localStorage.removeItem(THREAD_ID_KEY);
+        setLoadError(error instanceof Error ? error.message : "無法載入先前的對話紀錄。");
       }
-    }, 18);
+    };
+    void loadHistory();
   }, []);
 
   const submitMessage = useCallback(() => {
     const content = draft.trim();
-    if ((!content && !attachments.length) || isStreaming) return;
+    if ((!content && !attachments.length) || isStreaming || !clientId) return;
     const userMessage: ChatMessageData = {
-      id: makeId("user"),
+      id: crypto.randomUUID(),
       role: "user",
       content,
       attachments,
     };
-    const assistantId = makeId("assistant");
+    const assistantId = crypto.randomUUID();
     const assistantMessage: ChatMessageData = { id: assistantId, role: "assistant", content: "", isStreaming: true };
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setDraft("");
     setAttachments([]);
-    window.setTimeout(() => beginStream(assistantId, content || "我附上了一份檔案，想請你看看"), 280);
-  }, [attachments, beginStream, draft, isStreaming]);
+    setLoadError(null);
+
+    const transportAttachments: AttachmentMeta[] = attachments.map(attachment => ({
+      id: attachment.id,
+      name: attachment.name,
+      mimeType: attachment.type,
+      size: attachment.size,
+      source: attachment.source,
+    }));
+    void start({
+      threadId,
+      clientId,
+      messageId: userMessage.id,
+      message: content,
+      attachments: transportAttachments,
+    }, {
+      onMeta: nextThreadId => {
+        setThreadId(nextThreadId);
+        window.localStorage.setItem(THREAD_ID_KEY, nextThreadId);
+      },
+      onDelta: text => setMessages(current => current.map(message => message.id === assistantId ? { ...message, content: message.content + text } : message)),
+      onTool: toolCall => setMessages(current => current.map(message => message.id === assistantId ? { ...message, toolCalls: [...(message.toolCalls ?? []), toolCall] } : message)),
+      onStatus: () => undefined,
+      onDone: () => setMessages(current => current.map(message => message.id === assistantId ? { ...message, isStreaming: false } : message)),
+      onError: errorMessage => {
+        setLoadError(errorMessage);
+        setMessages(current => current.map(message => message.id === assistantId ? {
+          ...message,
+          content: message.content || "抱歉，這次回覆暫時無法完成。請再試一次。",
+          isStreaming: false,
+        } : message));
+      },
+    });
+  }, [attachments, clientId, draft, isStreaming, start, threadId]);
 
   const addAttachments = useCallback((files: File[]) => {
-    const next = files.map((file) => ({
-      id: makeId("file"),
-      name: file.name,
-      type: file.type || "application/octet-stream",
-      url: URL.createObjectURL(file),
-      size: file.size,
-    }));
-    setAttachments((current) => [...current, ...next]);
+    const asAttachment = (file: File) => new Promise<Attachment>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        url: URL.createObjectURL(file),
+        size: file.size,
+        source: { kind: "data_url", value: String(reader.result) },
+      });
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    void Promise.all(files.map(asAttachment)).then(next => setAttachments(current => [...current, ...next]));
   }, []);
 
   const removeAttachment = useCallback((id: string) => {
@@ -90,13 +158,9 @@ export default function Home() {
     });
   }, []);
 
-  const regenerate = useCallback((messageId: string) => {
-    if (isStreaming) return;
-    const targetIndex = messages.findIndex((message) => message.id === messageId);
-    const source = [...messages.slice(0, targetIndex)].reverse().find((message) => message.role === "user")?.content ?? "這個想法";
-    setMessages((current) => current.map((message) => (message.id === messageId ? { ...message, content: "", isStreaming: true } : message)));
-    beginStream(messageId, source);
-  }, [beginStream, isStreaming, messages]);
+  const regenerate = useCallback(() => {
+    setLoadError("重新產生將在下一個互動版本開放。你可以直接補充指示，讓我延續目前的企劃。 ");
+  }, []);
 
   return (
     <LayoutGroup>
@@ -157,7 +221,10 @@ export default function Home() {
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <MessageList messages={messages} onRegenerate={regenerate} />
+              <div className="h-full">
+                {loadError && <p className="absolute top-20 left-1/2 z-20 -translate-x-1/2 rounded-full border border-stone-200 bg-[#fffefa]/90 px-3 py-1.5 text-[11px] text-stone-500 shadow-sm">{loadError}</p>}
+                <MessageList messages={messages} onRegenerate={regenerate} />
+              </div>
             </motion.main>
           )}
         </AnimatePresence>

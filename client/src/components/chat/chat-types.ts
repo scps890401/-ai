@@ -8,6 +8,10 @@ export type Attachment = {
   type: string;
   url: string;
   size: number;
+  source?: {
+    kind: "data_url" | "s3_url";
+    value: string;
+  };
 };
 
 export type ChatMessageData = {
@@ -15,5 +19,6 @@ export type ChatMessageData = {
   role: "user" | "assistant";
   content: string;
   attachments?: Attachment[];
+  toolCalls?: unknown[];
   isStreaming?: boolean;
 };
