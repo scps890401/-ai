@@ -5,7 +5,7 @@
 import { Router, type Request, type Response } from "express";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
-import type { AttachmentMeta, PersistedChatMessage, ToolCallMeta } from "@shared/chat";
+import type { AttachmentMeta, PersistedChatMessage, StickerTextLayer, ToolCallMeta } from "@shared/chat";
 import { createThread, findThread, getThreadMessages, insertMessage } from "./db";
 import { streamRoutedResponse } from "./ai/modelRouter";
 
@@ -44,6 +44,7 @@ function serializeMessage(message: Awaited<ReturnType<typeof getThreadMessages>>
     content: message.content,
     attachments: (message.attachments ?? []) as AttachmentMeta[],
     toolCalls: (message.toolCalls ?? []) as ToolCallMeta[],
+    textLayers: (message.textLayers ?? []) as StickerTextLayer[],
     createdAt: message.createdAt.toISOString(),
   };
 }
@@ -111,6 +112,7 @@ export function registerChatApi(app: Router) {
       content: message || "[已附加檔案]",
       attachments: attachments as AttachmentMeta[],
       toolCalls: [],
+      textLayers: [],
     });
     const context = await getThreadMessages(thread.id, 20);
 
@@ -145,10 +147,6 @@ export function registerChatApi(app: Router) {
           toolCalls.push(event.toolCall);
           writeEvent(res, "tool", { toolCall: event.toolCall });
         }
-        if (event.type === "fallback") {
-          console.info(`[AI Router] fallback completed: ${event.from} → ${event.to}`);
-          writeEvent(res, "status", { message: "正在以備援模型延續回覆。" });
-        }
       }
 
       if (!assistantContent.trim()) {
@@ -162,6 +160,7 @@ export function registerChatApi(app: Router) {
         content: assistantContent,
         attachments: [],
         toolCalls,
+        textLayers: [],
       });
       writeEvent(res, "done", { threadId: thread.id, assistantMessageId });
     } catch (error) {

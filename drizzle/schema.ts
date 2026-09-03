@@ -1,5 +1,5 @@
 import { index, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
-import type { AttachmentMeta, ToolCallMeta } from "@shared/chat";
+import type { AttachmentMeta, CharacterProfile, StickerTextLayer, ToolCallMeta } from "@shared/chat";
 
 /** Core user table backing the optional Manus OAuth flow. */
 export const users = mysqlTable("users", {
@@ -19,6 +19,7 @@ export const threads = mysqlTable("threads", {
   id: varchar("id", { length: 36 }).primaryKey(),
   clientId: varchar("clientId", { length: 36 }).notNull(),
   title: varchar("title", { length: 160 }).notNull(),
+  characterProfile: json("characterProfile").$type<CharacterProfile | null>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [
@@ -33,6 +34,7 @@ export const messages = mysqlTable("messages", {
   content: text("content").notNull(),
   attachments: json("attachments").$type<AttachmentMeta[]>().notNull(),
   toolCalls: json("toolCalls").$type<ToolCallMeta[]>().notNull(),
+  textLayers: json("textLayers").$type<StickerTextLayer[]>().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [
   index("messages_thread_created_idx").on(table.threadId, table.createdAt),

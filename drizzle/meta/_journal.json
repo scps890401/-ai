@@ -8,6 +8,13 @@
       "when": 1787805619876,
       "tag": "0000_left_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1788440867839,
+      "tag": "0001_nappy_senator_kelly",
+      "breakpoints": true
     }
   ]
 }

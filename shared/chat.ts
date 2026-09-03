@@ -14,6 +14,26 @@ export type AttachmentMeta = {
   source?: AttachmentSource;
 };
 
+export type CharacterProfile = {
+  visual_anchor: string;
+  key_features: string[];
+  color_palette: string[];
+  art_style: string;
+  signature_items: string[];
+  negative_prompt: string[];
+};
+
+export type StickerTextLayer = {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number | string;
+  strokeWidth: number;
+  position: { x: number; y: number };
+  alignment: "left" | "center" | "right";
+  rotation: number;
+};
+
 export type StickerPackPlan = {
   topic: string;
   characterDescription: string;
@@ -36,5 +56,18 @@ export type PersistedChatMessage = {
   content: string;
   attachments: AttachmentMeta[];
   toolCalls: ToolCallMeta[];
+  textLayers: StickerTextLayer[];
   createdAt: string;
 };
+
+export type ProviderState =
+  | "ENABLED"
+  | "DISABLED"
+  | "QUOTA_EXHAUSTED"
+  | "PROVIDER_ERROR"
+  | "LICENSE_UNCERTAIN"
+  | "PAID_NOT_ALLOWED";
+
+export type ProviderQuotaStatus = "AVAILABLE" | "EXHAUSTED" | "UNKNOWN";
+export type ProviderCostStatus = "ZERO_COST" | "PAID" | "UNKNOWN";
+export type ProviderAvailability = "AVAILABLE" | "UNAVAILABLE" | "UNKNOWN";

@@ -1,22 +1,28 @@
 /**
- * Provider Abstraction / Model Router：以 Vercel AI SDK Core 統一模型呼叫，優先模型逾時或失敗時自動切換備援模型。
+ * Server-side model router with strict zero-spend, fail-closed semantics.
+ * This module intentionally has no automatic paid-provider fallback.
  */
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
 import { stepCountIs, streamText, type LanguageModel, type ModelMessage } from "ai";
 import type { ToolCallMeta } from "@shared/chat";
+import { GOOGLE_FREE_TIER_POLICY } from "./provider";
+import { assertZeroSpendAllowed } from "./zeroSpendGuard";
 import { SUIXIN_SYSTEM_PROMPT } from "./systemPrompt";
 import { createAgentTools, extractStickerIntent } from "./toolRegistry";
 
 const PRIMARY_MODEL = process.env.AI_PRIMARY_MODEL ?? "gemini-3.6-flash";
-const FALLBACK_MODEL = process.env.AI_FALLBACK_MODEL ?? "gpt-4o-mini";
 const PROVIDER_TIMEOUT_MS = 12_000;
+
+type ModelCandidate = {
+  provider: "google";
+  modelId: string;
+  model: LanguageModel;
+};
 
 export type RouterEvent =
   | { type: "delta"; text: string }
-  | { type: "tool"; toolCall: ToolCallMeta }
-  | { type: "fallback"; from: string; to: string };
+  | { type: "tool"; toolCall: ToolCallMeta };
 
 export type RouterInput = {
   messages: ModelMessage[];
@@ -24,27 +30,18 @@ export type RouterInput = {
   abortSignal: AbortSignal;
 };
 
-type ModelCandidate = {
-  provider: "google" | "openai";
-  modelId: string;
-  model: LanguageModel;
-};
-
 function configuredCandidates(): ModelCandidate[] {
-  const candidates: ModelCandidate[] = [];
-  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
-    candidates.push({ provider: "google", modelId: PRIMARY_MODEL, model: google(PRIMARY_MODEL) });
+  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    throw new Error("ZERO_SPEND_GUARD_BLOCKED:google:DISABLED:No explicitly allowed free provider is configured.");
   }
-  if (process.env.OPENAI_API_KEY) {
-    const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    candidates.push({ provider: "openai", modelId: FALLBACK_MODEL, model: openai(FALLBACK_MODEL) });
-  }
-  if (!candidates.length) throw new Error("No server-side AI provider is configured.");
-  return candidates;
+
+  const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
+  return [{ provider: "google", modelId: PRIMARY_MODEL, model: google(PRIMARY_MODEL) }];
 }
 
 async function* streamWithModel(candidate: ModelCandidate, input: RouterInput): AsyncGenerator<RouterEvent> {
+  assertZeroSpendAllowed({ ...GOOGLE_FREE_TIER_POLICY });
+
   const queuedToolEvents: ToolCallMeta[] = [];
   const stickerIntent = extractStickerIntent(
     input.recentUserContent.at(-1) ?? "",
@@ -99,24 +96,11 @@ async function* streamWithModel(candidate: ModelCandidate, input: RouterInput): 
 
 export async function* streamRoutedResponse(input: RouterInput): AsyncGenerator<RouterEvent> {
   const candidates = configuredCandidates();
-  let latestError: unknown;
+  const candidate = candidates[0];
+  if (!candidate) throw new Error("No explicitly allowed zero-cost AI provider is configured.");
 
-  for (let index = 0; index < candidates.length; index += 1) {
-    const candidate = candidates[index];
-    try {
-      console.info(`[AI Router] starting ${candidate.provider}:${candidate.modelId}`);
-      for await (const event of streamWithModel(candidate, input)) {
-        yield event;
-      }
-      return;
-    } catch (error) {
-      latestError = error;
-      const fallback = candidates[index + 1];
-      if (!fallback || input.abortSignal.aborted) break;
-      console.warn(`[AI Router] ${candidate.provider}:${candidate.modelId} failed; switching to ${fallback.provider}:${fallback.modelId}`, error);
-      yield { type: "fallback", from: `${candidate.provider}:${candidate.modelId}`, to: `${fallback.provider}:${fallback.modelId}` };
-    }
+  console.info(`[AI Router] starting ${candidate.provider}:${candidate.modelId}`);
+  for await (const event of streamWithModel(candidate, input)) {
+    yield event;
   }
-
-  throw latestError instanceof Error ? latestError : new Error("All configured AI providers failed.");
 }

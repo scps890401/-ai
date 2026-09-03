@@ -1,6 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import type { AttachmentMeta, ToolCallMeta } from "@shared/chat";
+import type { AttachmentMeta, CharacterProfile, StickerTextLayer, ToolCallMeta } from "@shared/chat";
 import { type InsertUser, messages, threads, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -34,7 +34,12 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
-export async function createThread(input: { id: string; clientId: string; title: string }) {
+export async function createThread(input: {
+  id: string;
+  clientId: string;
+  title: string;
+  characterProfile?: CharacterProfile | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable.");
   await db.insert(threads).values(input);
@@ -64,10 +69,11 @@ export async function insertMessage(input: {
   content: string;
   attachments: AttachmentMeta[];
   toolCalls: ToolCallMeta[];
+  textLayers?: StickerTextLayer[];
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable.");
-  await db.insert(messages).values(input);
+  await db.insert(messages).values({ ...input, textLayers: input.textLayers ?? [] });
   await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, input.threadId));
 }
 

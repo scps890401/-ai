@@ -1,17 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { OPENAI_ZERO_SPEND_POLICY } from "./provider";
 
-const maybeIt = process.env.GOOGLE_GENERATIVE_AI_API_KEY && process.env.OPENAI_API_KEY ? it : it.skip;
-
-describe("伺服器端 Provider 憑證", () => {
-  maybeIt("Google Gemini 與 OpenAI 金鑰皆可存取輕量模型端點", async () => {
-    const [googleResponse, openAiResponse] = await Promise.all([
-      fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GOOGLE_GENERATIVE_AI_API_KEY}`),
-      fetch("https://api.openai.com/v1/models", {
-        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      }),
-    ]);
-
-    expect(googleResponse.ok).toBe(true);
-    expect(openAiResponse.ok).toBe(true);
-  }, 15_000);
+/** This suite is intentionally offline: credentials must never be tested by making provider requests. */
+describe("伺服器端 Provider 安全政策", () => {
+  it("does not treat an OpenAI key as permission to spend", () => {
+    expect(OPENAI_ZERO_SPEND_POLICY.enabled).toBe(false);
+    expect(OPENAI_ZERO_SPEND_POLICY.state).toBe("PAID_NOT_ALLOWED");
+    expect(OPENAI_ZERO_SPEND_POLICY.freeTierAllowed).toBe(false);
+    expect(OPENAI_ZERO_SPEND_POLICY.cost).toBe("PAID");
+  });
 });
